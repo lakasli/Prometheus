@@ -1,6 +1,6 @@
 # DSH 项目架构设计
 
-> 设计版本：0.6；资料核实日期：2026-10-24；状态：完整目标架构，M0/M1、M1.1文本角色卡与M2显式助手记忆切片已实现。本文仍包含后续阶段目标；实测范围以 [M0/M1记录](m0-m1-validation.md)、[角色卡记录](character-card-validation.md) 和 [记忆记录](memory-validation.md) 为准。
+> 设计版本：0.7；资料核实日期：2026-10-24；状态：完整目标架构，M0/M1、M1.1文本角色卡与M2助手记忆 / 长会话摘要切片已实现。本文仍包含后续阶段目标；实测范围以 [M0/M1记录](m0-m1-validation.md)、[角色卡记录](character-card-validation.md)、[记忆记录](memory-validation.md) 和 [摘要记录](summary-validation.md) 为准。
 
 ## 1. 项目目标与范围
 

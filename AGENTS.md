@@ -68,7 +68,7 @@ M0核心验证与M1基础功能已实现并部署，功能范围、构建与运�
 
 M1.1文本角色卡、Web管理、受限JSON / AIRI ZIP导入、JSON导出和QQ私聊切换已实现并部署，实际范围及尚待真实用户消息验证项见 [角色卡验收记录](docs/character-card-validation.md)。角色卡revision代表表达配置，不是独立助手长期记忆的稳定身份；后续记忆应另用稳定assistant identity，保持来源与私有可见范围。
 
-M2显式助手记忆切片已按稳定assistant identity实现并部署，覆盖Web管理、shared / private来源域、命令、全文检索、纠正、遗忘与上下文失效；实际SHA及模拟 / 真实模型边界见 [记忆验收记录](docs/memory-validation.md)。自动摘要 / 抽取和微信尚未交付，不得将此切片称为M2全部完成；草稿测试会话和角色控制命令不得污染长期记忆。
+M2显式助手记忆切片已按稳定assistant identity实现并部署，覆盖Web管理、shared / private来源域、命令、全文检索、纠正、遗忘与上下文失效；实际SHA及模拟 / 真实模型边界见 [记忆验收记录](docs/memory-validation.md)。长会话摘要切片也已部署并通过真实模型、重启与遗忘验收，见 [摘要记录](docs/summary-validation.md)。自动事实抽取和微信尚未交付，不得将记忆 / 摘要切片称为M2全部完成；草稿测试会话和角色控制命令不得污染长期记忆。
 
 ## 8. 角色卡与参考源码
 
