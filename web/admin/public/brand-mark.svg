@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient
+      id="sea"
+      x1="8"
+      y1="4"
+      x2="56"
+      y2="64"
+      gradientUnits="userSpaceOnUse"
+    >
+      <stop stop-color="#485a94" />
+      <stop offset="1" stop-color="#232947" />
+    </linearGradient>
+    <linearGradient
+      id="tail"
+      x1="47"
+      y1="23"
+      x2="46"
+      y2="44"
+      gradientUnits="userSpaceOnUse"
+    >
+      <stop stop-color="#8ac9e4" />
+      <stop offset="1" stop-color="#5d87bb" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="20" fill="url(#sea)" />
+  <rect
+    x="4.5"
+    y="4.5"
+    width="55"
+    height="55"
+    rx="16"
+    stroke="#d9bd83"
+    stroke-opacity=".6"
+  />
+  <path
+    d="M43 37c-1.4-7.1-6.8-11-14.3-11C20.5 26 14 31 14 37.5 14 45 22.2 49 32 49c10.8 0 17-5 16.8-13.5-3.2.3-4.8.7-5.8 1.5Z"
+    fill="#f6f5fb"
+  />
+  <path
+    d="M44.5 38c-5.7-1.9-6.7-6.5-6.1-11.2 4.4.5 7.2 3.3 8.1 6.2 1-5.6 4-9.1 8.2-10.5 1.7 7.9-1.8 13.7-10.2 15.5Z"
+    fill="url(#tail)"
+  />
+  <path
+    d="M16.5 40c7.9 5.3 18.2 5.4 25.3 1.8"
+    stroke="#8bb8d3"
+    stroke-width="1.5"
+    stroke-linecap="round"
+  />
+  <circle cx="23" cy="35" r="1.75" fill="#30395f" />
+  <path
+    d="M27 22c-4-2-3.2-5.6-.5-5.6S29 19 27 22ZM31 22c-.2-4 2-6.4 4.3-4.7s.9 4.1-4.3 4.7Z"
+    fill="#8ac9e4"
+  />
+  <path
+    d="M17 17h4M19 15v4"
+    stroke="#d9bd83"
+    stroke-width="1.5"
+    stroke-linecap="round"
+  />
+</svg>

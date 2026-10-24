@@ -107,6 +107,8 @@ let statusController: AbortController | null = null;
 let authEpoch = 0;
 const version = ref("M1");
 const frontendBuild = import.meta.env.VITE_BUILD_SHA || "local";
+const brandMarkUrl = `${import.meta.env.BASE_URL}brand-mark.svg`;
+const mascotUrl = `${import.meta.env.BASE_URL}mascot.png`;
 const configState = ref<ConfigResponse | null>(null);
 const config = reactive<RuntimeConfig>({
   assistant: {
@@ -677,21 +679,26 @@ onUnmounted(() => {
   <div v-if="authState !== 'ready'" class="auth-shell">
     <section class="auth-story">
       <a href="/admin/" class="brand auth-brand"
-        ><span class="brand-mark">d<span>•</span></span
-        ><strong>DSH<span>助手控制台</span></strong></a
+        ><img class="brand-mark" :src="brandMarkUrl" alt="DSH 鲸鱼标志" />
+        <strong>DSH<span>助手控制台</span></strong></a
       >
       <div class="story-content">
-        <span class="eyebrow light">A LITTLE DEVICE. MORE POSSIBILITIES.</span>
-        <h1>让你的助手，<br />随时在线。</h1>
-        <p>
-          连接模型与日常对话，<br />在自己的设备上，建立自己的 AI 工作空间。
-        </p>
-        <div class="story-orbit" aria-hidden="true">
-          <span class="orbit o1"></span><span class="orbit o2"></span
-          ><span class="orbit o3"></span>
-          <div class="orbit-core"><Icon name="bolt" :size="38" /></div>
-          <span class="orbit-dot dot-one"></span
-          ><span class="orbit-dot dot-two"></span>
+        <span class="eyebrow light">A QUIET COMPANION, ALWAYS NEAR.</span>
+        <h1>一方深海，<br />一位贴心助手。</h1>
+        <p>把日常交给熟悉的陪伴，<br />在自己的设备上，安放心中的小小世界。</p>
+        <div class="story-portrait">
+          <span class="portrait-halo" aria-hidden="true"></span>
+          <Icon class="portrait-spark" name="sparkles" :size="30" />
+          <img
+            class="mascot-image"
+            :src="mascotUrl"
+            alt="蓝发蓝眼、身着白色蕾丝与深蓝裙装的鲸鱼主题 DSH 助手"
+            width="320"
+            height="360"
+          />
+          <span class="portrait-caption"
+            ><Icon name="bow" :size="18" /> YOUR EVERYDAY COMPANION</span
+          >
         </div>
       </div>
       <div class="story-footer">
@@ -717,6 +724,7 @@ onUnmounted(() => {
         </p>
       </div>
       <form v-else class="auth-form" @submit.prevent="authenticate">
+        <span class="auth-emblem"><Icon name="whale" :size="28" /></span>
         <span class="eyebrow">{{
           authState === "setup" ? "WELCOME TO YOUR WORKSPACE" : "WELCOME BACK"
         }}</span>
@@ -801,8 +809,8 @@ onUnmounted(() => {
     ></div>
     <aside class="sidebar" :class="{ open: mobileMenu }">
       <a href="#overview" class="brand" @click.prevent="navigate('overview')"
-        ><span class="brand-mark">d<span>•</span></span
-        ><strong>DSH<span>助手控制台</span></strong></a
+        ><img class="brand-mark" :src="brandMarkUrl" alt="DSH 鲸鱼标志" />
+        <strong>DSH<span>助手控制台</span></strong></a
       >
       <div class="workspace-label">
         个人工作空间 <span class="tiny-badge">M1</span>
@@ -812,6 +820,7 @@ onUnmounted(() => {
           v-for="item in navigation"
           :key="item.id"
           :class="{ active: page === item.id }"
+          :aria-current="page === item.id ? 'page' : undefined"
           @click="navigate(item.id)"
         >
           <Icon :name="item.icon" /><span>{{ item.title }}</span
@@ -825,6 +834,11 @@ onUnmounted(() => {
         <span class="eyebrow">COMING NEXT</span>
         <p>记忆 · 多模态 · 插件工厂</p>
         <span>后续阶段逐步开放</span>
+      </div>
+      <div class="companion-note">
+        <Icon name="whale" :size="26" />
+        <span>让每一次对话，<br />都有温柔的回响。</span>
+        <Icon class="companion-bow" name="bow" :size="17" />
       </div>
       <div class="device-card">
         <div class="device-icon"><Icon name="cpu" /></div>
@@ -859,6 +873,7 @@ onUnmounted(() => {
           <button
             class="icon-button mobile-trigger"
             aria-label="打开导航"
+            :aria-expanded="mobileMenu"
             @click="mobileMenu = true"
           >
             <Icon name="menu" /></button
@@ -922,9 +937,17 @@ onUnmounted(() => {
         <template v-if="page === 'overview'">
           <section class="welcome-card">
             <div>
-              <span class="eyebrow light">YOUR ASSISTANT, YOUR SPACE</span>
-              <h2>{{ config.assistant.name || "DSH" }}，准备就绪。</h2>
-              <p>先连接一个模型，再让助手走进你的日常对话。</p>
+              <span class="eyebrow light"
+                ><Icon name="bow" :size="17" /> YOUR LITTLE HARBOR</span
+              >
+              <h2>今天，也一起吧。</h2>
+              <p>
+                {{
+                  configuredModel
+                    ? `${config.assistant.name || "DSH"} 的模型已配置，随时开启新的对话。`
+                    : "连接一个模型，让你的专属助手从这里启航。"
+                }}
+              </p>
               <button
                 class="button white"
                 @click="navigate(configuredModel ? 'chat' : 'assistant')"
@@ -933,10 +956,19 @@ onUnmounted(() => {
                 }}<Icon name="arrow" :size="17" />
               </button>
             </div>
-            <div class="welcome-art" aria-hidden="true">
-              <span class="art-ring"></span><span class="art-ring second"></span
-              ><span class="art-center"><Icon name="bolt" :size="46" /></span
-              ><span class="art-spark"></span>
+            <div class="welcome-art">
+              <span class="welcome-halo" aria-hidden="true"></span>
+              <Icon class="welcome-spark" name="sparkles" :size="26" />
+              <img
+                class="mascot-image"
+                :src="mascotUrl"
+                alt="DSH Q 版助手"
+                width="240"
+                height="270"
+              />
+              <span class="welcome-signature" aria-hidden="true"
+                >DSH · by your side</span
+              >
             </div>
           </section>
           <section class="metrics" aria-label="运行指标">
@@ -1520,7 +1552,7 @@ onUnmounted(() => {
             <div class="chat-main">
               <div class="chat-heading">
                 <div class="assistant-avatar">
-                  <Icon name="bolt" :size="20" />
+                  <img :src="brandMarkUrl" alt="" width="33" height="33" />
                 </div>
                 <div>
                   <strong>{{ config.assistant.name }}</strong
@@ -1534,11 +1566,15 @@ onUnmounted(() => {
               </div>
               <div ref="messageList" class="message-list" aria-live="polite">
                 <div v-if="!messages.length" class="chat-welcome">
-                  <span class="chat-welcome-icon"
-                    ><Icon name="chat" :size="29"
-                  /></span>
+                  <img
+                    class="mascot-image chat-mascot"
+                    :src="mascotUrl"
+                    alt="等待与你对话的 DSH 助手"
+                    width="128"
+                    height="144"
+                  />
                   <h2>开始一段新的对话</h2>
-                  <p>这里使用实际配置的模型。<br />先从一个简短的问题开始。</p>
+                  <p>今天有什么想和我分享？<br />回复将使用你配置的模型。</p>
                   <button
                     v-if="!configuredModel"
                     class="button secondary"
