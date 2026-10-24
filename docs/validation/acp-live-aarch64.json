@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "started_at": "2026-10-24T07:59:55.636Z",
+  "implementation": "real-harness-stdio",
+  "checks": [
+    {
+      "name": "initialize_real_process",
+      "status": "passed"
+    },
+    {
+      "name": "create_persistent_session",
+      "status": "passed"
+    },
+    {
+      "name": "real_model_prompt",
+      "status": "passed"
+    },
+    {
+      "name": "cancel_inflight_model_prompt",
+      "status": "passed"
+    },
+    {
+      "name": "close_session",
+      "status": "passed"
+    },
+    {
+      "name": "initialize_restarted_process",
+      "status": "passed"
+    },
+    {
+      "name": "list_after_process_restart",
+      "status": "passed"
+    },
+    {
+      "name": "resume_after_process_restart",
+      "status": "passed"
+    },
+    {
+      "name": "close_resumed_session",
+      "status": "passed"
+    }
+  ],
+  "model_prompt_requested": true,
+  "credentials_in_report": false,
+  "agent": {
+    "name": "deepseek-harness-acp",
+    "version": "0.0.1"
+  },
+  "capabilities": {
+    "mcpCapabilities": {
+      "http": true
+    },
+    "promptCapabilities": {
+      "image": false,
+      "audio": false,
+      "embeddedContext": false
+    },
+    "sessionCapabilities": {
+      "close": {},
+      "list": {},
+      "resume": {}
+    }
+  },
+  "model_evidence": {
+    "assistant_message_chunks": 1,
+    "assistant_characters": 9,
+    "expected_marker_received": true,
+    "stop_reason": "end_turn"
+  },
+  "cancellation_evidence": {
+    "activity_type": "upstream_http_request",
+    "agent_output_observed": false,
+    "network_witness": {
+      "request_index": 2,
+      "connected": true,
+      "request_body_finished": true,
+      "response_headers_received": false,
+      "response_complete_at_confirmation": false,
+      "witness_source": "loopback_proxy_upstream_http_lifecycle"
+    },
+    "cancel_sent_before_prompt_settlement": true,
+    "stop_reason": "cancelled"
+  },
+  "first_process": {
+    "stdout_bytes": 1274,
+    "stderr_bytes": 121
+  },
+  "final_process": {
+    "stdout_bytes": 827,
+    "stderr_bytes": 121
+  },
+  "status": "passed_with_model",
+  "finished_at": "2026-10-24T08:00:06.816Z",
+  "proxy_evidence": {
+    "listen_scope": "loopback_only",
+    "stores_headers_or_bodies": false,
+    "upstream_requests": [
+      {
+        "request_index": 1,
+        "connected": true,
+        "request_body_finished": true,
+        "response_headers_received": true,
+        "response_complete": true,
+        "closed": true,
+        "client_disconnected": false,
+        "upstream_aborted": false
+      },
+      {
+        "request_index": 2,
+        "connected": true,
+        "request_body_finished": true,
+        "response_headers_received": false,
+        "response_complete": false,
+        "closed": true,
+        "client_disconnected": true,
+        "upstream_aborted": true
+      }
+    ]
+  }
+}

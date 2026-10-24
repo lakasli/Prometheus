@@ -64,8 +64,8 @@ node tools/m0/acp-probe.mjs \
 | `session/close` 关闭会话 | 通过 |
 | Harness 进程退出后重新启动、列出会话 | 通过 |
 | `session/resume` 恢复并再次关闭 | 通过 |
-| 真实模型回复 | 未执行；本轮未向 Harness 提供模型凭证 |
-| 模型请求在途取消 | 未执行；不能将闲置会话的 cancel 通知当作在途取消通过 |
+| 真实模型回复 | 初始本地未执行；后续树莓派真实验证通过，见补充记录 |
+| 模型请求在途取消 | 初始本地未执行；后续通过真实HTTP在途见证与ACP cancelled验证 |
 
 本地机器可读记录见 [acp-windows.json](../tools/m0/results/acp-windows.json)。本轮 `initialize` 返回 `audio=false`、`image=false`；这反映该未配置模型路由的实例能力，不能推导整个 Harness 不支持图像。
 
@@ -100,11 +100,14 @@ node tools/m0/acp-from-dsh.mjs \
 
 已在用户授权的Ubuntu 24.04.4 aarch64树莓派上原生运行四项Cordis生命周期测试并通过。固定部署SHA和命令详见 [M0/M1部署记录](m0-m1-validation.md)。真实Harness `0.2.1-rc.2` 在该主机的无工具空工作区通过7项协议检查，2项模型检查标记not_run，记录见 [acp-raspi.json](../tools/m0/results/acp-raspi.json)。未将Ubuntu结果推断为Lite系统验收。
 
-## 尚需外部账号与最终系统验证
+树莓派已使用用户在Web页面录入的模型配置，在隔离、禁用工具的真实Harness中通过9项检查，包括短回复、确认HTTP请求真实在途后的取消及进程重启恢复。代理记录证实第二次请求已建立TLS连接并完成请求发送，响应尚未完成；取消后客户端断开、上游中止。元数据见 [acp-live-aarch64.json](validation/acp-live-aarch64.json)，不含密钥、回复或思考正文。
 
-- 基础原生与ACP协议验证已完成；需要真实凭证才能继续模型回复与在途取消验证。
+QQ WebSocket已完成101升级 / HELLO / READY，两条真实C2C消息完成模型处理、平台发送并取得回执，用户确认收到。记录见 [qq-live-aarch64.json](validation/qq-live-aarch64.json)。这不推导为群聊、频道或微信均已验证。
+
+## 最终系统与后续范围
+
+- 本轮核心原生、真实模型、ACP协议 / 取消 / 恢复和QQ私聊路径已通过。
 - 保留 Raspberry Pi OS Lite 64 位最终基线，系统切换后的回归仍待执行，不与当前Ubuntu结果混为一谈。
-- 用户已确认有 QQ 机器人和模型 API 账号；真实凭证通过 Web 管理页面或远端受限存储录入后，完成模型请求及 QQ 官方事件 / 回复联调。
-- QQ 的签名和消息回放单元测试不能替代真实账号、事件订阅、网络回调和平台发送能力验收。
+- QQ群聊 / 频道、微信iLink及后续阶段能力未做真实账号验收；Webhook验签回放也不能代替真实公网回调联调。
 
-以上外部条件未完成前，不将完整 M0 或真实渠道闭环标记为全部完成。
+本轮结论限定于已验证的QQ私聊与模型路径，不将所有渠道、最终Lite系统或后续阶段标为全部完成。

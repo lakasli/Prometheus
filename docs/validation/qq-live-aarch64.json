@@ -1,0 +1,17 @@
+{
+  "validated_commit": "17b7ee061c4ccb724352c7d4c837975b25f34c4c",
+  "checked_at": "2026-10-24T08:07:15.023179+00:00",
+  "transport": "websocket",
+  "gateway_ready_observed": true,
+  "user_confirmed_reply_received": true,
+  "event_counts": [
+    [
+      "C2C_MESSAGE_CREATE",
+      2
+    ]
+  ],
+  "completed_qq_runs": 2,
+  "sent_replies": 2,
+  "platform_receipts": 2,
+  "stores_credentials_or_message_content": false
+}

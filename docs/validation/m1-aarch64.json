@@ -12,6 +12,7 @@
     "desired configuration actually applied",
     "stale revision cannot overwrite configuration",
     "native backend calls configured model",
+    "CLI uses authenticated native model pipeline",
     "duplicate input maps to same durable run",
     "assistant response persisted once",
     "different conversation has no shared history",
@@ -22,6 +23,6 @@
     "restart does not duplicate assistant delivery",
     "logout revokes the session"
   ],
-  "passed": 18,
+  "passed": 19,
   "platform": "aarch64"
 }

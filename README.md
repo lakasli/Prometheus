@@ -1,10 +1,10 @@
 # DSH：树莓派上的 Rust AI 助手
 
-部署目标是 **树莓派 5、8GB、Raspberry Pi OS Lite 64 位 / aarch64**。当前正在交付 M0 验证和 M1 文本 / Web 管理基础：Rust 服务、真实 Cordis 生命周期、SQLite 持久任务、原生模型 API、QQ 官方接入，以及静态 Vue 管理控制台。
+部署目标是 **树莓派 5、8GB、Raspberry Pi OS Lite 64 位 / aarch64**。已实现并部署 M0 核心验证和 M1 文本 / Web 管理基础：Rust 服务、真实 Cordis 生命周期、SQLite 持久任务、原生模型 API、QQ 官方接入，以及静态 Vue 管理控制台。
 
 用户已同意先在现有 Ubuntu 24.04 的树莓派上验证，保留 Lite 为最终基线；不能将 Ubuntu 测试记成 Lite 验收。实际执行结果见 [M0 记录](docs/m0-validation.md) 和 [部署 / 开发流程](docs/development-workflow.md)。
 
-M1基础版本已在指定树莓派部署，运行提交为 `d5efc8d`。原生4项Cordis / 8项后端测试和18项模拟provider黑盒检查通过；真实模型与QQ收发仍需在Web页面初始化、录入凭证后验收。完整状态与脱敏证据见 [M0/M1验证记录](docs/m0-m1-validation.md)。
+当前运行提交为 `17b7ee0`。树莓派上4项Cordis / 10项后端测试、19项隔离黑盒（含CLI）通过；真实Harness模型回复、HTTP在途取消与重启恢复通过，QQ私聊已完成两轮真实模型回复和平台发送回执，用户已确认收到。前端16项单测及真实Chromium端到端通过。完整范围、限制与脱敏证据见 [M0/M1验证记录](docs/m0-m1-validation.md)。
 
 ## 当前功能范围
 
