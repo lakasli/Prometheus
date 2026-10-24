@@ -1,0 +1,22 @@
+{
+  "validated_commit": "154ebf8c5e8b9901b39f4de8fb0a116129c6888a",
+  "checked_at": "2026-10-24T09:29:16.921804+00:00",
+  "web_character_created_published": true,
+  "qq_character_explicitly_shared": true,
+  "global_default_changed": false,
+  "real_external_model_tested": true,
+  "native_model": {
+    "completed_persona_runs": 1,
+    "expected_name_observed": true,
+    "complete_prompt_snapshots_present": true,
+    "draft_test_runs": 1
+  },
+  "qq": {
+    "gateway_ready_observed": true,
+    "completed_control_commands": 0,
+    "completed_persona_model_runs": 0,
+    "platform_receipts": 0,
+    "persona_switch_live_verified": false
+  },
+  "stores_credentials_or_message_content": false
+}

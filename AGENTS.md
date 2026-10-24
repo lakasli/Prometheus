@@ -66,6 +66,8 @@
 
 M0核心验证与M1基础功能已实现并部署，功能范围、构建与运行命令见 README，验证结论以实际报告为准。用户已明确授权本轮先在现有 Ubuntu 24.04 树莓派上部署测试，保留 Raspberry Pi OS Lite 64 位为最终基线；不得擅自重装系统或把 Ubuntu 验证冒充 Lite 验收。后续改动持续维护实际构建、启动、测试与回滚命令，不将协议模拟测试记成真实平台联调通过。M2记忆 / 微信、M3完整Harness权限桥及后续多模态、生成插件尚未交付，不能通过界面或报告虚称可用。
 
+M1.1文本角色卡、Web管理、受限JSON / AIRI ZIP导入、JSON导出和QQ私聊切换已实现并部署，实际范围及尚待真实用户消息验证项见 [角色卡验收记录](docs/character-card-validation.md)。角色卡revision代表表达配置，不是独立助手长期记忆的稳定身份；后续记忆应另用稳定assistant identity，保持来源与私有可见范围。
+
 ## 8. 角色卡与参考源码
 
 - 角色卡遵循 [独立设计](docs/character-cards.md)：借鉴AIRI的CCv3角色内容及模块偏好方案，在Rust/Cordis与SQLite中重新实现，不直接复制、引用或依赖AIRI项目、默认人格与资源。

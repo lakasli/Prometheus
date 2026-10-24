@@ -52,3 +52,5 @@ Test-Path -LiteralPath 'D:\CodeProject\DSH\.local\research\airi-20261024-charact
 ```
 
 预期第二条返回False；执行后应重新核验并把本文与README的状态更新为已删除。本轮不能报告源码清理完成。
+
+后续实现验收的首轮失败测试还保留合成临时目录 `C:\Users\AIIT\AppData\Local\Temp\dsh-character-smoke-vh5vpoco`；它的原生PowerShell删除也被同一自动审批策略拒绝，仅返回blocked by policy。测试进程已停止，该目录不含生产凭证或AIRI源码，不进入Git。后续成功验收的临时数据库均按正常测试流程关闭和回收。
