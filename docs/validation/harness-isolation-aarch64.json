@@ -1,0 +1,109 @@
+{
+  "schema": "dsh.harness-isolation-validation.v1",
+  "m3_enabled": false,
+  "overall": "blocked_under_current_unprivileged_constraints",
+  "target": "campanus@192.168.189.191",
+  "platform": {
+    "arch": "aarch64",
+    "os": "Ubuntu 24.04.4 LTS",
+    "kernel": "6.8.0-1064-raspi",
+    "systemd": "255 (255.4-1ubuntu8.17)",
+    "node_path": "/home/campanus/.local/node/bin/node",
+    "node_version": "v24.22.1",
+    "final_raspberry_pi_os_lite_validated": false
+  },
+  "constraints": {
+    "sudo_used": false,
+    "security_policy_changed": false,
+    "software_installed": false,
+    "production_modified_or_restarted": false,
+    "harness_started": false,
+    "model_or_platform_or_public_network_requests": false
+  },
+  "source": {
+    "path": "tools/m3/sandbox-probe.py",
+    "sha256": "cb8cc887feeb6f0a27c25d42c90e9353d05a22e59258b280a4dbe18ccf84273a"
+  },
+  "runs": [
+    {
+      "command": "python3 <uploaded-private-cache>/sandbox-probe.py",
+      "started_at": "2026-10-24T11:20:01.016370Z",
+      "completed_at": "2026-10-24T11:20:02.326532Z",
+      "exit_code": 0,
+      "resource_tests_opted_in": false,
+      "thread_pressure": "not_run",
+      "memory_pressure": "not_run",
+      "cleanup_verified": true
+    },
+    {
+      "command": "python3 <uploaded-private-cache>/sandbox-probe.py --resource-tests",
+      "started_at": "2026-10-24T11:20:03.612695Z",
+      "completed_at": "2026-10-24T11:20:04.989068Z",
+      "exit_code": 0,
+      "resource_tests_opted_in": true,
+      "cleanup_verified": true
+    }
+  ],
+  "command_templates": {
+    "note": "Random unit names and mkdtemp paths are replaced by placeholders; property values and arguments are preserved. Only the probe's own exact units and scratch paths are used.",
+    "baseline": "systemd-run --user --unit=<owned-unique-unit> --quiet --wait --pipe --collect -p PrivateUsers=yes -p ProtectHome=yes -p ProtectSystem=strict -p PrivateNetwork=yes -p NoNewPrivileges=yes -p MemoryAccounting=yes -p MemoryMax=96M -p MemorySwapMax=0 -p TasksAccounting=yes -p TasksMax=32 -p RuntimeMaxSec=25s -p TimeoutStopSec=5s -p KillMode=control-group /usr/bin/python3 <own-var-tmp>/probe.py --_child isolation --_manifest <own-var-tmp>/manifest.json [--resource-tests]",
+    "fixed_bind_additions": "-p ProtectProc=ptraceable -p ProcSubset=pid -p 'BindReadOnlyPaths=<own-home-tmp>/private:<own-var-tmp>/allowed /home/campanus/.local/node/bin/node:<own-var-tmp>/node /home/campanus/.local/share/dsh-harness/node_modules:<own-var-tmp>/harness' -p BindPaths=<own-home-tmp>/workspace:<own-var-tmp>/workspace -p ReadWritePaths=<own-var-tmp>/workspace",
+    "memory": "systemd-run --user --unit=<owned-unique-unit> --quiet --wait --pipe --collect -p MemoryAccounting=yes -p MemoryMax=64M -p MemorySwapMax=0 -p TasksAccounting=yes -p TasksMax=16 -p OOMPolicy=stop -p RuntimeMaxSec=20s -p TimeoutStopSec=5s -p KillMode=control-group -p NoNewPrivileges=yes -p 'ExecStopPost=/usr/bin/python3 <own-var-tmp>/probe.py --_child final' /usr/bin/python3 <own-var-tmp>/probe.py --_child memory --_manifest <own-var-tmp>/manifest.json --resource-tests",
+    "independent_pid": "systemd-run --user --unit=<owned-unique-unit> --quiet --wait --pipe --collect -p PrivateUsers=yes -p MemoryMax=96M -p TasksMax=16 -p RuntimeMaxSec=20s /usr/bin/python3 <own-var-tmp>/probe.py --_child pid --_manifest <own-var-tmp>/manifest.json"
+  },
+  "isolation": {
+    "baseline_runner_exit_code": 0,
+    "namespace_changed": { "user": true, "mnt": false, "net": false, "pid": false },
+    "home_canary_readable": true,
+    "unbound_sibling_readable": true,
+    "root_readonly": false,
+    "etc_readonly": false,
+    "owned_var_tmp_writable": true,
+    "same_uid_synthetic_host_environ_readable": false,
+    "same_uid_synthetic_host_fd_readable": false,
+    "host_control_environ_and_fd_readable": true,
+    "host_tcp_loopback_reachable": true,
+    "host_unix_path_socket_reachable": true,
+    "host_abstract_unix_socket_reachable": true,
+    "only_loopback_interface": false,
+    "public_egress_blocked": "not_proven; no public request sent",
+    "fixed_bind_runner_exit_code": 226,
+    "fixed_bind_only_readable": "not_run; candidate unit failed before executing the probe",
+    "journal_diagnostics": [
+      "PrivateNetwork: lack of privileges or unsupported network namespace, proceeding without isolation",
+      "Failed to set up mount namespacing: Operation not supported",
+      "226/NAMESPACE"
+    ],
+    "independent_pid_runner_exit_code": 0,
+    "independent_pid_no_new_privileges_property": "not set",
+    "pid_attempts": [
+      { "command": "/usr/bin/unshare --pid --fork --mount-proc /usr/bin/python3 <constant-pid-check>", "exit_code": 1, "error": "EPERM", "pid_is_one": false },
+      { "command": "/usr/bin/unshare --mount --pid --fork --mount-proc /usr/bin/python3 <constant-pid-check>", "exit_code": 1, "error": "EPERM", "pid_is_one": false },
+      { "command": "/usr/bin/unshare --user --map-root-user --pid --fork --mount-proc /usr/bin/python3 <constant-pid-check>", "exit_code": 1, "error": "EPERM", "pid_is_one": false }
+    ]
+  },
+  "resource_enforcement": {
+    "tasks": { "status": "passed", "configured_max": 32, "threads_started": 31, "pids_current": 32, "pids_events_max": 1 },
+    "memory": {
+      "status": "passed",
+      "configured_max_bytes": 67108864,
+      "configured_swap_max_bytes": 0,
+      "allocation_ceiling_if_ineffective_bytes": 134217728,
+      "runtime_max_seconds": 20,
+      "runner_exit_code": 1,
+      "service_result": "oom-kill",
+      "exit_code": "killed",
+      "exit_status": "KILL",
+      "memory_peak_bytes": 67108864,
+      "memory_events_oom": 1,
+      "memory_events_oom_kill": 1
+    }
+  },
+  "cleanup": {
+    "all_owned_units_stopped": true,
+    "internal_mkdtemp_trees_removed": true,
+    "synthetic_processes_and_sockets_closed": true,
+    "caller_uploaded_private_source_cache": "outside probe ownership; not deleted by probe"
+  },
+  "conclusion": "No verified complete mount/network/IPC/PID sandbox is available under current unprivileged constraints. Cgroup resource enforcement and a user namespace do not complete M3. Keep full Harness tool capabilities disabled."
+}
