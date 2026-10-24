@@ -1,0 +1,54 @@
+{
+  "kind": "standalone image-analysis isolated real DeepSeek acceptance",
+  "started_at": "2026-10-24T12:11:18.429481+00:00",
+  "commit": "720a30de7ed38c0db544cc2beb64a8671a4fb1f3",
+  "deployment_sha": "720a30de7ed38c0db544cc2beb64a8671a4fb1f3",
+  "binary_sha256": "91205b5ac25d9d8dcef3c02b38bd186e9df30747db5733565c4afb4fdd2dbe0d",
+  "platform": "Linux",
+  "architecture": "aarch64",
+  "status": "passed",
+  "production_model_configuration_read": true,
+  "production_model_credential_read": true,
+  "production_database_modified": false,
+  "real_user_content_accessed": false,
+  "real_user_images_accessed": false,
+  "user_images_transmitted": false,
+  "synthetic_images_only": true,
+  "real_external_vision_attempted": true,
+  "real_external_vision_tested": true,
+  "real_qq_tested": false,
+  "real_weixin_private_chat_tested": false,
+  "max_requests": 2,
+  "requests": 2,
+  "checks": [
+    "fresh private instance validates the copied official DeepSeek model credential",
+    "standalone live analysis is available with no copied channel account or user source data",
+    "completed real image 1 erases stored image bytes",
+    "real model image 1 shape colour and count match generated pixels",
+    "real image 1 duplicate request returns its existing completed job",
+    "real image 1 deletion clears question result and image",
+    "completed real image 2 erases stored image bytes",
+    "real model image 2 shape colour and count match generated pixels",
+    "real image 2 duplicate request returns its existing completed job",
+    "real image 2 deletion clears question result and image",
+    "standalone real vision neither retries model work nor writes chats or long-term memory"
+  ],
+  "cases": [
+    {
+      "case": 1,
+      "completed": true,
+      "input_image_sha256": "6bbdfd6a76ba64fb57b422be4671ee69753e69d4ac16e8544e023416a425c35c",
+      "canonical_image_sha256": "9b7d30549d1e10f88a159a2771a770dd1931d5c3dc920d766587dd087e49ac98",
+      "response_matches_synthetic_pixels": true
+    },
+    {
+      "case": 2,
+      "completed": true,
+      "input_image_sha256": "8006b7fceb6bd65cbfc9c258beda140fa5148dd3dae0bf772ca971fa47330ca0",
+      "canonical_image_sha256": "a6b71bc27f7787d071649baa95032e1672c16763322d277b75f25818413c4de8",
+      "response_matches_synthetic_pixels": true
+    }
+  ],
+  "finished_at": "2026-10-24T12:11:23.080827+00:00",
+  "passed": 11
+}
