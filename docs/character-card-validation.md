@@ -13,7 +13,9 @@
 
 代码入口为 `crates/dshd/src/character.rs`、`character_import.rs`、`character_api.rs`，在现有入队、QQ事务和worker中接入；Web组件为 `web/admin/src/components/CharacterCards.vue`。均为DSH独立实现，无AIRI运行依赖或复制源码。
 
-## 当前验证进度
+## M1.1首次发布验收快照（154ebf8）
+
+本节保留最初发布时的测试、制品和观察结果；后续版本上的QQ私聊实测单独记录在补充验收中，不把查询时版本或新增确认追记到旧机器记录。
 
 | 验证 | 状态 |
 | --- | --- |
@@ -26,7 +28,7 @@
 | Web浏览器与单测 | 22项单测、类型检查与构建通过；角色卡和原有管理两个完整Chromium场景通过，含390 / 320像素布局 |
 | 树莓派部署 | 154ebf8完整SHA部署成功，health与前端manifest一致，systemd active / enabled，Linger=yes |
 | 生产Web / 真实模型 | 已通过登录会话创建、保存、校验、发布“蓝鲸助手”v1并显式开启QQ可选；未改变全局默认。独立草稿会话真实模型回复采用蓝鲸身份，完整请求快照存在；[脱敏记录](validation/character-live-aarch64.json) |
-| 真实QQ角色切换 | 网关101 / HELLO / READY已通过；用户实际私聊列表 / 切换 / 回复仍待新消息验证，未把离线fixture记成真实联调 |
+| 真实QQ角色切换（当时） | 首次验收时网关101 / HELLO / READY通过，用户私聊实测尚未完成；后续列表 / 切换补验见下节 |
 
 本地黑盒脚本为 `tools/character-smoke.py`；模拟provider与合成账号独立于正式数据，不冒称真实模型或QQ已通过。测试中首次ZIP反斜线fixture在Windows被Python自动规范化，已修正fixture，不能把该次结果记成后端安全漏洞。部署门禁测试初次遇到SQLite句柄未关闭导致临时目录清理失败，已显式关闭并复验通过。
 
@@ -34,9 +36,9 @@
 
 隔离浏览器截图位于 `.local/character-e2e/screenshots/`，桌面与320像素布局已人工查看；测试服务均已停止，不占用生产18419隧道。当前列表首期限100张卡，尚无翻页；此限制不等于已完成大规模卡库或资源压测。
 
-## 固定版本部署与数据保留
+## M1.1首次固定版本部署与数据保留
 
-- 运行源码：`154ebf8c5e8b9901b39f4de8fb0a116129c6888a`，部署前已推送origin/main。随后仅更新文档和脱敏证据的提交不需要重启。
+- M1.1首次发布运行源码：`154ebf8c5e8b9901b39f4de8fb0a116129c6888a`，部署前已推送origin/main。后续功能发布可以推进运行版本；本条不表示该SHA始终是当前版本。仅更新文档和脱敏证据的提交不需要重启。
 - 前端制品：`admin-154ebf8c5e8b9901b39f4de8fb0a116129c6888a.tar.gz`，SHA256为 `bd792300a8af04f55262d14d821a7d5117f8355e66487ca7e0062a78b1b5519a`。
 - 2026-10-24 17:23:40 +08:00，从 `4790b5de771e3df3c02e843c338364313df3e557` 正常升级。原管理账户、模型 / QQ凭证及原有会话保留；运行数据仍在 `shared/data`，不混入release。
 - 先原生测试和release构建，再停止服务、一致性备份、切换并验健康；整个部署退出码0。备份为owner-only `shared/backups/pre-154ebf8c5e8b9901b39f4de8fb0a116129c6888a-20261024T092340337031644.sqlite`，文件名时间为UTC。
@@ -61,7 +63,20 @@ python3 /home/campanus/apps/dsh/current/source/tools/smoke.py \
 python3 /home/campanus/apps/dsh/current/source/tools/tests/test_deploy_compatibility.py
 ```
 
-本机维持SSH隧道后访问 [角色卡](http://127.0.0.1:18419/admin/#characters)。真实QQ待用户私聊发送 `/角色`、`/角色 切换 蓝鲸助手`，再发送普通消息并核验切换确认、冻结revision及平台回执。不能仅凭Web模型成功或网关READY标记这一项通过。
+本机维持SSH隧道后访问 [角色卡](http://127.0.0.1:18419/admin/#characters)。不能仅凭Web模型成功或网关READY标记真实QQ人格对话通过。
+
+## QQ真实私聊补充验收
+
+2026-10-24，用户反馈已收到角色列表、切换确认和蓝鲸回复。本轮通过SSH只读核查现有SQLite记录、健康接口、前端manifest与服务启动日志，没有切换生产服务或额外调用模型。
+
+- 检查时运行版本为 `720a30de7ed38c0db544cc2beb64a8671a4fb1f3`，前后端SHA一致。这是后续功能版本，不能把本节记录冒记为最初 `154ebf8` 的测试。
+- 20:35:02 +08:00：收到同一私聊用户的角色列表命令，任务completed，回复sent并有平台回执。
+- 20:35:21 +08:00：收到角色切换命令，任务completed，回复sent并有平台回执；存在真实C2C Inbox事件与切换审计记录。
+- 两条命令属于同一私聊主体；切换创建了新会话，实际绑定“蓝鲸助手”已发布revision 1。未把控制命令当成模型任务。
+- 两条命令的创建 / 完成时间均落在启动日志所示 `720a30d` 服务区间。Run表本身不保存可执行提交号，因此证据明确区分“检查时版本”和“由服务日志区间推定的执行版本”。
+- 当前审计尚未观察到切换后的普通模型Run；因此列表和角色切换实测通过，QQ普通人格回复的可追溯闭环仍待补发消息确认。用户已反馈收妥不替代这一缺失的服务器链路证据。
+
+脱敏记录见 [character-qq-live-aarch64.json](validation/character-qq-live-aarch64.json)，仅含状态、时间、计数和匹配布尔值，不包含QQ标识、消息正文或凭证。原 [character-live-aarch64.json](validation/character-live-aarch64.json) 的QQ计数0 / 未通过状态保留为当时事实。此处不将记忆、微信、图片或群聊 / 频道等其他路径一并标记为通过。
 
 ## 边界与源码清理
 
