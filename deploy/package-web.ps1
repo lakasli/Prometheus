@@ -10,7 +10,8 @@ try {
     npm.cmd run build
     if ($LASTEXITCODE -ne 0) { throw 'Frontend build failed' }
 } finally { Pop-Location; Remove-Item Env:VITE_BUILD_SHA -ErrorAction SilentlyContinue }
-$taskArtifacts = Join-Path $taskRepo '.git/artifacts'
+$taskArtifacts = (git -C $taskRepo rev-parse --path-format=absolute --git-path artifacts).Trim()
+if ($LASTEXITCODE -ne 0 -or -not [System.IO.Path]::IsPathRooted($taskArtifacts)) { throw 'Could not resolve the Git artifact directory' }
 New-Item -ItemType Directory -Force -Path $taskArtifacts | Out-Null
 $taskArchive = Join-Path $taskArtifacts "admin-$Commit.tar.gz"
 $taskDist = Join-Path $taskRepo 'web/admin/dist'

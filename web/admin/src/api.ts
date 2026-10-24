@@ -63,7 +63,7 @@ export async function api<T>(
     throw new ApiError(
       response.status,
       String(code || "request_failed"),
-      response.status === 409
+      response.status === 409 && code !== "memory_revision_conflict"
         ? "配置已被更新，请重新载入后合并修改。"
         : String(message || `请求未完成（${response.status}），请稍后重试。`),
     );

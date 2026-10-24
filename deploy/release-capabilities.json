@@ -1,4 +1,6 @@
 {
-  "schema_reader": 1,
-  "character_snapshot": 1
+  "schema_reader": 2,
+  "character_snapshot": 1,
+  "assistant_memory": 1,
+  "memory_context": 1
 }

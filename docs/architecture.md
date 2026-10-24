@@ -202,6 +202,7 @@ Discovered → Validated → WaitingDependencies → Starting → Active
 ### 5.1 身份模型
 
 - `TenantId`：部署中的安全域，个人版也保留一个默认租户。
+- `AssistantId`：助手自身的稳定身份，持久化于 `assistant.identity.v1`；不随渠道、会话、显示名称或角色卡revision变化。用户不需要为使用同一助手而绑定人的跨渠道身份。
 - `AccountId`：某个渠道机器人登录账号 / 应用实例。
 - `ExternalIdentity`：`channel + account_id + platform_user_id`。
 - `PrincipalId`：DSH 内部主体；跨平台绑定须完成用户明确确认的验证流程。
@@ -369,7 +370,7 @@ Harness 崩溃后 Rust 主程序继续工作，Run 标记为 `recovering` 并有
 
 卡草稿保存、发布不可变revision、设置新会话默认分别进行。会话固定 `(card_id, revision)`；已有会话不随默认变化。Web、CLI与QQ在入队事务中冻结静态人格和当时模型配置，QQ保留Inbox / Run / 消息原子性；执行前才读取前序已完成历史并冻结完整PromptSnapshot，避免后续排队消息丢失前一条回复。
 
-角色、用户记忆与会话动态状态分开。开场白不自动向QQ发送；示例标为风格参考；历史后指令首期仅保存并明确不执行。Native与未来Harness共用人格编译来源，后者切换角色时新建受限会话，不能覆盖其工具guard。迁移使用独立表 / settings，不往旧RuntimeConfig直接加字段；回滚必须验证目标程序能理解角色快照。
+角色表达配置、助手自身的长期记忆与会话动态状态分开。开场白不自动向QQ发送；示例标为风格参考；历史后指令首期仅保存并明确不执行。Native与未来Harness共用人格编译来源，后者切换角色时新建受限会话，不能覆盖其工具guard。迁移使用独立表 / settings，不往旧RuntimeConfig直接加字段；回滚必须验证目标程序能理解角色快照。
 
 ## 8. 工具契约与执行控制
 
@@ -391,6 +392,8 @@ tool call
 权限授予取交集：`主体权限 ∩ 插件已授予权限 ∩ 当前会话策略 ∩ 本次 Run 预算`。模型不能通过生成 manifest、记忆内容、MCP 参数或提示词扩权。撤销授权后新调用立即失败；长期运行 I/O 应能主动取消。
 
 ## 9. 记忆系统
+
+用户于2026-10-24确认：AI助手是拥有自身长期记忆的独立人格个体。记忆主归属为稳定 `AssistantId`，不是某个人的跨渠道账号集合；来源与可见范围另行控制。当前显式记忆分为管理员明确发布的 `shared` 和来源账号域保密的 `private`，前者可跨渠道 / 新会话召回，后者仅对服务端确认的来源owner可见。群 / 频道域不等于群成员的个人身份。首个实现切片与未完成项见 [记忆说明](memory.md) 和 [验收记录](memory-validation.md)。
 
 ### 9.1 记忆分层
 

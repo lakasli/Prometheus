@@ -61,6 +61,27 @@ class CompatibilityTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "database schema"):
             compatibility.check(self.data, self.release)
 
+    def test_empty_additive_memory_tables_allow_pre_memory_rollback(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE memory_records(id TEXT); CREATE TABLE memory_context_watermarks(conversation_id TEXT);")
+        compatibility.check(self.data, self.release)
+
+    def test_memory_tombstone_requires_memory_and_context_readers(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE memory_records(id TEXT,content TEXT); INSERT INTO memory_records VALUES('forgotten',NULL);")
+        manifest = self.release / "deploy/release-capabilities.json"
+        manifest.write_text(json.dumps({"schema_reader": 2, "assistant_memory": 1}))
+        with self.assertRaisesRegex(RuntimeError, "assistant memory"):
+            compatibility.check(self.data, self.release)
+        manifest.write_text(json.dumps({"schema_reader": 2, "assistant_memory": 1, "memory_context": 1}))
+        compatibility.check(self.data, self.release)
+
+    def test_context_watermark_without_record_still_blocks_old_reader(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE memory_context_watermarks(conversation_id TEXT); INSERT INTO memory_context_watermarks VALUES('history');")
+        with self.assertRaisesRegex(RuntimeError, "assistant memory"):
+            compatibility.check(self.data, self.release)
+
 
 if __name__ == "__main__":
     unittest.main()

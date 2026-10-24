@@ -15,16 +15,19 @@ M0/M1原始部署与真实Harness / QQ联调已通过，历史证据见 [M0/M1�
 - QQ 官方 WebSocket（默认）和签名 Webhook（可选），实际平台能力需由已授权账号联调。
 - M0 的真实 Cordis 四组生命周期实验与真实 Harness ACP 探针。M1 生产聊天使用 NativeBackend，尚不启用完整 Harness 执行环境。
 - 角色卡库、草稿 / 不可变发布版本、编译预览、独立测试、默认角色及会话固定绑定；JSON / 受限AIRI ZIP导入、JSON导出，QQ私聊按显式共享角色切换。
+- 助手自身的稳定身份与显式长期记忆：共享 / 来源域私有、中文全文检索、版本纠正、遗忘、来源、JSON导出及Web管理；Web / CLI / QQ复用记忆命令和有界对话召回。实际验收见 [记忆记录](docs/memory-validation.md)。
 
 ACP 通知属于已提交的语义输出，不承诺模型 token 流。M0 在途取消由临时回环 HTTP 代理确认真实上游请求仍未完成，再经私有 IPC 触发 ACP cancel；不以排队成功或已经结束的文本输出作为取消证据。代理不记录凭证、请求或回复正文。
 
-记忆管理、微信、图像 / ASR / TTS、生成插件和完整 Harness 工具桥属于后续阶段，界面不将它们伪装成已可用功能。完整设计见 [架构文档](docs/architecture.md)。
+自动记忆抽取、长会话摘要、微信、图像 / ASR / TTS、生成插件和完整 Harness 工具桥属于后续阶段。当前显式记忆不代表M2全部完成。完整设计见 [架构文档](docs/architecture.md)。
 
 角色卡根据AIRI源码研究独立实现，采用CCv3文本内容与DSH模块偏好扩展；服务端版本、会话绑定和入队快照按本项目设计。见 [角色卡契约](docs/character-cards.md)、[Schema](docs/schemas/dsh-character-card-v1.schema.json) 与 [原创示例](docs/examples/campanus.character-card.json)。未引入AIRI依赖。临时源码尚在忽略目录中，删除操作被工具策略拒绝；实际状态见 [研究记录](docs/research/airi-character-card-review.md)。
 
 在Web“角色卡”中新建或导入卡，保存草稿后校验 / 预览，发布版本；“设为新会话默认”与发布分别操作。QQ使用前勾选“允许QQ私聊用户选择此角色”，再私聊发送 `/角色`、`/角色 当前` 或 `/角色 切换 <角色名称或完整ID>`。同名卡须使用完整ID；群聊和频道不开放切换。换角色会开始新会话并保留旧记录，不改变其他用户或实例默认。
 
 CLI新建指定人格会话可使用 `dshd chat --character-card <UUID> --character-revision <N> --message "你好"`；两个角色参数必须同时提供，不能和 `--conversation` 混用。无角色参数时，新会话使用当前默认，已有会话保留原绑定。
+
+在“助手记忆”中管理属于助手的经历与事实；共享条目需明确确认，可跨Web / CLI / QQ使用，私有条目仅在来源账号域内使用，无需把人的跨平台账号绑定。私聊或Web可用 `/memory remember <内容>`、`/memory list`、`/memory show <ID>`、`/memory correct <ID>@<版本> <新内容>`、`/memory forget <ID>@<版本>`；命令不调用模型，群聊和频道只读，角色草稿测试会话不写记忆。遗忘会清空记忆正文 / 旧版 / 索引并停止后续上下文使用相关旧历史，原始聊天消息和离线备份按独立策略保留。详见 [记忆使用与边界](docs/memory.md)。
 
 ## 本地运行
 
@@ -50,6 +53,7 @@ npm.cmd run build --prefix web/admin
 cargo test --workspace --locked
 python -S tools/smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
 python -S tools/character-smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
+python -S tools/memory-smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
 python -S tools/tests/test_deploy_compatibility.py
 ```
 

@@ -1,4 +1,4 @@
-"""Read-only deployment gate; a code rollback must understand durable persona work."""
+"""Read-only deployment gate for durable persona and memory semantics."""
 import json
 from contextlib import closing
 import pathlib
@@ -29,6 +29,17 @@ def check(data_dir, release_source):
             uses_persona |= db.execute("SELECT EXISTS(SELECT 1 FROM settings WHERE key='character.default.v1' AND value NOT IN ('null',''))").fetchone()[0]
         if uses_persona and int(capabilities.get("character_snapshot", 0)) < 1:
             raise RuntimeError("Target release lacks character snapshots; persona bindings/work must not be downgraded silently")
+        uses_memory = False
+        if "memory_records" in tables:
+            # Bodyless tombstones still require a reader that respects forgetting.
+            uses_memory = db.execute("SELECT EXISTS(SELECT 1 FROM memory_records)").fetchone()[0]
+        if "memory_context_watermarks" in tables:
+            uses_memory |= db.execute("SELECT EXISTS(SELECT 1 FROM memory_context_watermarks)").fetchone()[0]
+        if uses_memory and (
+            int(capabilities.get("assistant_memory", 0)) < 1
+            or int(capabilities.get("memory_context", 0)) < 1
+        ):
+            raise RuntimeError("Target release lacks assistant memory/context invalidation; memory and forgetting must not be bypassed")
 
 
 if __name__ == "__main__":

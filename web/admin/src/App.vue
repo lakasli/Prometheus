@@ -10,6 +10,7 @@ import {
 } from "vue";
 import Icon from "./components/Icon.vue";
 import CharacterCards from "./components/CharacterCards.vue";
+import MemoryPanel from "./components/MemoryPanel.vue";
 import {
   api,
   ApiError,
@@ -37,7 +38,14 @@ import type {
   SystemStatus,
 } from "./types";
 
-type Page = "overview" | "assistant" | "characters" | "qq" | "chat" | "history";
+type Page =
+  | "overview"
+  | "assistant"
+  | "characters"
+  | "qq"
+  | "chat"
+  | "history"
+  | "memory";
 const navigation: {
   id: Page;
   icon: string;
@@ -79,6 +87,13 @@ const navigation: {
     title: "对话工作台",
     eyebrow: "CONVERSATIONS",
     description: "直接与助手对话，验证模型配置。",
+  },
+  {
+    id: "memory",
+    icon: "sparkles",
+    title: "助手记忆",
+    eyebrow: "ASSISTANT MEMORY",
+    description: "管理助手自己的长期记忆，保留经历与来源。",
   },
   {
     id: "history",
@@ -178,6 +193,9 @@ const messageList = ref<HTMLElement | null>(null);
 let disposed = false;
 
 const configuredModel = computed(() => Boolean(config.model.credential_ref));
+const memoryCommand = computed(() =>
+  /^\/memory(?:\s|$)/.test(chatInput.value.trim()),
+);
 const configuredQq = computed(() => Boolean(config.qq.credential_ref));
 const qqConnection = computed(() =>
   describeQqConnection(status.value, Boolean(statusError.value)),
@@ -626,7 +644,7 @@ async function openTestConversation(conversation: Conversation) {
     location.hash = "chat";
     mobileMenu.value = false;
     notice.value =
-      "独立草稿测试会话。发送消息后才会请求模型，不会投递 QQ 或写入用户长期记忆。";
+      "独立草稿测试会话。普通消息会请求模型，不会投递 QQ 或自动写入助手长期记忆。";
   });
 }
 async function createConversation() {
@@ -924,7 +942,7 @@ onUnmounted(() => {
       </nav>
       <div class="sidebar-future">
         <span class="eyebrow">COMING NEXT</span>
-        <p>记忆 · 多模态 · 插件工厂</p>
+        <p>微信 · 多模态 · 插件工厂</p>
         <span>后续阶段逐步开放</span>
       </div>
       <div class="companion-note">
@@ -1780,7 +1798,7 @@ onUnmounted(() => {
                       chatRunning ||
                       !!busy ||
                       !chatInput.trim() ||
-                      !configuredModel
+                      (!configuredModel && !memoryCommand)
                     "
                   >
                     <span v-if="chatRunning" class="spinner"></span
@@ -1792,6 +1810,7 @@ onUnmounted(() => {
             </div>
           </section>
         </template>
+        <MemoryPanel v-if="page === 'memory'" />
         <footer class="page-footer">
           <span>DSH · 你的助手，你来掌控</span
           ><span title="前端构建提交"
