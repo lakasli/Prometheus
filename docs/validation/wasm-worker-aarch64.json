@@ -1,0 +1,106 @@
+{
+  "checker_sha256": "835aa23c886d493fc6588e52269a5db624593e8a37be2062dd42e079537e20c4",
+  "binary_sha256": "cf4a4eb0669a669c19e9db7501854484d1a0772063c77b82ff2aa76bd8a4f32a",
+  "declared_source_sha": "7e4bb131f67fc7bc2f05e33302969abfb4150290",
+  "platform": {
+    "os": "Linux",
+    "arch": "aarch64"
+  },
+  "engine": "wasmi-2.0.0",
+  "policy": "pure-i32-v1",
+  "model_calls": 0,
+  "resource_tests_requested": true,
+  "resource_enforcement": "linux_systemd_user_verified",
+  "pending_units": [],
+  "checks": [
+    {
+      "name": "standalone_real_engine_compiles_and_runs_explicit_tests",
+      "passed": true
+    },
+    {
+      "name": "standalone_fresh_process_revalidates_and_executes_binary",
+      "passed": true
+    },
+    {
+      "name": "i32_boundary_arithmetic_has_wasm_wrapping_semantics",
+      "passed": true
+    },
+    {
+      "name": "reject_imports_before_instantiation",
+      "passed": true
+    },
+    {
+      "name": "reject_linear_memory_before_instantiation",
+      "passed": true
+    },
+    {
+      "name": "reject_table_before_instantiation",
+      "passed": true
+    },
+    {
+      "name": "reject_global_before_instantiation",
+      "passed": true
+    },
+    {
+      "name": "reject_start_function_before_instantiation",
+      "passed": true
+    },
+    {
+      "name": "reject_float_operator",
+      "passed": true
+    },
+    {
+      "name": "reject_wrong_export",
+      "passed": true
+    },
+    {
+      "name": "reject_component",
+      "passed": true
+    },
+    {
+      "name": "infinite_loop_consumes_finite_real_vm_fuel",
+      "passed": true
+    },
+    {
+      "name": "non_tail_recursion_traps_on_stack_limit",
+      "passed": true
+    },
+    {
+      "name": "test_failure_does_not_return_a_compiled_artifact",
+      "passed": true
+    },
+    {
+      "name": "source_size_is_bounded",
+      "passed": true
+    },
+    {
+      "name": "raw_errors_or_source_are_not_echoed",
+      "passed": true
+    },
+    {
+      "name": "unenforced_cli_cannot_trigger_resource_pressure",
+      "passed": true
+    },
+    {
+      "name": "real_systemd_cgroup_and_environment_limits_precede_untrusted_input",
+      "passed": true
+    },
+    {
+      "name": "enforced_fresh_worker_executes_verified_artifact",
+      "passed": true
+    },
+    {
+      "name": "enforced_worker_preserves_vm_fuel_boundary",
+      "passed": true
+    },
+    {
+      "name": "real_128MiB_cgroup_oom_is_reaped_without_a_success_response",
+      "passed": true
+    },
+    {
+      "name": "real_five_second_runtime_limit_terminates_and_reaps_worker",
+      "passed": true
+    }
+  ],
+  "passed": true
+}
