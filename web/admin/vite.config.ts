@@ -12,5 +12,9 @@ export default defineConfig({
       "/health": "http://127.0.0.1:8419",
     },
   },
-  test: { environment: "node", clearMocks: true },
+  test: {
+    environment: "node",
+    clearMocks: true,
+    include: ["tests/*.test.ts"],
+  },
 });

@@ -32,3 +32,16 @@ npm run build
 登录会话使用后端 HttpOnly Cookie。CSRF token 只在页面内存中保存，刷新后从已认证的 `/auth/me` 恢复；不使用浏览器持久存储保存凭证。替换密钥先写入后端 secret store，配置草稿只携带返回的引用，表单不读取原始密钥。
 
 开发使用 `npm run dev` 时，Vite 将 `/api` 代理到本机 `127.0.0.1:8419`；后端的允许 Origin 必须与实际 Vite 地址一致。远端正式访问遵循仓库中的 SSH 隧道或 HTTPS 反向代理流程。
+
+## 隔离浏览器验证
+
+使用项目自己的 Playwright Chromium，不连接用户已有浏览器。先以独立测试数据目录启动本地 Rust 服务（默认 `http://127.0.0.1:18420`），并通过 CLI 在该目录生成初始化凭证，再执行：
+
+```sh
+npx playwright install chromium
+npx playwright test
+```
+
+测试默认读取仓库 `.local/browser-qa/`，可通过 `DSH_E2E_DATA_DIR` 指定其他测试目录；`DSH_E2E_BASE_URL` 仅允许 localhost。测试会创建随机专用管理账户并将其保存于该受忽略的测试目录，以便重跑，不使用正式凭证。报告与截图输出到 `.local/browser-e2e/`，不录制含登录请求的 trace 或视频。
+
+浏览器验证覆盖初始化 / 登录、鉴权、配置保存校验与实际应用、渠道模式、历史记录、移动端导航和浏览器错误检查。没有配置真实模型或 QQ 凭证时，不把该测试视为外部平台联调成功。

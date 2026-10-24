@@ -69,7 +69,9 @@ node tools/m0/acp-probe.mjs \
 
 本地机器可读记录见 [acp-windows.json](../tools/m0/results/acp-windows.json)。本轮 `initialize` 返回 `audio=false`、`image=false`；这反映该未配置模型路由的实例能力，不能推导整个 Harness 不支持图像。
 
-真实模型与在途取消的补充实验可通过 `--prompt` 启用，使用无外部动作的简单提示；凭证通过受限环境或隔离 Harness 凭证存储注入，不作为命令行参数、不入库。只有对应测试实际通过，报告才会记为 `passed_with_model`。
+真实模型与在途取消的补充实验可通过 `--prompt` 启用，使用无外部动作的简单提示；凭证通过受限环境或隔离 Harness 凭证存储注入，不作为命令行参数、不入库。第一轮必须从当前会话的 `agent_message_chunk` 收到预期标记，默认 `ACP_M0_OK`，可通过 `--expect-text` 指定其他短标记；仅 `session/prompt` 返回、用户消息回显或其他会话输出都不算模型回复通过。报告只保存命中布尔值、字符数和停止原因，不保存回复正文或思考内容。
+
+第二轮使用有上限的无害长列表请求，仅在收到本次未结算 prompt 的非空 `agent_message_chunk` / `agent_thought_chunk` 后才发送 cancel，并要求最终 `stopReason=cancelled`。若请求已经完成、只收到排队 / 用户事件或取消未能胜出，记录失败并要求重试，不将其计作在途取消通过。只有这些检查实际成功，报告才会记为 `passed_with_model`。
 
 M1 配置已经通过 Web 页面录入后，可在树莓派上运行 [acp-from-dsh.mjs](../tools/m0/acp-from-dsh.mjs)。该脚本以只读方式读取当前 SQLite 配置和其 `model_api_key` 引用，校验凭证文件权限，然后仅将这一把模型密钥注入探针子进程的 `DSH_M0_MODEL_KEY` 环境；不会输出密钥，不修改生产数据库和 secret store：
 
@@ -80,7 +82,9 @@ node tools/m0/acp-from-dsh.mjs \
   --report /home/campanus/apps/dsh/shared/logs/acp-live-result.json
 ```
 
-这些目录要以实际部署为准。该辅助脚本使用 Node 24 的 `node:sqlite`，在临时 home 和空工作区启动 Harness，将 M1 已配置的 OpenAI 兼容 endpoint / 模型映射到独立 `dsh-m0-provider` 路由。探针先请求一句固定短回复，再发出并取消第二次请求，最后验证重启恢复。模型回复与取消的结果仍以实测报告为准。
+这些目录要以实际部署为准。该辅助脚本使用 Node 24 的 `node:sqlite`，在临时 home 和空工作区启动 Harness，将 M1 已配置的 OpenAI 兼容 endpoint / 模型映射到独立 `dsh-m0-provider` 路由。探针先请求并核验一句固定短回复，再等待第二次长列表请求出现 Agent 输出后取消，最后验证重启恢复。模型回复与取消的结果仍以实测报告为准。
+
+探针自身的反误判回归测试使用明确标注的协议 fixture：`node --test tools/m0/tests/acp-probe.test.mjs`。这些测试覆盖标记跨 chunk、错误会话、用户回显、仅排队事件、生成已完成以及无 `--prompt` 路径；它们只验证探针逻辑，不作为真实 Harness / 模型验收记录。
 
 [no-tools.patch.json](../tools/m0/no-tools.patch.json) 针对锁定的 `0.2.1-rc.2` 禁用默认 profile 的工具、子 Agent 和插件管理入口，且探针对权限请求一律拒绝。它是这次 M0 模型实验的限制措施；升级 Harness 后需重新核对最终 profile，不能将此 patch 当作完整的 M3 工具安全验收。
 

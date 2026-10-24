@@ -7,12 +7,13 @@ import path from 'node:path'
 import readline from 'node:readline'
 
 const argv = process.argv.slice(2)
-const options = { command: 'dsh', args: [], timeout: 30000, prompt: null }
+const options = { command: 'dsh', args: [], timeout: 30000, prompt: null, expectedText: 'ACP_M0_OK' }
 for (let index = 0; index < argv.length; index++) {
   const name = argv[index]
   if (name === '--help') {
-    console.log('node tools/m0/acp-probe.mjs --command <executable> [--arg <argument>] [--cwd <workspace>] [--home <isolated DSH_HOME>] [--report <file>] [--prompt <harmless prompt>] [--timeout-ms <milliseconds>]')
+    console.log('node tools/m0/acp-probe.mjs --command <executable> [--arg <argument>] [--cwd <workspace>] [--home <isolated DSH_HOME>] [--report <file>] [--prompt <harmless prompt>] [--expect-text <marker>] [--timeout-ms <milliseconds>]')
     console.log('Pass every argument separately, including: --arg --profile --arg acp. No prompt means no model invocation.')
+    console.log('With --prompt, assistant text must contain --expect-text (default ACP_M0_OK). The cancellation probe waits for real agent output before cancelling.')
     process.exit(0)
   }
   const value = argv[++index]
@@ -23,10 +24,12 @@ for (let index = 0; index < argv.length; index++) {
   else if (name === '--home') options.home = path.resolve(value)
   else if (name === '--report') options.report = path.resolve(value)
   else if (name === '--prompt') options.prompt = value
+  else if (name === '--expect-text') options.expectedText = value
   else if (name === '--timeout-ms') options.timeout = Number(value)
   else throw new Error(`unknown option: ${name}`)
 }
 if (!Number.isSafeInteger(options.timeout) || options.timeout < 1000) throw new Error('invalid timeout')
+if (!options.expectedText || Buffer.byteLength(options.expectedText) > 256) throw new Error('expected marker must contain 1 to 256 bytes')
 if (!options.args.length) options.args = ['--profile', 'acp']
 const scratch = await mkdtemp(path.join(tmpdir(), 'dsh-acp-probe-'))
 options.cwd ??= path.join(scratch, 'workspace')
@@ -64,6 +67,7 @@ function connect() {
   let outputBytes = 0
   let stderrBytes = 0
   const updates = []
+  const observers = new Set()
   const rejectAll = (error) => {
     for (const pending of waiting.values()) { clearTimeout(pending.timer); pending.reject(error) }
     waiting.clear()
@@ -104,6 +108,7 @@ function connect() {
       }
     } else if (message.method === 'session/update') {
       updates.push({ session_id: message.params?.sessionId, type: message.params?.update?.sessionUpdate })
+      for (const observer of observers) observer(message.params)
     }
   })
   return {
@@ -119,12 +124,21 @@ function connect() {
     notify(method, params) {
       child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method, params }) + '\n')
     },
+    observe(sessionId, receive) {
+      const observer = params => {
+        if (params?.sessionId === sessionId) receive(params.update)
+      }
+      observers.add(observer)
+      return () => observers.delete(observer)
+    },
     async stop() {
       child.stdin.end()
+      let stopTimer
       await Promise.race([
         new Promise(resolve => { if (closed) resolve(); else child.once('exit', resolve) }),
-        new Promise(resolve => setTimeout(resolve, 3000)),
+        new Promise(resolve => { stopTimer = setTimeout(resolve, 3000) }),
       ])
+      clearTimeout(stopTimer)
       if (!closed) child.kill()
       lines.close()
       rejectAll(new Error('probe connection closed'))
@@ -163,14 +177,60 @@ try {
   const session = await check('create_persistent_session', () => connection.request('session/new', { cwd: options.cwd, mcpServers: [] }))
   if (!session.sessionId) throw new Error('session/new returned no sessionId')
   if (options.prompt) {
-    await check('real_model_prompt', () => connection.request('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: options.prompt }] }))
-    // Cancel a second prompt while it is in flight. This verifies the server's
-    // cancellation path, not only the no-op idle cancellation notification.
+    await check('real_model_prompt', async () => {
+      let tail = ''
+      let chunks = 0
+      let characters = 0
+      let markerMatched = false
+      const unobserve = connection.observe(session.sessionId, update => {
+        if (update?.sessionUpdate !== 'agent_message_chunk' || update.content?.type !== 'text' || typeof update.content.text !== 'string') return
+        const text = update.content.text
+        if (!text.length) return
+        chunks++
+        characters += text.length
+        // Retain only the suffix needed to detect markers split across chunks.
+        // Neither assistant text nor model thoughts are saved in the report.
+        markerMatched ||= (tail + text).includes(options.expectedText)
+        const retained = options.expectedText.length - 1
+        tail = retained ? (tail + text).slice(-retained) : ''
+      })
+      try {
+        const result = await connection.request('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: options.prompt }] })
+        report.model_evidence = { assistant_message_chunks: chunks, assistant_characters: characters, expected_marker_received: markerMatched, stop_reason: result.stopReason }
+        if (!chunks || !markerMatched) throw new Error('ACP prompt settled without assistant text containing the expected marker')
+        if (!['end_turn', 'max_tokens'].includes(result.stopReason)) throw new Error(`model validation did not finish normally: ${result.stopReason}`)
+      } finally {
+        unobserve()
+      }
+    })
+    // An accepted/enqueued prompt or a user_message_chunk is not evidence of
+    // model activity. Cancel only after non-empty agent text/thought output is
+    // observed while this specific prompt is still pending.
     await check('cancel_inflight_model_prompt', async () => {
-      const pending = connection.request('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: options.prompt }] })
-      connection.notify('session/cancel', { sessionId: session.sessionId })
-      const result = await pending
-      if (result.stopReason !== 'cancelled') throw new Error(`expected cancelled, got ${result.stopReason}`)
+      let settled = false
+      let observedType = null
+      let cancelSent = false
+      const unobserve = connection.observe(session.sessionId, update => {
+        if (settled || cancelSent || !['agent_message_chunk', 'agent_thought_chunk'].includes(update?.sessionUpdate)) return
+        if (update.content?.type !== 'text' || typeof update.content.text !== 'string' || !update.content.text.length) return
+        observedType = update.sessionUpdate
+        cancelSent = true
+        // Send synchronously from the update callback: delaying until an await
+        // continuation can let a quickly finishing prompt settle first.
+        connection.notify('session/cancel', { sessionId: session.sessionId })
+      })
+      try {
+        const pending = connection.request('session/prompt', {
+          sessionId: session.sessionId,
+          prompt: [{ type: 'text', text: 'Do not use any tools. Output a numbered list from 1 through 300. Each line must contain the number followed by the words "ACP cancellation validation line". Do not abbreviate or summarize. Stop after line 300.' }],
+        }).then(result => { settled = true; return result }, error => { settled = true; throw error })
+        const result = await pending
+        report.cancellation_evidence = { activity_type: observedType, agent_output_observed: Boolean(observedType), cancel_sent_before_prompt_settlement: cancelSent, stop_reason: result.stopReason }
+        if (!observedType || !cancelSent) throw new Error('prompt finished before cancellable agent activity was observed; in-flight cancellation was not verified')
+        if (result.stopReason !== 'cancelled') throw new Error(`prompt was already finished or cancellation did not win (stop reason ${result.stopReason}); retry is required to verify in-flight cancellation`)
+      } finally {
+        unobserve()
+      }
     })
   } else {
     report.checks.push({ name: 'real_model_prompt', status: 'not_run', reason: 'no --prompt supplied; no model request' })

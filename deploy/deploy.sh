@@ -54,9 +54,15 @@ PY
 export DSH_BUILD_SHA=$sha
 export CARGO_TARGET_DIR=$root/cache/target
 export CARGO_BUILD_JOBS=2
+cargo_cmd=(cargo)
+if [[ ${DSH_CARGO_MIRROR:-} == rsproxy ]]; then
+  cargo_cmd+=(--config 'source.crates-io.replace-with="rsproxy-sparse"' --config 'source.rsproxy-sparse.registry="sparse+https://rsproxy.cn/index/"')
+elif [[ -n ${DSH_CARGO_MIRROR:-} ]]; then
+  echo 'Unsupported cargo mirror; use empty or rsproxy' >&2; exit 2
+fi
 cd "$release/source"
-cargo test --workspace --locked -j 2 >"$root/shared/logs/test-$sha.log" 2>&1 || { tail -n 60 "$root/shared/logs/test-$sha.log"; exit 1; }
-cargo build --release --locked -p dshd -j 2 >"$root/shared/logs/build-$sha.log" 2>&1 || { tail -n 60 "$root/shared/logs/build-$sha.log"; exit 1; }
+"${cargo_cmd[@]}" test --workspace --locked -j 2 >"$root/shared/logs/test-$sha.log" 2>&1 || { tail -n 60 "$root/shared/logs/test-$sha.log"; exit 1; }
+"${cargo_cmd[@]}" build --release --locked -p dshd -j 2 >"$root/shared/logs/build-$sha.log" 2>&1 || { tail -n 60 "$root/shared/logs/build-$sha.log"; exit 1; }
 install -m 0755 "$CARGO_TARGET_DIR/release/dshd" "$release/bin/dshd"
 
 unit_dir=/home/campanus/.config/systemd/user
@@ -71,11 +77,13 @@ if [[ -e $root/current || -L $root/current ]]; then
   previous=$(readlink -f "$root/current")
   [[ $previous == "$root/releases/"* ]] || { echo 'current points outside managed releases' >&2; exit 2; }
 fi
-ln -sfn "$release" "$root/current.next"
-mv -Tf "$root/current.next" "$root/current"
 systemctl --user daemon-reload
 systemctl --user enable dsh.service
-systemctl --user restart dsh.service
+ln -sfn "$release" "$root/current.next"
+mv -Tf "$root/current.next" "$root/current"
+if ! systemctl --user restart dsh.service; then
+  echo 'Restart failed; checking health before restoring the prior release' >&2
+fi
 healthy=false
 for attempt in $(seq 1 30); do
   if curl --max-time 2 -fsS http://127.0.0.1:8419/health/ready | python3 -c 'import json,sys; assert json.load(sys.stdin)["commit"]==sys.argv[1]' "$sha" 2>/dev/null; then healthy=true; break; fi
@@ -83,7 +91,7 @@ for attempt in $(seq 1 30); do
 done
 if [[ $healthy != true ]]; then
   echo 'New release did not become healthy' >&2
-  journalctl --user -u dsh.service -n 30 --no-pager
+  journalctl --user -u dsh.service -n 30 --no-pager || true
   if [[ -n $previous ]]; then
     ln -sfn "$previous" "$root/current.next"
     mv -Tf "$root/current.next" "$root/current"
@@ -91,7 +99,7 @@ if [[ $healthy != true ]]; then
     curl --retry 5 --retry-delay 1 --max-time 2 -fsS http://127.0.0.1:8419/health/ready >/dev/null
     echo 'Previous release restored and health checked' >&2
   else
-    systemctl --user stop dsh.service
+    systemctl --user stop dsh.service || true
     echo 'No previous application release exists; failed service stopped' >&2
   fi
   exit 1

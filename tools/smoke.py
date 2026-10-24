@@ -38,7 +38,7 @@ class Provider(http.server.BaseHTTPRequestHandler):
         Provider.requests_seen.append(data)
         text = next(m['content'] for m in reversed(data['messages']) if m['role'] == 'user')
         if text == 'restart-pending':
-            time.sleep(2)
+            time.sleep(5)
         payload = json.dumps({'choices': [{'message': {'role': 'assistant', 'content': 'mock-response:' + text}}], 'usage': {'prompt_tokens': 5, 'completion_tokens': 5}}).encode()
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
@@ -183,7 +183,12 @@ def main():
             other_messages, _ = request('GET', '/api/admin/v1/conversations/' + other['id'] + '/messages')
             check('different conversation has no shared history', len(other_messages['items']) == 0)
             pending, _ = request('POST', messages_path, {'content': 'restart-pending', 'client_message_id': 'smoke-restart'}, expected=202)
-            time.sleep(0.3)
+            for _ in range(100):
+                pending_state, _ = request('GET', '/api/admin/v1/runs/' + pending['run_id'])
+                if pending_state['status'] == 'running':
+                    break
+                time.sleep(0.1)
+            check('crash fixture has an actually running request', pending_state['status'] == 'running')
             queued, _ = request('POST', messages_path, {'content': 'restart-queued', 'client_message_id': 'smoke-restart-queued'}, expected=202)
             stop(force=True)
             start()

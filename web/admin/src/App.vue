@@ -971,7 +971,7 @@ onUnmounted(() => {
                     /><template v-else>03</template></span
                   ><span
                     ><strong>接入 QQ 机器人</strong
-                    ><small>配置 App ID、凭证与 Webhook</small></span
+                    ><small>配置 App ID、凭证与连接方式</small></span
                   ><Icon name="chevron" :size="18" />
                 </button>
               </div>

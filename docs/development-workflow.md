@@ -123,6 +123,8 @@ journalctl --user -u dsh.service --no-pager -n 30
 
 部署脚本检出独立 release、在树莓派限并行编译测试、校验前端SHA、切换用户级systemd并核对健康接口中的完整提交。`loginctl enable-linger campanus` 用于退出SSH后继续运行；本轮已开启。失败构建与测试日志保存在 `shared/logs/`；首次部署没有上一应用版本时不能声称已验证跨版本回滚。
 
+官方 crates.io 连接不稳定时，可在部署命令前设置 `DSH_CARGO_MIRROR=rsproxy` 使用 HTTPS 镜像；仍以 `Cargo.lock` 和下载校验锁定依赖，不修改全局 Cargo 配置或源代码。默认不启用镜像。
+
 在私有临时数据库执行黑盒验证：
 
 ```sh
