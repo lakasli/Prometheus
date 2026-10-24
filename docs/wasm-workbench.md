@@ -1,6 +1,6 @@
 # 开发诊断：纯整数WAT原型
 
-用户2026-10-24确认阶段验证页不得作为产品主导航。现有纯整数WAT原型移入“任务与诊断 → 开发诊断”默认折叠区域；本轮入口迁移待浏览器与远端验收，历史实现的测试结论仍以 [原型验收记录](wasm-workbench-validation.md) 为准。
+用户2026-10-24确认阶段验证页不得作为产品主导航。现有纯整数WAT原型移入“任务与诊断 → 开发诊断”默认折叠区域；入口迁移已通过 [本轮浏览器与远端验收](conversation-images-validation.md)，历史实现的测试结论仍以 [原型验收记录](wasm-workbench-validation.md) 为准。
 
 这个原型只验证“生成WAT → 测试 → 人工按哈希批准 → 手动纯整数执行”。它偏离并缩减了 [原架构](architecture.md#11-ai-自制功能插件) 的Rust模板、WIT / Wasmtime Component、受控host imports、工具注册、激活与回滚链路，不是完整M5插件工厂，也不替代原目标。后续不得为扩大原型而自行改写架构；重大偏离需先说明并由用户确认。
 
@@ -44,4 +44,4 @@
 | `POST /artifacts/{id}/reject`、`/revoke` | 拒绝待审或撤销已批制品 |
 | `POST /artifacts/{id}/execute` | 提交请求UUID、`a,b,wasm_sha256`，手动执行 |
 
-验证状态以 [原型验收记录](wasm-workbench-validation.md) 为准；历史“计算工坊”页面的通过项不证明本轮导航迁移已验证。通用WIT / Rust模板、隔离构建依赖、聊天工具激活和完整插件回滚仍待实现；本次仅重新归置诊断入口，不推进或宣称这些能力完成。
+验证状态以 [原型验收记录](wasm-workbench-validation.md) 为准；本轮导航迁移另见 [当前记录](conversation-images-validation.md)，不混用历史页面证据。通用WIT / Rust模板、隔离构建依赖、聊天工具激活和完整插件回滚仍待实现；本次仅重新归置诊断入口，不推进或宣称这些能力完成。

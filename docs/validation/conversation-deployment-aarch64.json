@@ -1,0 +1,17 @@
+{
+  "commit": "bd914f8ea73ffad5697248ddf3df716f7208299a",
+  "deployed_at": "2026-10-24T14:01:29.600567+00:00",
+  "previous_release": "/home/campanus/apps/dsh/releases/07175c16f590be0689925a61673da282bb37bf21",
+  "binary_sha256": "07f0e089fc5a10dd6c66cbb0f7a59274f720aaf31b0eb01ef6657e6fb7b3e947",
+  "backup": "/home/campanus/apps/dsh/shared/backups/pre-bd914f8ea73ffad5697248ddf3df716f7208299a-20261024T140128171116663.sqlite",
+  "frontend_sha_matches_backend": true,
+  "target": "campanus@192.168.189.191",
+  "system": "Ubuntu 24.04.4 LTS / aarch64",
+  "hardware": "Raspberry Pi 5 Model B Rev 1.1 / 8GB",
+  "archive_sha256": "60936970484cbcc15f6c15f8c5d6156562c0cb7b599553e411bca28c570c9d8d",
+  "service": {
+    "NRestarts": "0",
+    "ActiveState": "active",
+    "SubState": "running"
+  }
+}

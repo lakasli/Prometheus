@@ -19,13 +19,13 @@ M0/M1原始部署与真实Harness / QQ联调已通过，历史证据见 [M0/M1�
 - 同来源长会话增量摘要：复用现有任务槽、来源与覆盖水位、敏感资料省略、超长轮次明确摘录、取消恢复和遗忘联动；管理页可查看并重建派生摘要。独立验收见 [摘要记录](docs/summary-validation.md)。
 - 会话记忆候选：明确勾选来源消息、模型提取、审核后私有入库，拒绝 / 到期 / 遗忘清除候选正文，不自动共享或覆盖事实。当前发布与验证状态见 [候选记录](docs/memory-candidate-validation.md)。
 - 微信 iLink 单账号文字私聊适配：管理页扫码、本人来源限制、原子游标 / 入站去重、冻结回复上下文、凭据失效与不确定发送处理。实现与模拟验证见 [微信说明](docs/weixin.md) 和 [验收边界](docs/weixin-validation.md)；真实手机扫码与收发仍待验收。
-- PNG视觉底层已验证格式校验、实际解码、去元数据及DeepSeek-flash调用。本轮正把单PNG接入Web普通对话：VisionProvider先生成可追溯描述，再由现有Native角色与会话上下文回答；**本轮接入待验证**，不能引用旧独立分析测试替代。见 [图片对话契约](docs/image-analysis.md) 和 [历史图片记录](docs/image-analysis-validation.md)。
+- PNG视觉底层已验证格式校验、实际解码、去元数据及DeepSeek-flash调用。单PNG已接入Web普通对话：VisionProvider先生成可追溯描述，再由现有Native角色与会话上下文回答；本轮已通过独立的 [图片对话验收](docs/conversation-images-validation.md)，不引用旧独立分析测试替代。见 [图片对话契约](docs/image-analysis.md) 和 [历史图片记录](docs/image-analysis-validation.md)。
 
-管理页面按 [架构的信息架构](docs/architecture.md#143-页面与用户操作) 组织。图片从普通会话输入区发送，不设独立“图片分析”主导航；已存在的纯整数WAT原型收进“任务与诊断 → 开发诊断”默认折叠区域，入口调整待本轮浏览器与远端验证。该原型仅供开发诊断，不是原架构的Rust / WIT插件工厂，也不注册聊天工具。见 [诊断原型边界](docs/wasm-workbench.md) 与 [历史验收状态](docs/wasm-workbench-validation.md)。
+管理页面按 [架构的信息架构](docs/architecture.md#143-页面与用户操作) 组织。图片从普通会话输入区发送，不设独立“图片分析”主导航；已存在的纯整数WAT原型收进“任务与诊断 → 开发诊断”默认折叠区域，入口调整已完成浏览器与远端验证，见 [本轮记录](docs/conversation-images-validation.md)。该原型仅供开发诊断，不是原架构的Rust / WIT插件工厂，也不注册聊天工具。见 [诊断原型边界](docs/wasm-workbench.md) 与 [历史验收状态](docs/wasm-workbench-validation.md)。
 
 ACP 通知属于已提交的语义输出，不承诺模型 token 流。M0 在途取消由临时回环 HTTP 代理确认真实上游请求仍未完成，再经私有 IPC 触发 ACP cancel；不以排队成功或已经结束的文本输出作为取消证据。代理不记录凭证、请求或回复正文。
 
-后台自动事实抽取、微信真实平台收发验收、QQ / 微信渠道媒体、ASR / TTS、完整插件工厂和Harness工具桥仍待交付；Web图片对话正在本轮接入并待验收。受限图片与WAT验证原型不代表M4 / M5完成，当前切片也不代表M2全部完成。后续按 [架构文档](docs/architecture.md) 的功能与信息架构推进，重大偏离先说明并由用户确认，不改写目标来迁就原型。
+后台自动事实抽取、微信真实平台收发验收、QQ / 微信渠道媒体、ASR / TTS、完整插件工厂和Harness工具桥仍待交付；Web单PNG图片对话已部署并通过本轮验收，但不代表完整M4。WAT开发诊断原型不代表M5，现有记忆与微信切片也不代表M2全部完成。后续按 [架构文档](docs/architecture.md) 的功能与信息架构推进，重大偏离先说明并由用户确认，不改写目标来迁就原型。
 
 角色卡根据AIRI源码研究独立实现，采用CCv3文本内容与DSH模块偏好扩展；服务端版本、会话绑定和入队快照按本项目设计。见 [角色卡契约](docs/character-cards.md)、[Schema](docs/schemas/dsh-character-card-v1.schema.json) 与 [原创示例](docs/examples/campanus.character-card.json)。未引入AIRI依赖。临时源码尚在忽略目录中，删除操作被工具策略拒绝；实际状态见 [研究记录](docs/research/airi-character-card-review.md)。
 

@@ -68,15 +68,15 @@
 
 M0核心验证与M1基础功能已实现并部署，功能范围、构建与运行命令见 README，验证结论以实际报告为准。当前正式基线为现有Ubuntu主机；历史记录中的“Ubuntu例外 / Lite最终目标”保留为当时事实，已被用户新决定取代，不回写历史验收报告。后续改动持续维护实际构建、启动、测试与回滚命令，不将协议模拟测试记成真实平台联调通过。M2记忆 / 微信、M3完整Harness权限桥及后续多模态、生成插件按各自退出条件验收，不能通过界面或报告虚称全部可用。
 
-M1.1文本角色卡、Web管理、受限JSON / AIRI ZIP导入、JSON导出和QQ私聊切换已实现并部署，实际范围及尚待真实用户消息验证项见 [角色卡验收记录](docs/character-card-validation.md)。角色卡revision代表表达配置，不是独立助手长期记忆的稳定身份；后续记忆应另用稳定assistant identity，保持来源与私有可见范围。
+M1.1文本角色卡、Web管理、受限JSON / AIRI ZIP导入、JSON导出和QQ私聊切换已实现并部署，实际范围及真实用户消息验证结论见 [角色卡验收记录](docs/character-card-validation.md)。角色卡revision代表表达配置，不是独立助手长期记忆的稳定身份；后续记忆应另用稳定assistant identity，保持来源与私有可见范围。
 
 M2显式助手记忆切片已按稳定assistant identity实现并部署，覆盖Web管理、shared / private来源域、命令、全文检索、纠正、遗忘与上下文失效；实际SHA及模拟 / 真实模型边界见 [记忆验收记录](docs/memory-validation.md)。长会话摘要切片也已部署并通过真实模型、重启与遗忘验收，见 [摘要记录](docs/summary-validation.md)。微信单账号 / 扫码本人文字适配的实现和当前部署状态见 [微信记录](docs/weixin-validation.md)，真实平台扫码 / 手机收发待验收。自动事实抽取尚未交付，不得将当前切片称为M2全部完成；草稿测试会话和角色控制命令不得污染长期记忆。
 
 显式来源的模型记忆候选审核已实现，发布状态见 [候选记录](docs/memory-candidate-validation.md)；只在明确选择来源后生成、审核后private入库，不等于后台自动事实采集。M3实机隔离限制见 [实测记录](docs/harness-isolation-validation.md)，不可将用户级systemd属性或cgroup限制当成完整沙箱而启用工具。
 
-现有纯整数WAT / Wasmi原型归“任务与诊断 → 开发诊断”默认折叠区域，入口迁移本轮待验证；历史验收状态见 [工坊记录](docs/wasm-workbench-validation.md)。它只支持无导入的`calc(i32,i32)->i32`，不等同于原架构的Rust模板 / WIT / Wasmtime Component插件工厂。测试与人工批准分开，必须核对实际cgroup、精确unit退出及制品哈希；不得自动批准、注册聊天工具或用其资源限额证明通用Harness隔离。
+现有纯整数WAT / Wasmi原型归“任务与诊断 → 开发诊断”默认折叠区域，入口迁移已在本轮完成部署和浏览器验证，见 [本轮记录](docs/conversation-images-validation.md)；历史验收状态见 [工坊记录](docs/wasm-workbench-validation.md)。它只支持无导入的`calc(i32,i32)->i32`，不等同于原架构的Rust模板 / WIT / Wasmtime Component插件工厂。测试与人工批准分开，必须核对实际cgroup、精确unit退出及制品哈希；不得自动批准、注册聊天工具或用其资源限额证明通用Harness隔离。
 
-图片理解按原架构接入普通对话：本轮仅Web单PNG，经VisionProvider生成带来源的视觉描述，再由现有Native角色与会话上下文回答；当前接入及浏览器 / 远端验收待完成，见 [图片对话契约](docs/image-analysis.md)。此前独立PNG诊断接口的验收见 [历史图片记录](docs/image-analysis-validation.md)，不能据此宣称本轮已通过或QQ / 微信媒体、ASR / TTS已交付；不保留“图片分析”产品主导航。普通Run、候选与图片统一按实际持有的请求lease核算并发，取消逻辑状态不提前释放网络占用；纯调度租约重启清理，不将它当用户历史删除。
+图片理解按原架构接入普通对话：本轮仅Web单PNG，经VisionProvider生成带来源的视觉描述，再由现有Native角色与会话上下文回答；本轮已完成部署、浏览器及真实模型验收，见 [本轮记录](docs/conversation-images-validation.md) 与 [图片对话契约](docs/image-analysis.md)。此前独立PNG诊断接口的验收见 [历史图片记录](docs/image-analysis-validation.md)，不能据此宣称本轮已通过或QQ / 微信媒体、ASR / TTS已交付；不保留“图片分析”产品主导航。普通Run、候选与图片统一按实际持有的请求lease核算并发，取消逻辑状态不提前释放网络占用；纯调度租约重启清理，不将它当用户历史删除。
 
 ## 8. 角色卡与参考源码
 
