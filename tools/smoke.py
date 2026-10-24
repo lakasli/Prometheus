@@ -175,6 +175,8 @@ def main():
             submitted, _ = request('POST', messages_path, {'content': 'hello smoke', 'client_message_id': 'smoke-1'}, expected=202)
             completed = wait_run(submitted['run_id'])
             check('native backend calls configured model', completed['status'] == 'completed')
+            cli = subprocess.run([binary, 'chat', '--url', base, '--username', 'smoke-admin', '--message', 'cli-smoke'], env=dict(os.environ, DSH_ADMIN_PASSWORD=password), capture_output=True, text=True, timeout=15)
+            check('CLI uses authenticated native model pipeline', cli.returncode == 0 and cli.stdout.strip().endswith('mock-response:cli-smoke'))
             duplicate, _ = request('POST', messages_path, {'content': 'hello smoke', 'client_message_id': 'smoke-1'}, expected=202)
             check('duplicate input maps to same durable run', duplicate['run_id'] == submitted['run_id'])
             messages, _ = request('GET', messages_path)
