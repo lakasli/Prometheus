@@ -1,14 +1,19 @@
 # DSH 项目架构设计
 
-> 设计版本：0.1；资料核实日期：2026-10-24；状态：待实施的架构基线。本文的 Rust 接口、配置、数据库结构和命令均为设计示例，除明确标注的上游协议外，不代表已有实现。
+> 设计版本：0.2；资料核实日期：2026-10-24；状态：待实施的架构基线。本文的 Rust 接口、配置、数据库结构和命令均为设计示例，除明确标注的上游协议外，不代表已有实现。
 
 ## 1. 项目目标与范围
 
 构建一个能够长期运行在 Linux 上的 AI 助手：以 Rust 负责渠道、调度、记忆、权限和插件管理，采用 Cordis 的插件组织方式；支持接入 DeepSeek Harness 执行复杂任务；可以在受控环境中为自己编写、验证和安装功能插件。
 
+**用户已确定的部署基线：树莓派 5、8GB 内存、Raspberry Pi OS Lite（64 位 / aarch64），通过 SSH 部署，通过浏览器远程管理。** Lite 不含图形桌面，Web 页面在用户电脑或手机浏览器中运行；设备不需要安装桌面环境。[树莓派系统说明][S31] [树莓派 5 产品资料][S32]
+
+该基线是实施目标，不代表已完成系统安装。此前 SSH 仅验证了目标地址可登录且运行 Linux aarch64；机型、实际可用内存和发行版在首次部署时再次核验。
+
 | 需求 | 设计落点 | 首个可验收结果 |
 | --- | --- | --- |
-| Linux / Rust | Rust 主程序、CLI、插件 SDK；systemd 或容器部署 | x86_64 Linux 上接收、处理、回复一条真实消息 |
+| 树莓派 / Rust | 树莓派 5、8GB、Raspberry Pi OS Lite 64 位；Rust 主程序、CLI 和插件 SDK | 在目标 aarch64 系统上接收、处理、回复一条真实消息 |
+| 远程 Web 管理 | 静态前端、Rust 管理 API、登录、配置版本与应用状态 | 用户通过链接登录，设置模型与渠道并验证实际生效 |
 | Cordis 插件架构 | Cordis Rust 运行时适配、服务依赖、事件、生命周期 | 依赖服务撤销后插件停止，恢复后按策略重建 |
 | QQ、微信对话 | 独立渠道插件、统一消息模型、能力探测 | QQ 官方机器人和微信 iLink 私聊分别完成联调 |
 | 管理记忆 | 会话摘要、长期事实、检索、纠正、遗忘 | 用户可查到记忆来源，并能删除且阻止重新检索 |
@@ -57,6 +62,7 @@ Rust 主程序可独立部署；启用官方 Harness 后，运行环境还需包
 | 领域 | 首版选择 | 选择理由 / 替换边界 |
 | --- | --- | --- |
 | 异步网络 | Tokio、Axum、reqwest / rustls | Rust 网络与并发基础，CPU 推理独立执行 |
+| 管理前端 | Vue 3、TypeScript、Vite 静态 SPA | 本地 / CI 构建，由 Rust 提供资源；设备不常驻前端 Node 服务 |
 | 插件生命周期 | `cordis-rs` + `dsh-kernel` | 复用生命周期，隔离其 API 变化 |
 | 持久化 | SQLite WAL、SQLx、FTS5 | 单节点启动简单；仓储接口预留 PostgreSQL |
 | 向量检索 | 可选 embedding 索引 | 首版可先做 FTS5；语义索引有版本和重建流程 |
@@ -74,7 +80,13 @@ Tokio、Axum、SQLx 均有对应公开 Rust API；实施时选择经过联合验
 flowchart TB
     QQ[QQ 官方机器人] --> AD[渠道适配插件]
     WX[微信 iLink / 企业微信] --> AD
-    CLI[本地 CLI / 管理 API] --> AD
+    CLI[本地对话 CLI] --> AD
+    BROWSER[用户电脑或手机浏览器] --> WEB[Web 管理静态前端]
+    WEB --> ADMIN[Rust 管理 API 与认证]
+    ADMIN --> CONFIG[版本化配置与应用协调]
+    CONFIG --> K
+    ADMIN --> MEM
+    ADMIN --> TOOL
     AD --> IN[Inbox 与标准化消息]
     IN --> ID[身份与会话路由]
     ID --> ORCH[Run 调度与上下文组装]
@@ -120,11 +132,14 @@ flowchart TB
 | `dsh-plugin-factory` | 生成工作区、构建、验证、制品与发布 | 自己授予自己新权限 |
 | `dsh-storage` | SQL 仓储、事务、迁移、索引任务 | 业务层绕过主体与租户过滤 |
 | `dsh-delivery` | Outbox、平台限流、重试、发送状态 | 保证所有平台绝对不重复发送 |
-| `dsh-admin` | 认证管理 API、审计查询、插件与模型配置 | 默认公网无认证开放 |
+| `dsh-admin` | 静态资源托管、认证管理 API、配置草稿 / 应用协调、审计查询 | 任意系统文件编辑、shell 执行或无认证管理 |
+| `web/admin` | 模型 / 渠道 / 记忆 / 插件管理页面、状态展示、表单与 API 客户端 | 保存真实密钥或替代服务端鉴权 |
 
 ### 3.2 依赖方向
 
 `domain ← SDK / 应用服务 ← provider / adapter ← dshd 装配`。业务逻辑面向 trait；SQLx、ACP、平台 HTTP 结构留在实现层。插件之间通过服务契约通信，不互相引用具体实现 crate。只有启动装配层选择 provider。
+
+前端只通过版本化管理 API 调用应用服务，不直连 SQLite、Harness、渠道平台或 secret store。浏览器中的显示权限不替代服务端身份与 scope 校验。
 
 ## 4. Cordis 内核与插件生命周期
 
@@ -317,7 +332,7 @@ HarnessBackend 中，该循环由 Harness 执行。Rust 不再在它外面包一
 
 Rust 通过结构化参数启动固定可执行文件，独立读取 stdout 协议和 stderr 日志，设置帧大小、超时和退出监控。收到对端 JSON-RPC 请求时能够并行响应，避免在等待 `session/prompt` 返回时阻塞权限请求。
 
-会话映射持久化为 `(tenant, conversation, backend, backend_session_id, worker_scope)`。默认每个会话独立工作区和受限 worker；不同用户与群聊不共享可读写工作目录或 Harness profile 状态。后续只有通过隔离验证才允许同安全域池化。
+会话映射持久化为 `(tenant, conversation, backend, backend_session_id, worker_scope)`。默认每个会话独立工作区和受限 worker；不同用户与群聊不共享可读写工作目录或 Harness profile 状态。树莓派初始只允许一个活跃 Harness worker，空闲实例回收、等待会话排队，需要时从持久状态恢复；隔离归属不意味着为每个历史会话常驻一个 Node 进程。后续只有通过隔离验证才允许同安全域池化。
 
 ACP 的 `session/resume` 不等同于向客户端重放全部历史。DSH 保存自己的消息记录和外部任务检查点，Harness 自己保存内部会话状态；恢复时核对双方映射，无法确认已完成的副作用时进入待核对状态，不盲目重复提交。[ACP 持久化边界][S06]
 
@@ -553,6 +568,8 @@ SQLite 存规范化元数据、Run、Inbox / Outbox、记忆和审计；附件�
 | `attachments` | 内容摘要、格式、大小、ACL、保留期限 |
 | `plugin_artifacts / deployments` | 摘要、schema、来源、active version、generation |
 | `permission_grants / approvals` | 主体、资源、范围、期限、批准者与版本 |
+| `admin_sessions` | 管理用户、服务端会话 token 摘要、期限、撤销状态；独立于 SSH 身份 |
+| `config_revisions / config_apply_jobs` | 脱敏配置差异、基准版本、目标版本、各组件实际生效版本与失败原因 |
 | `scheduled_jobs` | 任务定义、时区、下一次运行、lease、目标授权 |
 | `audit_events` | 主体、动作、资源引用、结果、trace；默认无敏感正文 |
 
@@ -604,7 +621,9 @@ sequenceDiagram
 
 图中的接收确认是协议层 ACK，不代表实际给用户发出一条聊天回复。无 ACK 概念的长轮询渠道只提交游标。记忆抽取与索引通常在用户回复主链路之外执行；用户明确要求“记住”时须先完成持久写入再报告成功。
 
-## 14. 安全与管理
+## 14. 安全与远程 Web 管理
+
+### 14.1 身份与安全边界
 
 安全控制集中在身份、工具、数据、执行和发布这五个实际边界上：
 
@@ -617,31 +636,110 @@ sequenceDiagram
 
 初始角色为实例管理员、工作区管理员、普通用户、访客。个人版可简化界面，但不能省去底层鉴权。平台群主角色与 DSH 管理员角色分开映射。
 
+### 14.2 前端形态与交付
+
+管理控制台使用 Vue 3 + TypeScript + Vite 的静态 SPA。浏览器负责界面渲染，树莓派上的 Rust / Axum 提供 `/admin/` 静态资源和 `/api/admin/v1/` 管理 API；页面与 API 同源。前端本地或 CI 构建后和 Rust 制品一同发布，记录前端 build ID 与后端 commit SHA。[Vue][S33] [Vite 静态部署][S34]
+
+生产环境不运行 Vite dev / preview 或 SSR 服务；启用 Harness 才需要它自己的 Node.js 运行环境。没有 Harness 时，提供管理页面本身不要求树莓派运行 Node.js。
+
+前端按功能延迟加载、列表分页、诊断日志限制数量，避免在设备端生成大报告或在浏览器一次拉取全量历史。桌面和手机浏览器均可完成首次设置与主要配置。Vite base 和前端路由统一使用 `/admin/`；SPA fallback 只匹配页面路径，管理 API 的 404 / 401 仍返回 JSON，不能被前端 index.html 覆盖。
+
+### 14.3 页面与用户操作
+
+| 页面 | 主要功能 | 授权与结果要求 |
+| --- | --- | --- |
+| 首次设置 / 登录 | 初始化管理账户、登录退出、修改密码 | 管理账户独立于 Linux SSH 用户，不复用 SSH 密码 |
+| 总览 | 当前版本、健康状态、内存、worker 数、队列、用量与告警 | 显示实际采样时间和降级项，不将离线状态显示为正常 |
+| 模型与 Harness | provider、endpoint、模型、默认后端、预算、连接测试 | 只列实际可用能力，连接测试由后端受限执行 |
+| QQ / 微信渠道 | 账号配置、凭证更新、扫码、订阅 / 能力与连接状态 | 二维码与账号操作按租户隔离，测试消息仅发到明确授权目标 |
+| 助手与运行参数 | 提示模板、时区、并发、超时、预算与回复方式 | 8GB 基线约束下校验范围，不能通过表单扩大已授予权限 |
+| 记忆与资料 | 保留策略、scope、查询来源、纠正、遗忘及导出 | 复用记忆服务 ACL、版本与删除流程 |
+| 多模态 | Vision / ASR / TTS provider、语言、声音、附件限额 | 展示本地 / 云端数据路径及设备可用状态 |
+| 插件与权限 | 版本、启停、生成任务、权限申请、激活与回滚 | 复用制品验证与批准流程，不能直接安装任意 host 插件 |
+| 任务与诊断 | Run 查询 / 取消、应用任务、脱敏日志与审计 | 分页、按 scope 过滤，日志不含密钥 |
+| 配置历史 | 草稿、差异、校验、应用结果、历史配置回退 | 展示目标版本和各组件实际版本，区分待重启 / 失败 |
+
+首次进入管理页面时引导设置管理员、模型和渠道。保存 provider 或渠道配置后，先给出连接测试结果，再显示是否已启用；“配置已保存”不等于“渠道已连通”。界面只提供 AI 助手的配置和操作，不提供系统终端或操作系统网络配置编辑器。
+
+### 14.4 配置来源、版本与生效流程
+
+配置分为两类：
+
+- **启动配置**：监听地址、数据目录、secret store、代理信任和部署隔离边界，通过受 Git 管理的模板与部署环境配置提供。管理页面可查看脱敏状态，首版不通过页面修改这些会造成失联或改变系统边界的项。
+- **运行配置**：模型、渠道、记忆策略、插件启用和受限运行参数，以数据库中的版本化配置为权威。文件导入先生成草稿，导出只包含脱敏内容与凭证引用，不与另一个可编辑 TOML 文件互相覆盖。
+
+操作流程为：`读取脱敏配置与 revision → 编辑草稿 → 后端字段 / 跨字段校验 → 可选连接测试 → 展示差异与重启影响 → 请求应用 → 跟踪任务 → 显示实际生效结果`。
+
+1. 草稿携带基准 revision；使用 ETag / `If-Match` 检测并发修改，过期版本返回冲突并提示重新合并，不覆盖另一位管理员的修改。
+2. 离线校验不产生外部副作用。连接测试单独发起，限制目标地址、次数、时长、成本和响应内容；外部 endpoint 不能变成任意内网访问入口。
+3. 应用请求返回持久化任务 ID。按依赖关系准备新配置、排空受影响调用并切换 generation；在途 Run 固定原配置快照，新 Run 使用新版本。
+4. 记录 `desired_revision`、各组件 `applied_revision` 及状态。可热更新项执行受控重载；需要重启的项显示 `pending_restart`，不擅自重启其他服务。
+5. 应用失败保留上一有效版本并报告具体组件；部分生效时显示实际版本，不显示整体成功。重启后按持久化任务与版本水位恢复协调。
+6. 回退也创建可审计的新应用任务，恢复兼容的配置与有效凭证引用；已撤销凭证、不可逆迁移和已发生的外部动作不能靠配置回退撤销。
+
+密钥字段使用“保持 / 替换 / 删除”三态。后端只返回 `configured`、凭证引用和版本，不回传真实值；不能把 `******` 当作新密钥保存。新输入值通过受保护请求写入 secret store，草稿只保存引用；删除前检查活跃配置引用，不能破坏其他账号或组件正在使用的凭证。浏览器不持久化秘密，不在日志、导出或 `VITE_*` 构建变量中放置 API key。[Vite 环境变量边界][S35]
+
+### 14.5 管理 API 草案
+
+以下均为本项目拟实现接口，统一位于 `/api/admin/v1/`，不是 Harness 或渠道平台的接口。所有数据接口均验证会话、角色与资源 scope。
+
+| 方法与路径 | 行为 |
+| --- | --- |
+| `POST /auth/bootstrap` | 仅未初始化实例可用，校验短期一次性配对凭证后建立首个管理员 |
+| `POST /auth/login`、`POST /auth/logout`、`GET /auth/me` | 管理登录、退出、读取当前权限 |
+| `GET /status`、`GET /capabilities` | 系统状态和可配置能力 |
+| `GET /config`、`POST /config/drafts` | 脱敏配置与 ETag、创建草稿 |
+| `PATCH /config/drafts/{id}` | 带 `If-Match` 修改授权范围内的字段 |
+| `POST /config/drafts/{id}/validate`、`POST /config/drafts/{id}/checks` | 校验与异步连接测试 |
+| `POST /config/drafts/{id}/apply`、`GET /operations/{id}` | 以预期当前版本应用草稿，返回 202 和任务状态 |
+| `GET /config/revisions`、`POST /config/revisions/{id}/rollback` | 查看差异、以当前 revision 为前提申请回退 |
+| `POST /secrets`、`DELETE /secrets/{id}` | 创建 / 替换凭证版本或受限删除，无明文读取接口 |
+| `/channels`、`/models`、`/memory`、`/plugins`、`/runs` | 对应领域的受控查询和动作，写操作不使用 GET |
+
+长任务通过查询 operation 获取状态；首版采用有间隔的轮询，后续再按需要加入有鉴权的 SSE。错误统一返回错误码、字段路径和 request ID，避免把凭证、内部命令或原始 provider 响应作为错误详情回显。前后端 API schema 与制品版本一同校验，不兼容时拒绝修改并提示刷新 / 升级。
+
+### 14.6 远程访问与管理认证
+
+默认管理服务监听 `127.0.0.1:8419`。首次设置可通过 SSH 隧道在用户电脑打开 `http://127.0.0.1:18419/admin/`；日常直接通过局域网链接访问时，由 HTTPS 反向代理提供 `https://<树莓派地址或域名>/admin/`，后端仍监听 loopback。具体隧道命令见 [部署流程](development-workflow.md)。此处描述的是待实现的访问路径，不是当前已上线地址。
+
+首次管理员初始化采用 SSH / 本地管理流程生成的短期一次性配对凭证；不提供默认口令，也不能仅因为反向代理使请求来源看似为 loopback 就允许初始化。管理身份独立于机器人用户和 Linux 用户；每个 API 重新检查角色与 scope，前端隐藏按钮不构成授权。
+
+登录页、必要静态资源和登录接口可在管理会话建立前访问；初始化接口另受一次性配对凭证与未初始化状态约束。其余管理数据和动作均要求已认证会话，不把首次设置入口保留成日常绕过鉴权的路径。
+
+管理密码只保存合适的密码哈希，不保存明文。登录使用可撤销的服务端会话和 HttpOnly Cookie，设置合适的 SameSite、会话期限、登录限流以及 CSRF / Origin 校验。正常 HTTPS 模式启用 Secure Cookie；若使用纯 HTTP loopback 隧道模式，仅在明确配置该模式、后端仍绑定 loopback 且 Origin 精确匹配本地地址与端口时允许对应 Cookie 设置，不将该例外扩展到普通局域网 HTTP。[OWASP 会话管理][S36] [CSRF 防护][S37]
+
+反向代理仅信任配置的代理来源，管理页面与 API 同源，不启用任意来源 CORS。公网渠道 Webhook 与管理路径分别路由和限流；管理入口默认只经 SSH、可信局域网 HTTPS 或 VPN 访问，不因启用 QQ 回调而同时公开管理权限。
+
 ## 15. Linux 部署与运行配置
 
 ### 15.1 部署拓扑
 
 ```text
-Linux 主机
-├── 反向代理 / TLS（只公开必要 Webhook）
+树莓派 5 / 8GB / Raspberry Pi OS Lite 64 位
+├── 反向代理 / TLS（管理入口受保护，公开 Webhook 单独路由）
 ├── dshd（低权限 Rust 主进程）
 │   ├── SQLite / Outbox / Memory / 插件管理
-│   └── 本地管理 API（默认 loopback 或 Unix socket）
+│   ├── /admin/（静态 Web 管理页面）
+│   └── /api/admin/v1/（管理 API，默认 loopback）
 ├── Harness worker（可选，独立 Node.js 环境与 profile）
 ├── WASM worker（受限执行环境）
 ├── 构建 worker（无生产数据，按需创建）
-└── ASR / TTS / Vision worker（按需，GPU 单独配置）
+└── ASR / TTS worker（按需，本地模型另测）
 ```
 
-首个部署目标为项目指定的 Linux aarch64 主机，同时保留 x86_64 支持；开发交付执行 [仓库规则](../AGENTS.md) 与 [本地开发、Git 上传及 SSH 部署测试流程](development-workflow.md)。优先选择一致的 glibc 运行环境；ONNX Runtime、GPU、FFmpeg 等依赖可能需要动态库，不承诺整个部署只有一个完全静态二进制。没有本地模型时可只运行 Rust 主进程和云 provider。
+固定部署基线为树莓派 5、8GB 内存、Raspberry Pi OS Lite 64 位 / aarch64，指定 SSH 地址为 `campanus@192.168.189.191`；x86_64 作为兼容扩展目标。开发交付执行 [仓库规则](../AGENTS.md) 与 [本地开发、Git 上传及 SSH 部署测试流程](development-workflow.md)。优先选择一致的 glibc 运行环境；ONNX Runtime、FFmpeg 等依赖可能需要动态库，不承诺整个部署只有一个完全静态二进制。
 
-文件规划：配置 `/etc/dsh/`，应用状态 `/var/lib/dsh/`，运行 socket `/run/dsh/`，缓存 `/var/cache/dsh/`。日志交给 journald 或容器日志；密钥文件独立权限控制，运行用户无权修改程序和系统配置。
+默认使用远程大模型与视觉 provider，本地 ASR / TTS 选择轻量模型并限制并发；不假设树莓派板载 GPU 具备通用模型加速能力。外接加速设备或本地大模型需要独立兼容与性能验收。Rust、Harness、Wasmtime、ONNX 和编解码依赖都须在实际 aarch64 系统上验证。
+
+首次用户级部署规划在 `/home/campanus/apps/dsh/`，release 与 `shared/config / data / logs` 分离，实际路径先核验再创建。若采用系统服务安装，可映射为配置 `/etc/dsh/`、状态 `/var/lib/dsh/`、运行 socket `/run/dsh/` 与缓存 `/var/cache/dsh/`；两种布局通过启动配置选择，不在不同路径生成两份运行配置权威。日志交给 journald 或受管日志目录，密钥文件独立权限控制。
 
 ### 15.2 systemd 部署要点
 
-主服务与构建 / Harness / 模型 worker 使用不同服务身份或受限容器。主服务可以采用 `NoNewPrivileges`、`ProtectSystem`、`PrivateTmp` 等隔离项，并只开放必需目录。JIT、GPU 和构建器的需求不同，不能不加验证地复制相同限制；尤其 Wasmtime JIT 需要与可执行内存限制兼容。[systemd 执行环境][S25]
+主服务与构建 / Harness / 模型 worker 使用不同服务身份或受限容器。主服务可以采用 `NoNewPrivileges`、`ProtectSystem`、`PrivateTmp` 等隔离项，并只开放必需目录。JIT、模型运行库和构建器的需求不同，不能不加验证地复制相同限制；尤其 Wasmtime JIT 需要与可执行内存限制兼容。[systemd 执行环境][S25]
 
 独立 rootless 容器由专用 runner 管理；不向聊天主进程暴露 Docker socket，不以宿主 root 身份执行生成代码。容器之外仍需配额、挂载限制、网络策略与超时。
+
+8GB 设备对总活跃 Run、Harness、媒体推理和构建任务分别设上限。初始最多 2 个活跃 Run、1 个 Harness worker、1 个媒体推理任务和 1 个构建任务，均为待压测的保守起点；高内存任务之间再做总量准入，不能认为这几类任务同时达到上限也一定安全。前端在本地或 CI 构建；树莓派上的 Rust 构建限制并行度并避开服务繁忙时段，交换空间不作为可用物理内存的替代保证。
 
 退出顺序：停止入站接单 → 暂停取任务 → 取消 / 排空 Run → 刷新 Outbox 状态和检查点 → 关闭 worker → 显式清理 plugin fibers → 关闭数据库。设置总退出期限，超时保留恢复标记后退出。
 
@@ -653,6 +751,14 @@ listen = "127.0.0.1:8419"
 data_dir = "/var/lib/dsh"
 default_timezone = "Asia/Shanghai"
 
+[admin]
+enabled = true
+web_path = "/admin/"
+api_path = "/api/admin/v1/"
+access_mode = "ssh-tunnel"
+public_origin = "http://127.0.0.1:18419"
+session_cookie_secure = false
+
 [storage]
 backend = "sqlite"
 database_path = "/var/lib/dsh/dsh.db"
@@ -660,7 +766,7 @@ attachment_dir = "/var/lib/dsh/attachments"
 
 [agent]
 default_backend = "native"
-max_concurrent_runs = 8
+max_concurrent_runs = 2
 max_runs_per_conversation = 1
 max_tool_rounds = 12
 run_timeout_seconds = 120
@@ -671,6 +777,8 @@ transport = "acp-stdio"
 executable = "/opt/dsh-harness/bin/dsh"
 args = ["--profile", "acp"]
 isolation = "per-conversation-worker"
+max_active_workers = 1
+idle_timeout_seconds = 300
 
 [memory]
 fts_enabled = true
@@ -682,6 +790,7 @@ default_scope = "conversation"
 asr_provider = "sherpa-worker"
 tts_provider = "sherpa-worker"
 vision_provider = "configured-vision-model"
+max_concurrent_inference = 1
 max_image_megapixels = 20
 max_audio_seconds = 120
 
@@ -689,6 +798,7 @@ max_audio_seconds = 120
 generated_runtime = "wasm-component"
 artifact_dir = "/var/lib/dsh/plugins"
 activation_policy = "owner-grants"
+max_concurrent_builds = 1
 
 [channels.qq]
 enabled = false
@@ -705,6 +815,8 @@ transport = "long-poll"
 
 本示例展示配置边界，不是开箱即用配置。启动时校验 enabled 功能的 provider、凭证引用和外部依赖；必需能力缺失则失败并给出明确错误，不能声称成功启动所有功能。CLI 可允许显式的 degraded 模式。
 
+示例采用用户电脑 SSH 隧道的本地 Origin。切换到直接链接的 HTTPS 代理模式时，将 `access_mode` 改为 `https-proxy`、`public_origin` 设为实际 HTTPS 来源并启用 Secure Cookie，配置受信代理。启动校验必须拒绝“普通局域网 HTTP + 非安全 Cookie”的组合，不能只修改监听地址就公开管理服务。运行配置由管理页面生成版本，示例中的非启动字段作为初始种子，不在后续重复导入覆盖用户配置。
+
 ## 16. 可观测性、容量与错误降级
 
 每次消息处理贯穿 `trace_id / run_id / tool_call_id / plugin_version`。日志默认记录引用、耗时与错误分类，正文、密钥和音频内容不默认写入；租户和主体字段按需要脱敏。指标标签使用有限集合，避免把每个用户和消息 ID 放进指标造成高基数。
@@ -720,21 +832,23 @@ transport = "long-poll"
 | Webhook 接收持久化 | 小消息本地 p95 ≤ 200 ms，另须满足平台实际 ACK 截止时间 |
 | 文本主链路 | 不调用外部模型 / 工具时内部调度额外 p95 ≤ 100 ms |
 | 记忆检索 | 10 万条记忆、正确 scope 过滤，本地 p95 ≤ 300 ms |
-| 多会话并发 | 先验证 20 个会话、8 个活跃 Run，无跨用户泄漏和无限队列 |
+| 多会话并发 | 树莓派先验证 20 个持久会话、2 个活跃 Run 和 1 个活跃 Harness worker，无跨用户泄漏和无限队列 |
+| Web 管理 | 用户浏览器经 SSH 隧道 / HTTPS 登录，配置校验、冲突检测、应用状态与密钥不回显通过 |
 | 重启恢复 | 可从已持久化 Inbox / Run / Outbox 继续，无确认成功消息丢失 |
 | 插件故障 | 单个超时 / 超内存插件不导致主进程重启 |
 
-初始基准环境建议为 Linux aarch64、4 vCPU、8 GiB、SSD、不含本地大模型；测试前记录指定远端主机的实际硬件，不能将该建议当成已验证配置。本地模型所需内存、GPU 和吞吐另测。LLM 网络时间、语音实时率与模型成本不纳入 Rust 调度指标，不做未经测量的固定承诺。
+基准硬件与系统固定为用户指定的树莓派 5、8GB 内存、Raspberry Pi OS Lite 64 位；测试前记录实际可用内存、CPU 状态、存储类型、散热与系统版本。8GB 是标称内存，不等于所有内存都可分配给应用；SSD 为存储建议，不假称已安装。本地模型所需资源与吞吐另测。LLM 网络时间、语音实时率与模型成本不纳入 Rust 调度指标，不做未经测量的固定承诺。
 
 降级策略：ASR 不可用则保留语音引用并提示改用文字；TTS 不可用则发送文字；图像不支持则明确说明能力不可用；记忆不可用时禁止伪造“已记住”；Harness 故障时只对可安全恢复的任务切换后端。
 
 ## 17. 代码仓库规划
 
-以下是后续实施的建议目录，本次仅创建 README 与架构文档：
+以下是后续实施的建议目录；当前仓库仍为文档与规则，前端、后端和脚本尚未实现：
 
 ```text
 DSH/
 ├── README.md
+├── AGENTS.md
 ├── Cargo.toml                    # workspace
 ├── Cargo.lock
 ├── rust-toolchain.toml
@@ -755,6 +869,9 @@ DSH/
 │   ├── dsh-plugin-host/
 │   ├── dsh-plugin-factory/
 │   └── dsh-admin/
+├── web/admin/                    # Vue 3 / TypeScript 静态管理前端
+│   ├── src/                      # 页面、路由、表单与 API 客户端
+│   └── package-lock.json         # 锁定前端构建依赖
 ├── plugins/
 │   ├── channel-qq/
 │   ├── channel-weixin-ilink/
@@ -766,7 +883,7 @@ DSH/
 ├── migrations/
 ├── tests/                        # 合约 / 故障注入 / 回放 fixture
 ├── deploy/                       # systemd / 容器 / 配置示例
-└── docs/architecture.md
+└── docs/                         # 架构与开发 / 远端部署流程
 ```
 
 初期可将相近 crate 合并减少维护成本，但依赖方向和执行隔离边界保留。生成插件源码位于独立 staging 仓库 / 目录，制品存注册表，不直接改写主程序源码并重启自己。
@@ -775,13 +892,13 @@ DSH/
 
 | 阶段 | 交付内容 | 进入下一阶段的条件 |
 | --- | --- | --- |
-| M0：验证关键依赖 | 指定远端 aarch64 工具链和依赖验证、Cordis Rust PoC、ACP PoC、QQ 和 iLink 真实账号 PoC、权限边界实验 | aarch64 构建与运行路径明确；生命周期四项实验通过；ACP 可取消与恢复；渠道能力边界有实测记录 |
-| M1：文本可用 | Rust workspace、CLI、SQLite、Inbox / Outbox、NativeBackend、QQ 基础对话 | 重放不重复处理，重启可恢复，双用户和群 / 私聊隔离通过 |
-| M2：记忆与微信 | 记忆命令、来源、摘要、删除水位、iLink 或授权企微 | 纠正与遗忘不被索引 / 摘要复活；微信私聊稳定收发 |
+| M0：验证关键依赖 | 树莓派 5 / 8GB / Lite 64 位工具链和依赖验证、静态页面与 Rust API 访问 PoC、Cordis / ACP / 渠道 PoC | 无桌面访问路径与 aarch64 构建明确；生命周期实验通过；ACP 可取消与恢复；渠道能力有记录 |
+| M1：文本与基础管理 | Rust workspace、CLI、SQLite、Inbox / Outbox、NativeBackend、QQ；Web 登录、模型 / 渠道配置与应用状态 | 重启可恢复，身份隔离通过；远程浏览器能设置并验证基础配置，无密钥回显 |
+| M2：记忆与微信 | 记忆命令与页面、来源、摘要、删除水位、iLink 或授权企微、配置历史与回退 | 纠正与遗忘不复活；微信私聊稳定；并发配置冲突、应用失败与回退路径通过 |
 | M3：Harness | ACP Backend、受限 profile、MCP Gateway、检查点和授权处理 | 内置工具边界已验证；跨用户隔离、取消和故障恢复通过 |
 | M4：多模态 | 图片理解、中文 ASR、TTS、媒体上传与降级 | 真实渠道完成图像和语音闭环，格式 / 超限 / 失败路径通过 |
 | M5：插件工厂 | WIT、Rust 模板、隔离构建、验证、制品激活与回滚 | 生成一个实际可用插件；越权和资源耗尽测试被阻断 |
-| M6：运行完善 | 备份恢复、预算、指标、跨架构发布验证、发布流程 | 在干净 Linux 环境可部署、恢复并通过核心回归 |
+| M6：运行完善 | 树莓派资源压测、备份恢复、预算、Web 诊断、跨架构发布验证 | 在干净 Lite 64 位环境可部署、远程管理、恢复并通过核心回归 |
 
 M0 并行验证渠道、Cordis 和 Harness，避免到开发后期才发现账号能力或接口不满足要求。M1 即可提供最小可用助手，不必等待插件工厂完成。未验证的渠道可暂缓，用户要求的 QQ 与微信双渠道仍作为完整版本的验收项保留。
 
@@ -795,6 +912,8 @@ M0 并行验证渠道、Cordis 和 Harness，避免到开发后期才发现账�
 | 记忆 | 矛盾更正、索引延迟、向量换模型、删除后重建、备份恢复 tombstone |
 | Harness | 双向 JSON-RPC、权限交互、取消、崩溃恢复、错误 session 路由 |
 | 多模态 | 图片实际像素超限、恶意媒体、低置信 ASR、不支持的出站音频 |
+| Web 与配置 | 登录 / 退出、跨角色越权、移动端表单、密钥保持 / 替换 / 删除、并发修改冲突、待重启、部分应用失败与回退 |
+| 树莓派资源 | Lite 无桌面环境、前端无需常驻 Node、活跃 worker 上限、空闲回收、构建 / 推理准入与内存压力 |
 | 生成插件 | build.rs 越权、运行时越权、超时、超内存、schema 错误、状态回滚 |
 | 一致性 | 工具成功后进程崩溃、Outbox 发送后超时、旧租约持有者迟到写入 |
 
@@ -805,6 +924,8 @@ M0 并行验证渠道、Cordis 和 Harness，避免到开发后期才发现账�
 | 决策 | 理由 | 待验证 / 替代路径 |
 | --- | --- | --- |
 | Rust 模块化单体 + worker | 控制部署复杂度并隔离高风险执行 | 多节点需要出现实际需求再引入 |
+| 树莓派 5 / 8GB / Lite 64 位 | 用户确定的固定部署基线，无桌面运行 | 首次部署核验实际环境，worker 与模型资源实测 |
+| 静态 Web 管理 + Rust 同源 API | 用户可通过链接配置助手，不增加设备端前端运行服务 | M1 交付基础配置，后续补齐记忆 / 插件 / 历史管理 |
 | 复用 `cordis-rs` 并包装 | 避免从零复制生命周期语义 | 依赖与清理实验失败时替换 kernel |
 | ACP 为 Harness 默认接口 | 已有取消、会话与权限交互能力 | 锁定 profile、MCP 与模型版本联合验证 |
 | WASM 为生成插件默认形态 | 接口明确、权限可代理、升级可管理 | 系统集成用受限进程插件 |
@@ -849,6 +970,13 @@ M0 并行验证渠道、Cordis 和 Harness，避免到开发后期才发现账�
 - [S28：Harness 工具策略与 guard][S28]
 - [S29：ACP 权限交互源码][S29]
 - [S30：WIT 语言与版本][S30]
+- [S31：Raspberry Pi OS 版本与架构][S31]
+- [S32：树莓派 5 官方产品资料][S32]
+- [S33：Vue 官方介绍][S33]
+- [S34：Vite 静态部署][S34]
+- [S35：Vite 环境变量边界][S35]
+- [S36：OWASP 会话管理][S36]
+- [S37：OWASP CSRF 防护][S37]
 
 [S01]: https://github.com/cordiverse/cordis
 [S02]: https://docs.rs/cordis-rs/0.11.1/cordis/
@@ -880,3 +1008,10 @@ M0 并行验证渠道、Cordis 和 Harness，避免到开发后期才发现账�
 [S28]: https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/tools/README.md
 [S29]: https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/acp/acp/src/index.ts
 [S30]: https://component-model.bytecodealliance.org/design/wit.html
+[S31]: https://www.raspberrypi.com/documentation/computers/os.html
+[S32]: https://www.raspberrypi.com/products/raspberry-pi-5/
+[S33]: https://vuejs.org/guide/introduction.html
+[S34]: https://vite.dev/guide/static-deploy.html
+[S35]: https://vite.dev/guide/env-and-mode.html
+[S36]: https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html
+[S37]: https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html
