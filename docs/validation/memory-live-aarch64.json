@@ -1,0 +1,22 @@
+{
+  "kind": "assistant-memory isolated real-model acceptance",
+  "started_at": "2026-10-24T09:45:24.945815+00:00",
+  "status": "passed",
+  "commit": "60ef557388203150d56ab41348649601e735630c",
+  "binary_sha256": "eca09520a98414ea271603be2c2e2a836613fc37589d4dd424a527491a807bb7",
+  "real_external_model_tested": true,
+  "real_qq_tested": false,
+  "production_model_configuration_read": true,
+  "production_database_modified": false,
+  "real_user_content_accessed": false,
+  "checks": [
+    "isolated instance accepts the existing real provider configuration",
+    "real model recalls a synthetic shared assistant memory",
+    "real model retains assistant memory across a new conversation",
+    "real model uses a corrected fact and excludes its former echo",
+    "real model reports no fact after forgetting in the original conversation",
+    "real model cannot recover the forgotten fact after daemon restart"
+  ],
+  "finished_at": "2026-10-24T09:45:32.610154+00:00",
+  "passed": 6
+}
