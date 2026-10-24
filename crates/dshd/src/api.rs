@@ -23,6 +23,7 @@ pub fn router(state: AppState) -> Router {
     let web = state.0.options.web_dir.clone();
     Router::new()
         .merge(crate::character_api::router())
+        .merge(crate::conversation_images_api::router())
         .route("/health/live",get(||async{Json(json!({"status":"ok","version":env!("CARGO_PKG_VERSION"),"commit":crate::build_sha()}))}))
         .route("/health/ready",get(ready))
         .route("/api/admin/v1/auth/status",get(auth::auth_status))
@@ -120,9 +121,16 @@ fn memory() -> (Option<u64>, Option<u64>) {
     (get("MemTotal:"), get("MemAvailable:"))
 }
 async fn capabilities(_admin: Admin) -> Json<Value> {
-    Json(
+    let mut result = Json(
         json!({"api_version":"v1","milestone":"M2-memory","backends":["native"],"channels":["web","cli","qq-c2c","qq-group","qq-channel","weixin-ilink-c2c"],"weixin_ilink":{"text_private":true,"linked_owner_only":true,"groups":false,"media":false,"max_accounts":1},"text":true,"character_cards":true,"character_card_profile":1,"qq_persona_switch":"private_only","memory":true,"assistant_memory":{"identity":"stable-instance","visibility":["shared","private"],"explicit_commands":true,"full_text_search":true,"automatic_extraction":false,"candidate_extraction":{"mode":"explicit_sources","review_required":true,"visibility":"private","max_sources":12,"max_candidates":3},"summaries":true,"summary_policy":{"keep_recent_turns":4,"max_batch_turns":8,"timeout_seconds":20,"max_concurrent":1},"source_tracing":true,"context_invalidation":true},"harness_runtime":false,"image_analysis":{"standalone":true,"formats":["png"],"max_images":1,"max_image_bytes":1048576,"conversation_integration":false},"vision":false,"asr":false,"tts":false,"pure_wasm_workbench":{"abi":"calc(i32,i32)->i32","manual_approval":true,"manual_execution":true,"host_imports":false,"chat_tool_registration":false},"generated_plugins":false,"runtime_limits":{"max_concurrent_runs":2},"configuration":{"hot_reload":true,"restart_required_fields":[]}}),
-    )
+    );
+    result.0["vision"] = json!(true);
+    result.0["conversation_images"] = json!({"channels":["web"],"formats":["png"],"max_images":1,"max_image_bytes":1048576,"provider":"deepseek","model":"deepseek-flash","basis":"vision_description","role_vision_module":false,"draft_tests":false});
+    result.0["image_analysis"]["conversation_integration"] = json!(true);
+    result.0["image_analysis"]["placement"] = json!("development_diagnostics");
+    result.0["pure_wasm_workbench"]["placement"] = json!("development_diagnostics");
+    result.0["pure_wasm_workbench"]["experimental"] = json!(true);
+    result
 }
 
 async fn get_config(State(state): State<AppState>, _admin: Admin) -> ApiResult<Response> {
@@ -471,10 +479,11 @@ async fn messages(
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
     own_conversation(&state, &id, &admin.id)?;
-    let items=state.db(|db|{let mut stmt=db.prepare("SELECT id,role,content,created_at FROM (SELECT rowid,id,role,content,created_at FROM messages WHERE conversation_id=?1 ORDER BY rowid DESC LIMIT 200) ORDER BY rowid")?;let rows=stmt.query_map([id],|r|Ok(json!({"id":r.get::<_,String>(0)?,"role":r.get::<_,String>(1)?,"content":r.get::<_,String>(2)?,"created_at":r.get::<_,i64>(3)?})))?;Ok(rows.collect::<Result<Vec<_>,_>>()?)})?;
+    let items=state.db(|db|{let mut stmt=db.prepare("SELECT id,role,content,created_at,run_id FROM (SELECT rowid,id,role,content,created_at,run_id FROM messages WHERE conversation_id=?1 ORDER BY rowid DESC LIMIT 200) ORDER BY rowid")?;let rows=stmt.query_map([id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,i64>(3)?,r.get::<_,Option<String>>(4)?)))?.collect::<Result<Vec<_>,_>>()?;let mut items=Vec::new();for(message,role,content,created,run)in rows {let mut item=json!({"id":message,"role":role,"content":content,"created_at":created});if let Some(run)=run {if role=="user" {if let Some(image)=crate::conversation_images::metadata(db,&run)? {item["image"]=image;}}else if role=="assistant" && crate::conversation_images::used_vision(db,&run)? {item["basis"]=json!("vision_description");}}items.push(item);}Ok(items)})?;
     Ok(Json(json!({"items":items})))
 }
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct MessageBody {
     content: String,
     client_message_id: String,
@@ -509,6 +518,11 @@ async fn run(
     let mut record = record;
     record["character"] = run_character(&state, &id)?;
     record["legacy"] = json!(record["character"].is_null());
+    if record["status"] == "completed"
+        && state.db(|db| crate::conversation_images::used_vision(db, &id))?
+    {
+        record["basis"] = json!("vision_description");
+    }
     Ok(Json(record))
 }
 
@@ -537,7 +551,7 @@ async fn cancel_run(
     admin: Admin,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let changed=state.db(|db|Ok(db.execute("UPDATE runs SET status='cancelled',updated_at=?1 WHERE id=?2 AND owner_id=?3 AND status IN ('queued','running')",params![now(),id,admin.id])?))?;
+    let changed=state.db(|db|{let tx=db.transaction()?;let changed=tx.execute("UPDATE runs SET status='cancelled',updated_at=?1 WHERE id=?2 AND owner_id=?3 AND status IN ('queued','running')",params![now(),id,admin.id])?;if changed!=0 {crate::conversation_images::finish_run_in(&tx,&id,"cancelled")?;}tx.commit()?;Ok(changed)})?;
     if changed == 0 {
         return Err(ApiError::not_found());
     }

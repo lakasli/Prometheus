@@ -1,5 +1,5 @@
 {
-  "schema_reader": 7,
+  "schema_reader": 8,
   "character_snapshot": 1,
   "assistant_memory": 1,
   "memory_context": 1,
@@ -8,5 +8,6 @@
   "weixin_private_context": 1,
   "memory_candidates": 1,
   "standalone_image_analysis": 1,
-  "pure_wasm_workbench": 1
+  "pure_wasm_workbench": 1,
+  "conversation_images": 1
 }

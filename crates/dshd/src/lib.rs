@@ -4,6 +4,8 @@ pub mod character;
 pub mod character_api;
 pub mod character_import;
 pub mod config;
+pub mod conversation_images;
+pub mod conversation_images_api;
 pub mod conversation_summary;
 pub mod error;
 pub mod image_analysis;

@@ -532,7 +532,7 @@ fn plan(state: &AppState, run_id: &str, config: &RuntimeConfig) -> anyhow::Resul
         .max(floor);
     // Older source Runs must be settled model work. Test snapshots and local
     // commands never count toward either the threshold or the coverage bound.
-    let eligible_sql = "r.conversation_id=?1 AND r.owner_id=?2 AND r.status='completed' AND r.run_kind='model' AND r.rowid>?3 AND r.rowid<?4 AND coalesce(json_extract(r.character_snapshot_json,'$.is_test'),0)=0";
+    let eligible_sql = format!("r.conversation_id=?1 AND r.owner_id=?2 AND r.status='completed' AND r.run_kind='model' AND r.rowid>?3 AND r.rowid<?4 AND coalesce(json_extract(r.character_snapshot_json,'$.is_test'),0)=0{}",crate::conversation_images::summary_exclusion(&tx)?);
     let unsummarized: i64 = tx.query_row(
         &format!("SELECT count(*) FROM runs r WHERE {eligible_sql}"),
         params![conversation, owner, start, run_rowid],

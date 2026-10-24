@@ -128,6 +128,7 @@ impl AppState {
         crate::weixin_login::initialize(&db)?;
         crate::memory_candidates::initialize(&db)?;
         crate::image_analysis::initialize(&db)?;
+        crate::conversation_images::initialize(&db)?;
         crate::wasm_workbench::initialize(&db)?;
         crate::worker::initialize(&db)?;
         // Queued items survive restart. An interrupted external request is not blindly replayed.

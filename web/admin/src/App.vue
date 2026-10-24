@@ -16,6 +16,7 @@ import MemoryCandidates from "./components/MemoryCandidates.vue";
 import WeixinChannel from "./components/WeixinChannel.vue";
 import ImageAnalysis from "./components/ImageAnalysis.vue";
 import WasmWorkbench from "./components/WasmWorkbench.vue";
+import ConversationComposer from "./components/ConversationComposer.vue";
 import {
   api,
   ApiError,
@@ -29,6 +30,7 @@ import type {
   AuthResponse,
   AuthUser,
   ChatMessage,
+  ChatSubmission,
   Check,
   CharacterCardList,
   ConfigResponse,
@@ -50,8 +52,7 @@ type Page =
   | "characters"
   | "qq"
   | "weixin"
-  | "images"
-  | "wasm"
+  | "diagnostics"
   | "chat"
   | "history"
   | "memory";
@@ -105,18 +106,11 @@ const navigation: {
     description: "直接与助手对话，验证模型配置。",
   },
   {
-    id: "images",
-    icon: "picture",
-    title: "图片分析",
-    eyebrow: "IMAGE ANALYSIS",
-    description: "发送一张PNG，获得独立的图片分析。",
-  },
-  {
-    id: "wasm",
+    id: "diagnostics",
     icon: "cpu",
-    title: "计算工坊",
-    eyebrow: "PURE COMPUTE WORKBENCH",
-    description: "生成、核对并手动运行受限的整数计算模块。",
+    title: "任务与诊断",
+    eyebrow: "TASKS & DIAGNOSTICS",
+    description: "查看任务状态和脱敏运行信息。",
   },
   {
     id: "memory",
@@ -134,6 +128,9 @@ const navigation: {
   },
 ];
 const page = ref<Page>("overview");
+const developmentOpen = ref(false);
+const wasmDiagnosticOpen = ref(false);
+const imageDiagnosticOpen = ref(false);
 const activePage = computed(() =>
   navigation.find((item) => item.id === page.value)!,
 );
@@ -216,16 +213,19 @@ const conversationCharacterLabel = computed(() =>
       : "原有助手",
 );
 const messages = ref<ChatMessage[]>([]);
-const chatInput = ref("");
+const conversationComposer = ref<InstanceType<
+  typeof ConversationComposer
+> | null>(null);
+const chatSubmitting = ref(false);
 const chatRunning = ref(false);
 const chatRun = ref<Run | null>(null);
 const messageList = ref<HTMLElement | null>(null);
 let disposed = false;
+let chatEpoch = 0;
+let chatController: AbortController | null = null;
+let lastChatRun: ChatSubmission | null = null;
 
 const configuredModel = computed(() => Boolean(config.model.credential_ref));
-const memoryCommand = computed(() =>
-  /^\/memory(?:\s|$)/.test(chatInput.value.trim()),
-);
 const configuredQq = computed(() => Boolean(config.qq.credential_ref));
 const qqConnection = computed(() =>
   describeQqConnection(status.value, Boolean(statusError.value)),
@@ -297,6 +297,7 @@ watch(
 );
 
 function expireSession() {
+  stopChatPolling();
   authState.value = "login";
   user.value = null;
   clearCsrfToken();
@@ -363,12 +364,19 @@ function refreshStatus(quiet = false): Promise<void> {
 }
 
 function navigate(id: Page) {
+  if (id !== page.value && !mayLeaveChat()) return;
   if (
     id !== page.value &&
     characterCards.value?.hasUnsaved &&
     !window.confirm("角色卡有未保存的修改，确定离开？")
   )
     return;
+  if (id !== "chat") stopChatPolling();
+  if (id === "diagnostics") {
+    developmentOpen.value = false;
+    wasmDiagnosticOpen.value = false;
+    imageDiagnosticOpen.value = false;
+  }
   page.value = id;
   location.hash = id;
   mobileMenu.value = false;
@@ -378,11 +386,19 @@ function navigate(id: Page) {
     void task("读取会话", async () => {
       await loadConversations();
       await loadCharacterOptions();
+      if (selectedConversation.value) await refreshChatHistory();
     });
 }
 function readHash() {
-  const id = location.hash.slice(1);
+  const requested = location.hash.slice(1);
+  const legacy =
+    requested === "images" || requested === "wasm" ? requested : null;
+  const id = legacy ? "diagnostics" : requested;
   if (navigation.some((item) => item.id === id)) {
+    if (id !== page.value && !mayLeaveChat()) {
+      location.hash = page.value;
+      return;
+    }
     if (
       id !== page.value &&
       characterCards.value?.hasUnsaved &&
@@ -391,8 +407,34 @@ function readHash() {
       location.hash = page.value;
       return;
     }
+    if (id !== "chat") stopChatPolling();
     page.value = id as Page;
+    if (legacy) {
+      developmentOpen.value = true;
+      wasmDiagnosticOpen.value = legacy === "wasm";
+      imageDiagnosticOpen.value = legacy === "images";
+      history.replaceState(
+        null,
+        "",
+        `${location.pathname}${location.search}#diagnostics`,
+      );
+    }
   }
+}
+function mayLeaveChat() {
+  return (
+    !conversationComposer.value?.hasUnconfirmed ||
+    window.confirm(
+      "上一条消息提交结果未确认。离开会清除本地草稿，不会重发；可稍后查看会话历史。确认离开？",
+    )
+  );
+}
+function stopChatPolling() {
+  chatEpoch++;
+  chatController?.abort();
+  chatController = null;
+  chatRunning.value = false;
+  chatSubmitting.value = false;
 }
 async function task(label: string, fn: () => Promise<unknown>) {
   if (busy.value) return;
@@ -660,6 +702,8 @@ function newConversationCharacter() {
     : undefined;
 }
 async function openTestConversation(conversation: Conversation) {
+  if (!mayLeaveChat()) return;
+  stopChatPolling();
   await task("读取测试会话", async () => {
     await loadConversations();
     await loadCharacterOptions();
@@ -678,6 +722,8 @@ async function openTestConversation(conversation: Conversation) {
   });
 }
 async function createConversation() {
+  if (!mayLeaveChat()) return;
+  stopChatPolling();
   await task("新建会话", async () => {
     const conversation = await api<Conversation>("/conversations", {
       method: "POST",
@@ -690,10 +736,18 @@ async function createConversation() {
     selectedConversation.value = conversation.id;
     messages.value = [];
     chatRun.value = null;
+    lastChatRun = null;
   });
 }
 async function selectConversation(id: string) {
-  if (chatRunning.value) return;
+  if (
+    chatRunning.value ||
+    chatSubmitting.value ||
+    busy.value ||
+    !mayLeaveChat()
+  )
+    return;
+  stopChatPolling();
   await task("读取消息", async () => {
     const result = await api<{ items: ChatMessage[] }>(
       `/conversations/${encodeURIComponent(id)}/messages`,
@@ -701,6 +755,7 @@ async function selectConversation(id: string) {
     selectedConversation.value = id;
     messages.value = result.items;
     chatRun.value = null;
+    lastChatRun = null;
     await scrollMessages();
   });
 }
@@ -711,93 +766,142 @@ async function scrollMessages() {
     behavior: "smooth",
   });
 }
-async function sendMessage() {
-  if (!chatInput.value.trim() || chatRunning.value || busy.value) return;
-  const content = chatInput.value.trim();
+async function prepareChatConversation(title: string, signal: AbortSignal) {
+  if (selectedConversation.value) return selectedConversation.value;
+  const conversation = await api<Conversation>("/conversations", {
+    method: "POST",
+    body: { title, character: newConversationCharacter() },
+    signal,
+  });
+  selectedConversation.value = conversation.id;
+  messages.value = [];
+  chatRun.value = null;
+  lastChatRun = null;
+  await nextTick();
+  await loadConversations();
+  return conversation.id;
+}
+async function refreshChatHistory() {
+  const id = selectedConversation.value;
+  if (!id) return;
+  const token = chatEpoch;
+  const result = await api<{ items: ChatMessage[] }>(
+    `/conversations/${encodeURIComponent(id)}/messages`,
+  );
+  if (
+    disposed ||
+    token !== chatEpoch ||
+    selectedConversation.value !== id ||
+    authState.value !== "ready" ||
+    page.value !== "chat"
+  )
+    return;
+  messages.value = result.items;
+  await scrollMessages();
+}
+async function inspectChatHistory() {
+  if (
+    lastChatRun?.conversation_id === selectedConversation.value &&
+    !chatRunning.value
+  ) {
+    await followChatRun(lastChatRun);
+  } else {
+    await task("刷新会话历史", refreshChatHistory);
+  }
+}
+async function followChatRun(submitted: ChatSubmission) {
+  stopChatPolling();
+  const id = submitted.conversation_id;
+  lastChatRun = submitted;
+  const token = chatEpoch;
+  const controller = new AbortController();
+  chatController = controller;
   chatRunning.value = true;
+  chatRun.value = { id: submitted.run_id, status: "queued" };
   error.value = "";
   notice.value = "";
-  try {
-    if (!selectedConversation.value) {
-      const conversation = await api<Conversation>("/conversations", {
-        method: "POST",
-        body: {
-          title: content.slice(0, 28),
-          character: newConversationCharacter(),
-        },
-      });
-      selectedConversation.value = conversation.id;
-      await loadConversations();
+  const current = () =>
+    !disposed &&
+    token === chatEpoch &&
+    selectedConversation.value === id &&
+    page.value === "chat" &&
+    authState.value === "ready";
+  const read = async <T,>(path: string) => {
+    const timer = setTimeout(() => controller.abort(), 10000);
+    try {
+      return await api<T>(path, { signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
     }
-    const id = selectedConversation.value!;
-    const submitted = await api<{ run_id: string }>(
+  };
+  const pause = () =>
+    new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        controller.signal.removeEventListener("abort", done);
+        resolve();
+      };
+      const timer = setTimeout(done, 2000);
+      controller.signal.addEventListener("abort", done, { once: true });
+      if (controller.signal.aborted) done();
+    });
+  const terminal = [
+    "completed",
+    "failed",
+    "cancelled",
+    "interrupted",
+    "outcome_unknown",
+  ];
+  try {
+    const initial = await read<{ items: ChatMessage[] }>(
       `/conversations/${encodeURIComponent(id)}/messages`,
-      {
-        method: "POST",
-        body: { content, client_message_id: crypto.randomUUID() },
-      },
     );
-    chatInput.value = "";
-    messages.value = (
-      await api<{ items: ChatMessage[] }>(
-        `/conversations/${encodeURIComponent(id)}/messages`,
-      )
-    ).items;
+    if (!current()) return;
+    messages.value = initial.items;
     await scrollMessages();
-    for (let index = 0; index < 360 && !disposed; index++) {
-      chatRun.value = await api<Run>(
+    for (
+      let index = 0;
+      index < 180 && current() && !controller.signal.aborted;
+      index++
+    ) {
+      const result = await read<Run>(
         `/runs/${encodeURIComponent(submitted.run_id)}`,
       );
-      if (
-        [
-          "completed",
-          "failed",
-          "cancelled",
-          "interrupted",
-          "outcome_unknown",
-        ].includes(chatRun.value.status)
-      )
-        break;
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (!current()) return;
+      chatRun.value = result;
+      if (terminal.includes(result.status)) break;
+      await pause();
     }
-    messages.value = (
-      await api<{ items: ChatMessage[] }>(
-        `/conversations/${encodeURIComponent(id)}/messages`,
-      )
-    ).items;
+    if (!current() || controller.signal.aborted) return;
+    const result = await read<{ items: ChatMessage[] }>(
+      `/conversations/${encodeURIComponent(id)}/messages`,
+    );
+    if (!current()) return;
+    messages.value = result.items;
     if (
       ["failed", "interrupted", "outcome_unknown"].includes(
         chatRun.value?.status || "",
       )
     )
       error.value =
-        chatRun.value?.error || "模型调用未完成，请检查模型配置和服务日志。";
-    if (
-      chatRun.value &&
-      ![
-        "completed",
-        "failed",
-        "cancelled",
-        "interrupted",
-        "outcome_unknown",
-      ].includes(chatRun.value.status)
-    )
-      notice.value = "任务仍在后台处理，可以稍后重新打开会话查看结果。";
+        chatRun.value?.error || "任务未完成，可刷新会话与任务核对状态。";
+    else if (!terminal.includes(chatRun.value?.status || ""))
+      notice.value = "任务仍在后台处理，可稍后刷新会话与任务；不会重发消息。";
     await scrollMessages();
     await refreshStatus();
   } catch (caught) {
-    error.value = errorMessage(caught);
+    if (!current()) return;
+    if (caught instanceof ApiError && caught.status === 401) expireSession();
+    else
+      error.value =
+        "消息任务已创建，状态查询未完成。请刷新会话与任务，不要再次发送同一消息。";
   } finally {
-    chatRunning.value = false;
+    if (token === chatEpoch && !disposed) {
+      chatRunning.value = false;
+      chatController = null;
+    }
   }
 }
-function chatKeydown(event: KeyboardEvent) {
-  if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
-    event.preventDefault();
-    void sendMessage();
-  }
-}
-
 onMounted(() => {
   readHash();
   window.addEventListener("hashchange", readHash);
@@ -808,6 +912,7 @@ onMounted(() => {
 });
 onUnmounted(() => {
   disposed = true;
+  stopChatPolling();
   if (statusTimer !== undefined) clearTimeout(statusTimer);
   statusController?.abort();
   window.removeEventListener("hashchange", readHash);
@@ -983,7 +1088,8 @@ onUnmounted(() => {
       <div class="device-card">
         <div class="device-icon"><Icon name="cpu" /></div>
         <div>
-          <strong>Raspberry Pi 5</strong><span>8GB · Lite 64 位部署基线</span>
+          <strong>Raspberry Pi 5</strong
+          ><span>8GB · Ubuntu 24.04 LTS 64 位 / aarch64</span>
         </div>
         <span class="status-dot"></span>
       </div>
@@ -1045,7 +1151,10 @@ onUnmounted(() => {
             <p>{{ activePage.description }}</p>
           </div>
           <span
-            v-if="['overview', 'assistant', 'qq', 'history'].includes(page) && configState"
+            v-if="
+              ['overview', 'assistant', 'qq', 'history'].includes(page) &&
+              configState
+            "
             class="revision-label"
             ><span class="status-dot" :class="{ amber: !effective }"></span
             >{{ effective ? "当前配置已生效" : "配置等待生效"
@@ -1676,7 +1785,7 @@ onUnmounted(() => {
                 >新对话角色
                 <select
                   v-model="characterChoice"
-                  :disabled="chatRunning || !!busy"
+                  :disabled="chatRunning || chatSubmitting || !!busy"
                   aria-label="新对话角色"
                 >
                   <option value="">
@@ -1700,7 +1809,7 @@ onUnmounted(() => {
               </label>
               <button
                 class="button primary full"
-                :disabled="!!busy || chatRunning"
+                :disabled="!!busy || chatRunning || chatSubmitting"
                 @click="createConversation"
               >
                 <Icon name="plus" :size="17" />新建对话
@@ -1713,7 +1822,7 @@ onUnmounted(() => {
                 :key="conversation.id"
                 class="conversation-button"
                 :class="{ active: selectedConversation === conversation.id }"
-                :disabled="chatRunning"
+                :disabled="chatRunning || chatSubmitting || !!busy"
                 @click="selectConversation(conversation.id)"
               >
                 <Icon name="chat" :size="17" /><span
@@ -1744,6 +1853,16 @@ onUnmounted(() => {
                   :class="configuredModel ? 'green' : 'neutral'"
                   >{{ configuredModel ? "文本模型" : "需要模型凭证" }}</span
                 >
+                <button
+                  type="button"
+                  class="button secondary small"
+                  :disabled="
+                    chatRunning || chatSubmitting || !selectedConversation
+                  "
+                  @click="inspectChatHistory"
+                >
+                  刷新会话与任务
+                </button>
               </div>
               <div ref="messageList" class="message-list" aria-live="polite">
                 <div v-if="!messages.length" class="chat-welcome">
@@ -1798,6 +1917,36 @@ onUnmounted(() => {
                     }}
                   </div>
                   <div class="message-content">{{ message.content }}</div>
+                  <div
+                    v-if="message.image"
+                    class="message-image-metadata"
+                    aria-label="历史图片信息"
+                  >
+                    <strong
+                      >PNG 图片 · {{ message.image.width }} ×
+                      {{ message.image.height }}</strong
+                    >
+                    <span>{{
+                      ["queued", "running"].includes(message.image.status)
+                        ? "图片处理中"
+                        : message.image.status === "described"
+                          ? "视觉描述已生成，处理图片已清理"
+                          : "图片处理已结束，处理图片已清理"
+                    }}</span>
+                    <small>原始上传文件不留存；历史仅保留图片信息。</small>
+                    <details>
+                      <summary>查看图片 SHA-256</summary>
+                      <code>{{ message.image.sha256 }}</code>
+                    </details>
+                  </div>
+                  <span
+                    v-if="
+                      message.role === 'assistant' &&
+                      message.basis === 'vision_description'
+                    "
+                    class="message-vision-basis"
+                    >基于图片视觉描述的回答</span
+                  >
                   <time>{{ formatDate(message.created_at) }}</time>
                 </article>
                 <div v-if="chatRunning" class="chat-pending">
@@ -1809,34 +1958,25 @@ onUnmounted(() => {
                   }}
                 </div>
               </div>
-              <form class="chat-composer" @submit.prevent="sendMessage">
-                <textarea
-                  v-model="chatInput"
-                  rows="2"
-                  maxlength="16000"
-                  placeholder="给助手发条消息…"
-                  aria-label="对话消息"
-                  :disabled="chatRunning"
-                  @keydown="chatKeydown"
-                ></textarea>
-                <div>
-                  <span>Enter 发送 · Shift + Enter 换行</span
-                  ><button
-                    class="button primary small"
-                    type="submit"
-                    :disabled="
-                      chatRunning ||
-                      !!busy ||
-                      !chatInput.trim() ||
-                      (!configuredModel && !memoryCommand)
-                    "
-                  >
-                    <span v-if="chatRunning" class="spinner"></span
-                    >{{ chatRunning ? "处理中" : "发送"
-                    }}<Icon v-if="!chatRunning" name="arrow" :size="17" />
-                  </button>
-                </div>
-              </form>
+              <ConversationComposer
+                ref="conversationComposer"
+                :conversation-id="selectedConversation"
+                :is-test="
+                  !!(
+                    selectedConversationData?.test ||
+                    selectedConversationData?.is_test ||
+                    selectedConversationData?.character?.is_test
+                  )
+                "
+                :model-configured="configuredModel"
+                :running="chatRunning"
+                :blocked="!!busy"
+                :prepare-conversation="prepareChatConversation"
+                @busy="chatSubmitting = $event"
+                @accepted="followChatRun"
+                @unauthorized="expireSession"
+                @inspect-history="inspectChatHistory"
+              />
             </div>
           </section>
         </template>
@@ -1846,8 +1986,87 @@ onUnmounted(() => {
           <ConversationSummary />
         </div>
         <WeixinChannel v-if="page === 'weixin'" />
-        <ImageAnalysis v-if="page === 'images'" />
-        <WasmWorkbench v-if="page === 'wasm'" />
+        <div v-if="page === 'diagnostics'" class="diagnostics-page">
+          <section class="panel" aria-label="任务与诊断概览">
+            <div class="panel-heading">
+              <div>
+                <h2>运行与任务状态</h2>
+                <p>仅展示脱敏状态；不会执行系统命令或发起模型任务。</p>
+              </div>
+              <button
+                type="button"
+                class="button secondary small"
+                :disabled="statusRefreshing"
+                @click="refreshStatus()"
+              >
+                刷新诊断状态
+              </button>
+            </div>
+            <dl class="diagnostics-metrics">
+              <div>
+                <dt>等待处理</dt>
+                <dd>{{ status?.queue?.queued ?? "—" }}</dd>
+              </div>
+              <div>
+                <dt>处理中</dt>
+                <dd>{{ status?.queue?.running ?? "—" }}</dd>
+              </div>
+              <div>
+                <dt>失败任务</dt>
+                <dd>{{ status?.queue?.failed ?? "—" }}</dd>
+              </div>
+              <div>
+                <dt>待投递回复</dt>
+                <dd>{{ status?.queue?.outbox_pending ?? "—" }}</dd>
+              </div>
+              <div>
+                <dt>结果未知的投递</dt>
+                <dd>{{ status?.queue?.outbox_unknown ?? "—" }}</dd>
+              </div>
+              <div>
+                <dt>运行环境</dt>
+                <dd>Ubuntu 24.04 LTS 64 位 / aarch64</dd>
+              </div>
+            </dl>
+          </section>
+          <details
+            class="panel development-diagnostics"
+            :open="developmentOpen"
+            @toggle="
+              developmentOpen = ($event.target as HTMLDetailsElement).open
+            "
+          >
+            <summary>开发诊断 / 实验验证，非正式插件能力</summary>
+            <p>
+              以下保留实验工具与旧记录，默认收起。它们不是已接入对话的正式插件，打开区域不会自动发送需求、图片或执行代码。
+            </p>
+            <details
+              :open="wasmDiagnosticOpen"
+              @toggle="
+                wasmDiagnosticOpen = ($event.target as HTMLDetailsElement).open
+              "
+            >
+              <summary>受限计算工坊实验</summary>
+              <WasmWorkbench v-if="developmentOpen && wasmDiagnosticOpen" />
+            </details>
+            <details
+              :open="imageDiagnosticOpen"
+              @toggle="
+                imageDiagnosticOpen = ($event.target as HTMLDetailsElement).open
+              "
+            >
+              <summary>旧独立图片分析与兼容记录</summary>
+              <p>
+                正常图片对话请使用“对话工作台”的附件入口。此处仅保留旧独立任务记录与诊断。
+              </p>
+              <ImageAnalysis v-if="developmentOpen && imageDiagnosticOpen" />
+            </details>
+            <p class="footnote">
+              清除图片任务是应用内的逻辑清理；数据库/WAL
+              和离线备份采用独立保留策略。
+            </p>
+          </details>
+        </div>
         <footer class="page-footer">
           <span>DSH · 你的助手，你来掌控</span
           ><span title="前端构建提交"

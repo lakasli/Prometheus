@@ -143,6 +143,7 @@ pub fn invalidate(db: &Connection, assistant: &str, memory: &str) -> anyhow::Res
              assistant_id=excluded.assistant_id,updated_at=excluded.updated_at",
             params![conversation, assistant, through, timestamp],
         )?;
+        crate::conversation_images::invalidate_in(db, &conversation)?;
         // Worker result persistence is conditional on status='running'. This
         // prevents an in-flight old response from becoming new history/outbox.
         db.execute(

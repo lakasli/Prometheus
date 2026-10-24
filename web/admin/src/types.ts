@@ -77,6 +77,38 @@ export interface ChatMessage {
   role: string;
   content: string;
   created_at: Timestamp;
+  image?: {
+    width: number;
+    height: number;
+    sha256: string;
+    status:
+      | "queued"
+      | "running"
+      | "described"
+      | "failed"
+      | "cancelled"
+      | "interrupted"
+      | "invalidated";
+    original_retained: false;
+  } | null;
+  basis?: "vision_description" | null;
+}
+export interface ConversationImageCapabilities {
+  available: boolean;
+  provider: "deepseek";
+  model: "deepseek-flash";
+  basis: "vision_description";
+  max_image_bytes: number;
+  max_width: number;
+  max_height: number;
+  max_pixels: number;
+  formats: string[];
+  max_images: number;
+  availability_code?: string | null;
+}
+export interface ChatSubmission {
+  run_id: string;
+  conversation_id: string;
 }
 export interface Run {
   id: string;

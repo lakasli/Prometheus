@@ -63,6 +63,9 @@ def check(data_dir, release_source):
         uses_images = "image_analysis_jobs" in tables and db.execute("SELECT EXISTS(SELECT 1 FROM image_analysis_jobs)").fetchone()[0]
         if uses_images and int(capabilities.get("standalone_image_analysis", 0)) < 1:
             raise RuntimeError("Target release lacks standalone image analysis ownership and erasure support")
+        uses_conversation_images = "conversation_images" in tables and db.execute("SELECT EXISTS(SELECT 1 FROM conversation_images)").fetchone()[0]
+        if uses_conversation_images and int(capabilities.get("conversation_images", 0)) < 1:
+            raise RuntimeError("Target release lacks conversation image provenance and invalidation support")
         uses_wasm = any(
             table in tables and db.execute(f"SELECT EXISTS(SELECT 1 FROM {table})").fetchone()[0]
             for table in ("wasm_workbench_jobs", "wasm_workbench_artifacts")

@@ -311,7 +311,8 @@ fn source_window(
     owned(db, conversation, owner)?;
     let floor = crate::memory_context::history_floor(db, conversation).map_err(internal)?;
     let current_epoch = epoch(db, conversation).map_err(internal)?;
-    let mut statement = db.prepare(&format!("SELECT m.id,m.content,m.created_at,r.rowid,r.id FROM messages m JOIN runs r ON r.id=m.run_id WHERE {SOURCE_FILTER} ORDER BY r.rowid DESC LIMIT {MAX_SCAN_SOURCES}")).api()?;
+    let images = crate::conversation_images::source_exclusion(db).map_err(internal)?;
+    let mut statement = db.prepare(&format!("SELECT m.id,m.content,m.created_at,r.rowid,r.id FROM messages m JOIN runs r ON r.id=m.run_id WHERE {SOURCE_FILTER}{images} ORDER BY r.rowid DESC LIMIT {MAX_SCAN_SOURCES}")).api()?;
     let rows = statement
         .query_map(params![conversation, owner, floor], source_row)
         .api()?;
@@ -567,7 +568,8 @@ fn validate_sources(db: &Connection, job: &ClaimedJob) -> ApiResult<Vec<SourceVi
         return Err(conflict());
     }
     let mut sources = Vec::new();
-    let mut statement=db.prepare(&format!("SELECT m.id,m.content,m.created_at,r.rowid,r.id FROM messages m JOIN runs r ON r.id=m.run_id WHERE {SOURCE_FILTER} AND m.id=?4")).api()?;
+    let images = crate::conversation_images::source_exclusion(db).map_err(internal)?;
+    let mut statement=db.prepare(&format!("SELECT m.id,m.content,m.created_at,r.rowid,r.id FROM messages m JOIN runs r ON r.id=m.run_id WHERE {SOURCE_FILTER}{images} AND m.id=?4")).api()?;
     for id in &job.ids {
         let source = statement
             .query_row(

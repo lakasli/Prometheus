@@ -157,6 +157,21 @@ class CompatibilityTests(unittest.TestCase):
                 with connect(self.data / "dsh.db") as db:
                     db.execute(f"DROP TABLE {table}")
 
+    def test_empty_conversation_images_allow_unused_upgrade_rollback(self):
+        with connect(self.data / "dsh.db") as db:
+            db.execute("CREATE TABLE conversation_images(run_id TEXT)")
+        compatibility.check(self.data, self.release)
+
+    def test_invalidated_conversation_image_still_requires_provenance_reader(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE conversation_images(run_id TEXT,status TEXT,image BLOB,description TEXT); INSERT INTO conversation_images VALUES('synthetic','invalidated',NULL,NULL);")
+        manifest = self.release / "deploy/release-capabilities.json"
+        manifest.write_text(json.dumps({"schema_reader": 8}))
+        with self.assertRaisesRegex(RuntimeError, "[Cc]onversation image"):
+            compatibility.check(self.data, self.release)
+        manifest.write_text(json.dumps({"schema_reader": 8, "conversation_images": 1}))
+        compatibility.check(self.data, self.release)
+
 
 if __name__ == "__main__":
     unittest.main()

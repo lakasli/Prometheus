@@ -696,6 +696,7 @@ small {
 }
 .device-card > div:nth-child(2) {
   flex: 1;
+  min-width: 0;
 }
 .device-card strong {
   display: block;
@@ -708,7 +709,9 @@ small {
   font-size: 9px;
   color: #b1c0de;
   margin-top: 3px;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
 }
 .device-card .status-dot {
   width: 5px;
@@ -1558,6 +1561,82 @@ small {
   background: #fff;
   flex-shrink: 0;
   box-shadow: 0 2px 6px #606c9b10;
+}
+.message-image-metadata {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.8;
+  min-width: 0;
+}
+.message-image-metadata code {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  font-size: 10px;
+}
+.message-image-metadata summary {
+  cursor: pointer;
+  color: var(--indigo);
+}
+.message-vision-basis {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.chat-heading {
+  flex-wrap: wrap;
+}
+.chat-heading > .button {
+  margin-left: auto;
+}
+.diagnostics-page,
+.diagnostics-page > *,
+.development-diagnostics > * {
+  min-width: 0;
+}
+.diagnostics-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  gap: 14px;
+}
+.diagnostics-metrics dt {
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 7px;
+}
+.diagnostics-metrics dd {
+  margin: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.development-diagnostics > summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.8;
+}
+.development-diagnostics > p,
+.development-diagnostics > details > p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.9;
+  margin: 14px 0;
+}
+.development-diagnostics > details {
+  margin: 16px 0;
+  min-width: 0;
+}
+.development-diagnostics > details > summary {
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.8;
+  margin-bottom: 14px;
 }
 .chat-composer:focus-within {
   border-color: #8a95c2;
@@ -2441,4 +2520,45 @@ small {
   display: grid;
   gap: 20px;
   min-width: 0;
+}
+.chat-heading {
+  height: auto;
+  min-height: 70px;
+}
+.chat-heading > div:nth-child(2) {
+  flex: 1 1 130px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.chat-workspace:has(.conversation-preview),
+.chat-workspace:has(.uncertain-message-actions) {
+  height: auto;
+  max-height: none;
+}
+.chat-workspace:has(.conversation-preview) .message-list,
+.chat-workspace:has(.uncertain-message-actions) .message-list {
+  flex: 0 1 auto;
+  min-height: 230px;
+  max-height: 430px;
+}
+@media (max-width: 720px) {
+  .conversation-sidebar .chat-character-choice {
+    flex: 0 0 170px;
+    width: 170px;
+    margin-bottom: 0;
+    gap: 4px;
+    font-size: 11px;
+  }
+  .conversation-sidebar .chat-character-choice select {
+    padding: 6px;
+    font-size: 11px;
+  }
+  .conversation-sidebar .chat-character-choice small {
+    font-size: 10px;
+    line-height: 1.5;
+  }
+  .chat-workspace:has(.conversation-preview),
+  .chat-workspace:has(.uncertain-message-actions) {
+    grid-template-rows: auto auto;
+  }
 }

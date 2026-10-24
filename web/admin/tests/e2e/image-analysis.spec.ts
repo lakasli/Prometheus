@@ -389,9 +389,12 @@ test("synthetic PNG browser fixtures require explicit submission and preserve pr
       json: { error: "unexpected_fixture_request" },
     });
   });
-  await page.getByRole("button", { name: "图片分析", exact: true }).click();
+  // Legacy workbench survives only behind the explicit development region.
+  await page.evaluate(() => {
+    location.hash = "images";
+  });
   const panel = page.getByRole("region", { name: "独立图片分析", exact: true });
-  await expect(page).toHaveURL(/#images$/);
+  await expect(page).toHaveURL(/#diagnostics$/);
   await expect(panel).toContainText("DeepSeek · deepseek-flash · 凭证已配置");
   await expect(panel).toContainText("不自动接入普通聊天或助手记忆");
   await expect(panel).toContainText("结果最多保留 24 小时");
@@ -454,7 +457,9 @@ test("synthetic PNG browser fixtures require explicit submission and preserve pr
       firstPreview,
     ),
   ).toBe(true);
-  await page.getByRole("button", { name: "图片分析", exact: true }).click();
+  await page.evaluate(() => {
+    location.hash = "images";
+  });
   await chooseSyntheticPng();
   await panel.getByLabel("要分析的问题", { exact: true }).fill(question);
   expectedUnknown = true;

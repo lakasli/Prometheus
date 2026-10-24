@@ -143,7 +143,7 @@ pub fn credential_in_use(db: &Connection, id: &str) -> anyhow::Result<bool> {
 
 /// Restrict the preflighted provider; the private-model flag permits only a
 /// numeric loopback HTTP fixture, never arbitrary internal or external URLs.
-fn permitted_provider(base: &str, allow_private: bool) -> bool {
+pub(crate) fn permitted_provider(base: &str, allow_private: bool) -> bool {
     let Ok(url) = url::Url::parse(base) else {
         return false;
     };
@@ -175,10 +175,10 @@ pub struct CreateBody {
     pub question: String,
 }
 pub struct CanonicalImage {
-    bytes: Vec<u8>,
-    width: u32,
-    height: u32,
-    sha256: String,
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) sha256: String,
 }
 
 fn strict_chunks(bytes: &[u8]) -> ApiResult<(u32, u32, Vec<u8>)> {

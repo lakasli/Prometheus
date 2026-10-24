@@ -12,7 +12,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-static DECODE_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+pub(crate) static DECODE_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/admin/v1/image-analysis", get(page))

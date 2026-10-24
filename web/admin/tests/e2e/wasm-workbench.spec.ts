@@ -518,8 +518,11 @@ test("pure-i32 workbench browser fixtures separate explicit generation, hash app
     });
   });
 
-  await page.getByRole("button", { name: "计算工坊", exact: true }).click();
-  await expect(page).toHaveURL(/#wasm$/);
+  // No primary navigation entry: explicitly follow the old diagnostic link.
+  await page.evaluate(() => {
+    location.hash = "wasm";
+  });
+  await expect(page).toHaveURL(/#diagnostics$/);
   const panel = page.getByRole("region", {
     name: "纯整数计算工坊",
     exact: true,
