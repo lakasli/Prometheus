@@ -207,7 +207,7 @@ fn claim(state: &AppState) -> ApiResult<Option<Claimed>> {
     state.db(|db| {
         let tx=db.transaction()?;
         let (_,config)=character::current_config_in(&tx)?;
-        let running=running_count(&tx)? + crate::memory_candidates::running_count(&tx)? + crate::image_analysis::running_count(&tx)?;
+        let running=running_count(&tx)? + crate::memory_candidates::running_count(&tx)? + crate::image_analysis::running_count(&tx)? + crate::wasm_workbench::running_count(&tx)?;
         if running>=config.assistant.max_concurrent_runs.min(2) as i64{return Ok(None);}
         let item=tx.query_row("SELECT r.id,r.conversation_id,r.config_json,r.reply_json,r.character_snapshot_json FROM runs r WHERE r.status='queued' AND NOT EXISTS(SELECT 1 FROM runs other WHERE other.conversation_id=r.conversation_id AND (other.status='running' OR EXISTS(SELECT 1 FROM native_worker_leases l WHERE l.run_id=other.id))) ORDER BY r.created_at,r.rowid LIMIT 1",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Option<String>>(3)?,r.get::<_,Option<String>>(4)?))).optional()?;
         let Some((id,conversation,config,reply,character))=item else{return Ok(None)};
@@ -235,6 +235,10 @@ pub async fn run_worker(state: AppState, cancellation: CancellationToken) {
                 }
                 if let Ok(Some(job)) = crate::image_analysis::claim_next(&state) {
                     crate::image_analysis::run_claimed(&state, job, &cancellation).await;
+                    continue;
+                }
+                if let Ok(Some(job)) = crate::wasm_workbench::claim_next(&state) {
+                    crate::wasm_workbench::run_claimed(&state, job, &cancellation).await;
                     continue;
                 }
                 tokio::select! {_=cancellation.cancelled()=>break,_=state.0.notify.notified()=>{},_=tokio::time::sleep(Duration::from_millis(500))=>{}}

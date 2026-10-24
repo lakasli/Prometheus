@@ -34,6 +34,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2.5"
 uuid = { version = "=1.16.0", features = ["v4", "serde"] }
+wasmi = { version = "=2.0.0", default-features = false, features = ["stable", "std", "validate", "portable-dispatch", "extra-checks"] }
+wasmparser = "=0.228.0"
+wat = "=1.228.0"
 zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]

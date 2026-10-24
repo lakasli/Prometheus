@@ -13,6 +13,7 @@
 | Harness权限桥 | 实机证明用户级systemd跳过网络隔离、挂载失败；资源限额有效但不构成工具沙箱 | 未启用；继续NativeBackend，保留后续边界建设 |
 | 会话记忆候选审核 | 已推送、Pi部署125+4、真实进程40、真实DeepSeek9项通过；不自动共享或覆盖已确认事实 | `0a98c63221d13733299b75858a33f4c298328f3c`；[候选记录](memory-candidate-validation.md) |
 | 独立PNG图片分析 | 已推送、Pi部署142+4、图片34 / 候选40及全回归通过；真实DeepSeek两图11项通过 | `720a30de7ed38c0db544cc2beb64a8671a4fb1f3`；[图片记录](image-analysis-validation.md)，不自动进入聊天 / 记忆，ASR/TTS未交付 |
-| 多模态、插件工厂 | 后续 | 未交付 |
+| 纯计算工坊 | 本地164+4后端、91前端及浏览器合成流程检查通过；固定SHA交付中 | [工坊记录](wasm-workbench-validation.md)，Linux真实worker和模型验收尚待执行 |
+| 渠道多模态、完整插件工厂 | 后续 | 未交付 |
 
 每个运行行为切片遵守本地检查、提交推送、固定SHA部署、远端测试与记录。源码在独立`codex/long-run-memory`工作树开发，main仅快进；远端部署串行。后续仅文档证据提交不为此重启服务。

@@ -15,6 +15,7 @@ import ConversationSummary from "./components/ConversationSummary.vue";
 import MemoryCandidates from "./components/MemoryCandidates.vue";
 import WeixinChannel from "./components/WeixinChannel.vue";
 import ImageAnalysis from "./components/ImageAnalysis.vue";
+import WasmWorkbench from "./components/WasmWorkbench.vue";
 import {
   api,
   ApiError,
@@ -50,6 +51,7 @@ type Page =
   | "qq"
   | "weixin"
   | "images"
+  | "wasm"
   | "chat"
   | "history"
   | "memory";
@@ -108,6 +110,13 @@ const navigation: {
     title: "图片分析",
     eyebrow: "IMAGE ANALYSIS",
     description: "发送一张PNG，获得独立的图片分析。",
+  },
+  {
+    id: "wasm",
+    icon: "cpu",
+    title: "计算工坊",
+    eyebrow: "PURE COMPUTE WORKBENCH",
+    description: "生成、核对并手动运行受限的整数计算模块。",
   },
   {
     id: "memory",
@@ -1838,6 +1847,7 @@ onUnmounted(() => {
         </div>
         <WeixinChannel v-if="page === 'weixin'" />
         <ImageAnalysis v-if="page === 'images'" />
+        <WasmWorkbench v-if="page === 'wasm'" />
         <footer class="page-footer">
           <span>DSH · 你的助手，你来掌控</span
           ><span title="前端构建提交"

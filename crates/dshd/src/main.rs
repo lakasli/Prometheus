@@ -22,6 +22,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    #[command(hide = true)]
+    WasmWorker {
+        #[arg(long, hide = true)]
+        require_cgroup: bool,
+    },
     Serve {
         #[arg(long, env = "DSH_DATA_DIR", default_value = "./data")]
         data_dir: PathBuf,
@@ -56,15 +61,26 @@ enum Command {
     },
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+    if let Command::WasmWorker { require_cgroup } = &cli.command {
+        std::process::exit(dshd::wasm_worker::run_stdio(*require_cgroup));
+    }
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(run_app(cli))
+}
+
+async fn run_app(cli: Cli) -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "dshd=info".into()),
         )
         .init();
-    match Cli::parse().command {
+    match cli.command {
+        Command::WasmWorker { .. } => unreachable!("worker runs before Tokio initialization"),
         Command::BootstrapToken { data_dir } => {
             let path = dshd::state::create_bootstrap_token(&data_dir)?;
             println!(
@@ -119,6 +135,7 @@ async fn main() -> Result<()> {
                 cookie_secure: secure_cookie,
                 web_dir,
             })?;
+            dshd::wasm_workbench::initialize_runtime(&state).await;
             let mut kernel = dsh_kernel::Kernel::new();
             for index in 0..2 {
                 let worker_state = state.clone();

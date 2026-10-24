@@ -137,6 +137,26 @@ class CompatibilityTests(unittest.TestCase):
         manifest.write_text(json.dumps({"schema_reader": 6, "standalone_image_analysis": 1}))
         compatibility.check(self.data, self.release)
 
+    def test_empty_wasm_tables_and_resource_probes_allow_unused_upgrade_rollback(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE wasm_workbench_jobs(id TEXT); CREATE TABLE wasm_workbench_artifacts(id TEXT); CREATE TABLE wasm_workbench_units(unit_name TEXT); INSERT INTO wasm_workbench_units VALUES('probe-only');")
+        compatibility.check(self.data, self.release)
+
+    def test_wasm_job_or_revoked_artifact_retains_approval_reader_requirement(self):
+        for table in ("wasm_workbench_jobs", "wasm_workbench_artifacts"):
+            with self.subTest(table=table):
+                with connect(self.data / "dsh.db") as db:
+                    db.execute(f"CREATE TABLE {table}(id TEXT,status TEXT)")
+                    db.execute(f"INSERT INTO {table} VALUES('synthetic','revoked')")
+                manifest = self.release / "deploy/release-capabilities.json"
+                manifest.write_text(json.dumps({"schema_reader": 7}))
+                with self.assertRaisesRegex(RuntimeError, "WASM approval"):
+                    compatibility.check(self.data, self.release)
+                manifest.write_text(json.dumps({"schema_reader": 7, "pure_wasm_workbench": 1}))
+                compatibility.check(self.data, self.release)
+                with connect(self.data / "dsh.db") as db:
+                    db.execute(f"DROP TABLE {table}")
+
 
 if __name__ == "__main__":
     unittest.main()
