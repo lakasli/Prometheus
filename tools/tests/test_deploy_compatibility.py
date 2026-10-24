@@ -92,6 +92,21 @@ class CompatibilityTests(unittest.TestCase):
         manifest.write_text(json.dumps({"schema_reader": 3, "conversation_summary": 1}))
         compatibility.check(self.data, self.release)
 
+    def test_empty_weixin_tables_do_not_block_first_upgrade_rollback(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE weixin_account(account_id TEXT); CREATE TABLE weixin_outbox(run_id TEXT);")
+        compatibility.check(self.data, self.release)
+
+    def test_weixin_account_or_reply_requires_both_channel_and_private_context_reader(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE weixin_run_replies(run_id TEXT); INSERT INTO weixin_run_replies VALUES('synthetic');")
+        manifest = self.release / "deploy/release-capabilities.json"
+        manifest.write_text(json.dumps({"schema_reader": 4, "weixin_ilink": 1}))
+        with self.assertRaisesRegex(RuntimeError, "private reply context"):
+            compatibility.check(self.data, self.release)
+        manifest.write_text(json.dumps({"schema_reader": 4, "weixin_ilink": 1, "weixin_private_context": 1}))
+        compatibility.check(self.data, self.release)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -39,22 +39,11 @@ pub fn enqueue(
             "消息须为1到16000字节，且需要有效的客户端消息ID",
         ));
     }
-    let id = uuid::Uuid::new_v4().to_string();
-    let result=state.db(|db| {
-        let tx=db.transaction()?;
-        if let Some((existing,content))=tx.query_row("SELECT id,input FROM runs WHERE conversation_id=?1 AND client_message_id=?2",params![conversation,client_id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).optional()? {
-            return Ok(if content==input {Some(existing)} else {None});
-        }
-        let pending:i64=tx.query_row("SELECT count(*) FROM runs WHERE status='queued'",[],|r|r.get(0))?;
-        let per_conversation:i64=tx.query_row("SELECT count(*) FROM runs WHERE conversation_id=?1 AND status IN ('queued','running')",[conversation],|r|r.get(0))?;
-        if pending>=500||per_conversation>=10{return Ok(None);}
-        let (config_revision,config)=character::current_config_in(&tx)?;
-        let user_name=tx.query_row("SELECT username FROM admins WHERE id=?1",[owner],|r|r.get::<_,String>(0)).optional()?.unwrap_or_else(||"用户".into());
-        let memory_command=crate::memory_commands::is_command(input);
-        let snapshot=if memory_command {None}else{character::freeze_for_run(&tx,conversation,config_revision,&config,&user_name)?};
-        tx.execute("INSERT INTO runs(id,conversation_id,owner_id,client_message_id,input,config_json,reply_json,status,created_at,updated_at,character_snapshot_json,character_digest,compiler_version,run_kind) VALUES(?1,?2,?3,?4,?5,?6,?7,'queued',?8,?8,?9,?10,?11,?12)",params![id,conversation,owner,client_id,input,serde_json::to_string(&config)?,reply.map(|r|serde_json::to_string(&r)).transpose()?,now(),snapshot.as_ref().map(serde_json::to_string).transpose()?,snapshot.as_ref().map(|s|&s.projection_digest),snapshot.as_ref().map(|s|&s.compiler_version),if memory_command {"memory_command"}else{"model"}])?;
-        tx.execute("INSERT INTO messages(id,conversation_id,run_id,role,content,created_at) VALUES(?1,?2,?3,'user',?4,?5)",params![uuid::Uuid::new_v4().to_string(),conversation,id,input,now()])?;
-        tx.commit()?;Ok(Some(id))
+    let result = state.db(|db| {
+        let tx = db.transaction()?;
+        let result = enqueue_in(&tx, conversation, owner, client_id, input, reply)?;
+        tx.commit()?;
+        Ok(result)
     })?;
     let result = result.ok_or_else(|| {
         ApiError::new(
@@ -65,6 +54,75 @@ pub fn enqueue(
     })?;
     state.0.notify.notify_waiters();
     Ok(result)
+}
+
+/// Channel adapters can commit their cursor, Inbox and Run in one transaction.
+/// The stored conversation owner, never a model/request-supplied owner, is final.
+pub(crate) fn enqueue_in(
+    db: &rusqlite::Connection,
+    conversation: &str,
+    owner: &str,
+    client_id: &str,
+    input: &str,
+    reply: Option<ReplyTarget>,
+) -> anyhow::Result<Option<String>> {
+    anyhow::ensure!(!db.is_autocommit(), "enqueue requires an outer transaction");
+    anyhow::ensure!(
+        !input.trim().is_empty()
+            && input.len() <= 16000
+            && !client_id.is_empty()
+            && client_id.len() <= 256,
+        "invalid channel input"
+    );
+    let owns: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM conversations WHERE id=?1 AND owner_id=?2)",
+        params![conversation, owner],
+        |r| r.get(0),
+    )?;
+    anyhow::ensure!(owns, "conversation owner mismatch");
+    if let Some((existing, content)) = db
+        .query_row(
+            "SELECT id,input FROM runs WHERE conversation_id=?1 AND client_message_id=?2",
+            params![conversation, client_id],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+        )
+        .optional()?
+    {
+        return Ok(if content == input {
+            Some(existing)
+        } else {
+            None
+        });
+    }
+    let pending: i64 =
+        db.query_row("SELECT count(*) FROM runs WHERE status='queued'", [], |r| {
+            r.get(0)
+        })?;
+    let per_conversation: i64 = db.query_row(
+        "SELECT count(*) FROM runs WHERE conversation_id=?1 AND status IN ('queued','running')",
+        [conversation],
+        |r| r.get(0),
+    )?;
+    if pending >= 500 || per_conversation >= 10 {
+        return Ok(None);
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    let (config_revision, config) = character::current_config_in(db)?;
+    let user_name = db
+        .query_row("SELECT username FROM admins WHERE id=?1", [owner], |r| {
+            r.get::<_, String>(0)
+        })
+        .optional()?
+        .unwrap_or_else(|| "用户".into());
+    let memory_command = crate::memory_commands::is_command(input);
+    let snapshot = if memory_command {
+        None
+    } else {
+        character::freeze_for_run(db, conversation, config_revision, &config, &user_name)?
+    };
+    db.execute("INSERT INTO runs(id,conversation_id,owner_id,client_message_id,input,config_json,reply_json,status,created_at,updated_at,character_snapshot_json,character_digest,compiler_version,run_kind) VALUES(?1,?2,?3,?4,?5,?6,?7,'queued',?8,?8,?9,?10,?11,?12)",params![id,conversation,owner,client_id,input,serde_json::to_string(&config)?,reply.map(|r|serde_json::to_string(&r)).transpose()?,now(),snapshot.as_ref().map(serde_json::to_string).transpose()?,snapshot.as_ref().map(|s|&s.projection_digest),snapshot.as_ref().map(|s|&s.compiler_version),if memory_command {"memory_command"}else{"model"}])?;
+    db.execute("INSERT INTO messages(id,conversation_id,run_id,role,content,created_at) VALUES(?1,?2,?3,'user',?4,?5)",params![uuid::Uuid::new_v4().to_string(),conversation,id,input,now()])?;
+    Ok(Some(id))
 }
 
 struct Claimed {
@@ -153,6 +211,7 @@ async fn process(state: &AppState, item: Claimed, cancel: &CancellationToken) {
             Ok(content)=> {
                 tx.execute("INSERT INTO messages(id,conversation_id,run_id,role,content,created_at) VALUES(?1,?2,?3,'assistant',?4,?5)",params![uuid::Uuid::new_v4().to_string(),item.conversation,item.id,content,now()])?;
                 tx.execute("UPDATE runs SET status='completed',response=?1,updated_at=?2 WHERE id=?3",params![content,now(),item.id])?;
+                crate::weixin_store::queue_reply_in(&tx,&item.id,&content)?;
                 if let Some(target)=item.reply {tx.execute("INSERT INTO outbox(id,run_id,account_id,credential_ref,target_json,content,status,deadline,created_at) VALUES(?1,?2,?3,?4,?5,?6,'queued',?7,?8)",params![uuid::Uuid::new_v4().to_string(),item.id,target.account_id,target.credential_ref,serde_json::to_string(&target)?,content,target.deadline,now()])?;}
             },
             Err(error)=> {tx.execute("UPDATE runs SET status=?1,error=?2,updated_at=?3 WHERE id=?4",params![if cancel.is_cancelled(){"interrupted"}else{"failed"},error,now(),item.id])?;}

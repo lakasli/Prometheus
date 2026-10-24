@@ -13,6 +13,11 @@ pub mod memory_context;
 pub mod qq;
 pub mod state;
 pub mod summary_api;
+pub mod weixin_api;
+pub mod weixin_login;
+pub mod weixin_protocol;
+pub mod weixin_runtime;
+pub mod weixin_store;
 pub mod worker;
 
 pub fn build_sha() -> &'static str {

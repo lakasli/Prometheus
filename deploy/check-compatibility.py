@@ -45,6 +45,15 @@ def check(data_dir, release_source):
             uses_summary = db.execute("SELECT EXISTS(SELECT 1 FROM conversation_summary_versions)").fetchone()[0]
         if uses_summary and int(capabilities.get("conversation_summary", 0)) < 1:
             raise RuntimeError("Target release lacks conversation summary invalidation")
+        uses_weixin = any(
+            table in tables and db.execute(f"SELECT EXISTS(SELECT 1 FROM {table})").fetchone()[0]
+            for table in ("weixin_account", "weixin_run_replies", "weixin_outbox")
+        )
+        if uses_weixin and (
+            int(capabilities.get("weixin_ilink", 0)) < 1
+            or int(capabilities.get("weixin_private_context", 0)) < 1
+        ):
+            raise RuntimeError("Target release lacks iLink account or private reply context support")
 
 
 if __name__ == "__main__":

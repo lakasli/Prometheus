@@ -23,6 +23,119 @@ use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:18419";
+
+#[tokio::test]
+async fn credential_deletion_preserves_frozen_channel_replies_and_disabled_weixin_account() {
+    let temporary = TempDir::new().unwrap();
+    let state = open(temporary.path());
+    let (cookie, csrf) = bootstrap(&state).await;
+    let qq_key = uuid::Uuid::new_v4().to_string();
+    let weixin_key = uuid::Uuid::new_v4().to_string();
+    for reference in [&qq_key, &weixin_key] {
+        private_write(
+            &state.0.options.data_dir.join("secrets").join(reference),
+            b"synthetic-channel-credential",
+        )
+        .unwrap();
+    }
+    state.db(|db| {
+        db.execute("INSERT INTO secrets(id,kind,created_at) VALUES(?1,'qq_app_secret',?3),(?2,'weixin_bot_token',?3)",params![qq_key,weixin_key,now()])?;
+        db.execute("INSERT INTO conversations(id,owner_id,title,created_at) VALUES('credential-test','source','synthetic',1)",[])?;
+        db.execute("INSERT INTO runs(id,conversation_id,owner_id,client_message_id,input,config_json,status,response,created_at,updated_at) VALUES('credential-run','credential-test','source','one','synthetic',?1,'completed','synthetic reply',1,1)",[serde_json::to_string(&RuntimeConfig::default())?])?;
+        db.execute("INSERT INTO outbox(id,run_id,account_id,credential_ref,target_json,content,status,deadline,created_at) VALUES('credential-out','credential-run','synthetic',?1,'{}','synthetic reply','queued',?2,1)",params![qq_key,now()+300])?;
+        Ok(())
+    }).unwrap();
+    let qq_path = format!("/api/admin/v1/secrets/{qq_key}");
+    let blocked = request(
+        &state,
+        "DELETE",
+        &qq_path,
+        Value::Null,
+        Some(&cookie),
+        Some(&csrf),
+        Some(ORIGIN),
+    )
+    .await;
+    assert_eq!(blocked.0, StatusCode::CONFLICT);
+    assert_eq!(blocked.1["error"]["code"], "credential_in_use");
+    assert!(state
+        .0
+        .options
+        .data_dir
+        .join("secrets")
+        .join(&qq_key)
+        .exists());
+    state
+        .db(|db| {
+            db.execute(
+                "UPDATE outbox SET status='sent' WHERE id='credential-out'",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(
+        request(
+            &state,
+            "DELETE",
+            &qq_path,
+            Value::Null,
+            Some(&cookie),
+            Some(&csrf),
+            Some(ORIGIN)
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert!(!state
+        .0
+        .options
+        .data_dir
+        .join("secrets")
+        .join(&qq_key)
+        .exists());
+    state
+        .db(|db| {
+            crate::weixin_store::replace_account(
+                db,
+                0,
+                "admin",
+                &crate::weixin_store::AccountInput {
+                    account_id: "synthetic_bot".into(),
+                    base_url: "https://ilinkai.weixin.qq.com/".into(),
+                    credential_ref: weixin_key.clone(),
+                    linked_user_id: "synthetic_owner".into(),
+                    enabled: false,
+                },
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    let wx_path = format!("/api/admin/v1/secrets/{weixin_key}");
+    assert_eq!(
+        request(
+            &state,
+            "DELETE",
+            &wx_path,
+            Value::Null,
+            Some(&cookie),
+            Some(&csrf),
+            Some(ORIGIN)
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    assert!(state
+        .0
+        .options
+        .data_dir
+        .join("secrets")
+        .join(&weixin_key)
+        .exists());
+}
+
 fn open(path: &Path) -> AppState {
     AppState::open(Options {
         data_dir: path.to_owned(),

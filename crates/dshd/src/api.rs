@@ -49,6 +49,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/admin/v1/runs",get(runs))
         .merge(crate::memory_api::router())
         .merge(crate::summary_api::router())
+        .merge(crate::weixin_api::router())
         .route("/webhooks/qq",post(crate::qq::webhook))
         .route("/",get(||async{axum::response::Redirect::temporary("/admin/")}))
         .route("/admin",get(||async{axum::response::Redirect::permanent("/admin/")}))
@@ -68,7 +69,7 @@ async fn status(State(state): State<AppState>, _admin: Admin) -> ApiResult<Json<
     let (revision, config) = state.current_config()?;
     let queue=state.db(|db| {
         let count=|sql:&str|->rusqlite::Result<i64>{db.query_row(sql,[],|r|r.get(0))};
-        Ok(json!({"queued":count("SELECT count(*) FROM runs WHERE status='queued'")?,"running":count("SELECT count(*) FROM runs WHERE status='running'")?,"failed":count("SELECT count(*) FROM runs WHERE status IN ('failed','interrupted')")?,"outbox_pending":count("SELECT count(*) FROM outbox WHERE status='queued'")?,"outbox_unknown":count("SELECT count(*) FROM outbox WHERE status='unknown'")?}))
+        Ok(json!({"queued":count("SELECT count(*) FROM runs WHERE status='queued'")?,"running":count("SELECT count(*) FROM runs WHERE status='running'")?,"failed":count("SELECT count(*) FROM runs WHERE status IN ('failed','interrupted')")?,"outbox_pending":count("SELECT count(*) FROM outbox WHERE status='queued'")?+count("SELECT count(*) FROM weixin_outbox WHERE status='queued'")?,"outbox_unknown":count("SELECT count(*) FROM outbox WHERE status='unknown'")?+count("SELECT count(*) FROM weixin_outbox WHERE status='unknown'")?}))
     })?;
     let last_event = state.db(|db| {
         Ok(db.query_row("SELECT max(received_at) FROM inbox", [], |r| {
@@ -117,7 +118,7 @@ fn memory() -> (Option<u64>, Option<u64>) {
 }
 async fn capabilities(_admin: Admin) -> Json<Value> {
     Json(
-        json!({"api_version":"v1","milestone":"M2-memory","backends":["native"],"channels":["web","cli","qq-c2c","qq-group","qq-channel"],"text":true,"character_cards":true,"character_card_profile":1,"qq_persona_switch":"private_only","memory":true,"assistant_memory":{"identity":"stable-instance","visibility":["shared","private"],"explicit_commands":true,"full_text_search":true,"automatic_extraction":false,"summaries":true,"summary_policy":{"keep_recent_turns":4,"max_batch_turns":8,"timeout_seconds":20,"max_concurrent":1},"source_tracing":true,"context_invalidation":true},"harness_runtime":false,"vision":false,"asr":false,"tts":false,"generated_plugins":false,"runtime_limits":{"max_concurrent_runs":2},"configuration":{"hot_reload":true,"restart_required_fields":[]}}),
+        json!({"api_version":"v1","milestone":"M2-memory","backends":["native"],"channels":["web","cli","qq-c2c","qq-group","qq-channel","weixin-ilink-c2c"],"weixin_ilink":{"text_private":true,"linked_owner_only":true,"groups":false,"media":false,"max_accounts":1},"text":true,"character_cards":true,"character_card_profile":1,"qq_persona_switch":"private_only","memory":true,"assistant_memory":{"identity":"stable-instance","visibility":["shared","private"],"explicit_commands":true,"full_text_search":true,"automatic_extraction":false,"summaries":true,"summary_policy":{"keep_recent_turns":4,"max_batch_turns":8,"timeout_seconds":20,"max_concurrent":1},"source_tracing":true,"context_invalidation":true},"harness_runtime":false,"vision":false,"asr":false,"tts":false,"generated_plugins":false,"runtime_limits":{"max_concurrent_runs":2},"configuration":{"hot_reload":true,"restart_required_fields":[]}}),
     )
 }
 
@@ -254,16 +255,22 @@ fn apply_config(
     let outcome=state.db(|db| {
         let tx=db.transaction()?;
         let current:i64=tx.query_row("SELECT CAST(value AS INTEGER) FROM settings WHERE key='active_revision'",[],|r|r.get(0))?;
-        if current!=expected{return Ok(None);}
+        if current!=expected{return Ok(Err(ApiError::conflict()));}
+        for (reference,kind) in [(config.model.credential_ref.as_deref(),"model_api_key"),(config.qq.credential_ref.as_deref(),"qq_app_secret")] {
+            if let Some(reference)=reference {
+                let available:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM secrets WHERE id=?1 AND kind=?2)",params![reference,kind],|r|r.get(0))?;
+                if !available {return Ok(Err(ApiError::bad("credential_unavailable","凭据已被移除，请重新选择有效凭据")));}
+            }
+        }
         let next:i64=tx.query_row("SELECT max(revision)+1 FROM config_revisions",[],|r|r.get(0))?;
         let result=json!({"id":id,"status":"completed","desired_revision":next,"applied_revision":next});
         tx.execute("INSERT INTO config_revisions(revision,config_json,created_at) VALUES(?1,?2,?3)",params![next,serde_json::to_string(config)?,now()])?;
         tx.execute("UPDATE settings SET value=?1 WHERE key='active_revision'",[next.to_string()])?;
         tx.execute("INSERT INTO operations(id,owner_id,result_json,created_at) VALUES(?1,?2,?3,?4)",params![id,admin.id,serde_json::to_string(&result)?,now()])?;
         tx.execute("INSERT INTO audit_events(actor,action,resource,created_at) VALUES(?1,'config.apply',?2,?3)",params![admin.id,next.to_string(),now()])?;
-        tx.commit()?;Ok(Some(result))
+        tx.commit()?;Ok(Ok(result))
     })?;
-    outcome.ok_or_else(ApiError::conflict)
+    outcome
 }
 async fn apply_draft(
     State(state): State<AppState>,
@@ -382,20 +389,20 @@ async fn delete_secret(
     if uuid::Uuid::parse_str(&id).is_err() {
         return Err(ApiError::not_found());
     }
-    let (_, config) = state.current_config()?;
-    let queued=state.db(|db|Ok(db.query_row("SELECT count(*) FROM runs WHERE status IN ('queued','running') AND instr(config_json,?1)>0",[&id],|r|r.get::<_,i64>(0))?))?;
-    if config.model.credential_ref.as_ref() == Some(&id)
-        || config.qq.credential_ref.as_ref() == Some(&id)
-        || queued > 0
-    {
-        return Err(ApiError::conflict());
-    }
-    let changed = state.db(|db| Ok(db.execute("DELETE FROM secrets WHERE id=?1", [&id])?))?;
-    if changed == 0 {
-        return Err(ApiError::not_found());
-    }
+    state.db(|db| {
+        let tx=db.transaction()?;
+        let (_,config)=character::current_config_in(&tx)?;
+        let pending:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM runs WHERE status IN ('queued','running') AND instr(config_json,?1)>0) OR EXISTS(SELECT 1 FROM outbox WHERE credential_ref=?1 AND status IN ('queued','sending'))",[&id],|r|r.get(0))?;
+        let weixin_in_use=crate::weixin_store::credential_in_use(&tx,&id).map_err(|_|anyhow::anyhow!("weixin credential references unavailable"))?;
+        if config.model.credential_ref.as_ref()==Some(&id) || config.qq.credential_ref.as_ref()==Some(&id) || pending || weixin_in_use {
+            return Ok(Err(ApiError::new(StatusCode::CONFLICT,"credential_in_use","凭据仍被配置、任务或渠道发送引用，请先停止引用再删除")));
+        }
+        if tx.execute("DELETE FROM secrets WHERE id=?1",[&id])?==0 {return Ok(Err(ApiError::not_found()));}
+        tx.execute("INSERT INTO audit_events(actor,action,resource,created_at) VALUES(?1,'secret.delete',?2,?3)",params![admin.id,id,now()])?;
+        tx.commit()?;
+        Ok(Ok(()))
+    })??;
     let _ = std::fs::remove_file(state.0.options.data_dir.join("secrets").join(&id));
-    state.audit(&admin.id, "secret.delete", &id)?;
     Ok(Json(json!({"ok":true})))
 }
 

@@ -12,6 +12,7 @@ import Icon from "./components/Icon.vue";
 import CharacterCards from "./components/CharacterCards.vue";
 import MemoryPanel from "./components/MemoryPanel.vue";
 import ConversationSummary from "./components/ConversationSummary.vue";
+import WeixinChannel from "./components/WeixinChannel.vue";
 import {
   api,
   ApiError,
@@ -44,6 +45,7 @@ type Page =
   | "assistant"
   | "characters"
   | "qq"
+  | "weixin"
   | "chat"
   | "history"
   | "memory";
@@ -81,6 +83,13 @@ const navigation: {
     title: "QQ 连接",
     eyebrow: "CONNECTED CHANNELS",
     description: "把助手连接到你的 QQ 机器人。",
+  },
+  {
+    id: "weixin",
+    icon: "channel",
+    title: "微信连接",
+    eyebrow: "WEIXIN PRIVATE CHAT",
+    description: "扫码连接授权账号的微信私聊。",
   },
   {
     id: "chat",
@@ -943,7 +952,7 @@ onUnmounted(() => {
       </nav>
       <div class="sidebar-future">
         <span class="eyebrow">COMING NEXT</span>
-        <p>微信 · 多模态 · 插件工厂</p>
+        <p>多模态 · 插件工厂</p>
         <span>后续阶段逐步开放</span>
       </div>
       <div class="companion-note">
@@ -1016,7 +1025,7 @@ onUnmounted(() => {
             <p>{{ activePage.description }}</p>
           </div>
           <span
-            v-if="page !== 'chat' && page !== 'characters' && configState"
+            v-if="['overview', 'assistant', 'qq', 'history'].includes(page) && configState"
             class="revision-label"
             ><span class="status-dot" :class="{ amber: !effective }"></span
             >{{ effective ? "当前配置已生效" : "配置等待生效"
@@ -1815,6 +1824,7 @@ onUnmounted(() => {
           <MemoryPanel />
           <ConversationSummary />
         </div>
+        <WeixinChannel v-if="page === 'weixin'" />
         <footer class="page-footer">
           <span>DSH · 你的助手，你来掌控</span
           ><span title="前端构建提交"

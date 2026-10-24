@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use dshd::{
     api, qq,
     state::{AppState, Options},
-    worker,
+    weixin_login, weixin_runtime, worker,
 };
 use fs2::FileExt;
 use serde_json::{json, Value};
@@ -141,6 +141,24 @@ async fn main() -> Result<()> {
                 })
                 .await?;
             let cleanup_state = state.clone();
+            let weixin_login_state = state.clone();
+            kernel
+                .mount_task("weixin-login", &[], move |cancel| {
+                    weixin_login::run_login(weixin_login_state.clone(), cancel)
+                })
+                .await?;
+            let weixin_receive_state = state.clone();
+            kernel
+                .mount_task("weixin-receiver", &[], move |cancel| {
+                    weixin_runtime::run_receiver(weixin_receive_state.clone(), cancel)
+                })
+                .await?;
+            let weixin_send_state = state.clone();
+            kernel
+                .mount_task("weixin-outbox", &[], move |cancel| {
+                    weixin_runtime::run_sender(weixin_send_state.clone(), cancel)
+                })
+                .await?;
             kernel
                 .mount_task("character-import-cleanup", &[], move |cancel| {
                     let state = cleanup_state.clone();

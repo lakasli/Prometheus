@@ -240,6 +240,8 @@ pub fn execute(state: &AppState, run_id: &str) -> ApiResult<bool> {
         tx.execute("INSERT INTO outbox(id,run_id,account_id,credential_ref,target_json,content,status,deadline,created_at) VALUES(?1,?2,?3,?4,?5,?6,'queued',?7,?8)",
             params![uuid::Uuid::new_v4().to_string(),run_id,target.account_id,target.credential_ref,reply,response,target.deadline,now()]).map_err(|_| ApiError::internal())?;
     }
+    crate::weixin_store::queue_reply_in(&tx, run_id, &response)
+        .map_err(|_| ApiError::internal())?;
     tx.commit().map_err(|_| ApiError::internal())?;
     state.0.notify.notify_waiters();
     Ok(true)
