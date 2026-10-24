@@ -4,6 +4,8 @@
 
 用户已同意先在现有 Ubuntu 24.04 的树莓派上验证，保留 Lite 为最终基线；不能将 Ubuntu 测试记成 Lite 验收。实际执行结果见 [M0 记录](docs/m0-validation.md) 和 [部署 / 开发流程](docs/development-workflow.md)。
 
+M1基础版本已在指定树莓派部署，运行提交为 `d5efc8d`。原生4项Cordis / 8项后端测试和18项模拟provider黑盒检查通过；真实模型与QQ收发仍需在Web页面初始化、录入凭证后验收。完整状态与脱敏证据见 [M0/M1验证记录](docs/m0-m1-validation.md)。
+
 ## 当前功能范围
 
 - 管理员一次性初始化、密码哈希、可撤销会话、Origin / CSRF 检查。

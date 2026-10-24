@@ -112,6 +112,7 @@ scp .git/artifacts/admin-<SHA>.tar.gz campanus@192.168.189.191:/home/campanus/.c
 
 ```sh
 # 远端 repo 首次不存在时先克隆；已有目录须先核验 origin 和工作区。
+mkdir -p /home/campanus/apps/dsh
 git clone http://8.136.201.30:8418/Campanus/DSH.git /home/campanus/apps/dsh/repo
 # 后续部署先fetch，并从目标SHA检出脚本到私有缓存后执行；不得运行未推送脚本。
 git -C /home/campanus/apps/dsh/repo fetch origin
