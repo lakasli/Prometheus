@@ -48,7 +48,7 @@ SHA256：`c8b2caaac1360bd04f19465be448fe6f7f48cf2d88bd94e035cee3b6abedaaf3`。
 - `current/source` HEAD、Web manifest、`/health/ready` 均为上述完整 SHA。`dsh.service` 为 active / running，NRestarts=0。启动首个 ready 探测曾连接失败，随后正常 ready；未将首次探测失败当作最终健康结果。
 - 运行二进制 SHA256：`062173064077a216e6c7424f7a1a679fdf56b0ed54e5838e03cad914c774f15a`。
 - 切换前备份：`/home/campanus/apps/dsh/shared/backups/pre-df8933f89733e95dcacee8bcd9ee3ac8b6e6bc9c-20261024T145107394024964.sqlite`。保留上一 release，未执行回滚或数据恢复，不声称已验收恢复流程。
-- 远端实际运行 `python3 tools/smoke.py --binary <current/bin/dshd> --web-dir <current/web> --report <logs/ui-design-m1-SHA.json>` 与 `character-smoke.py` 同参数，各退出 0：[基础管理 19 项通过](validation/ui-design-m1-aarch64.json)、[角色卡 55 项通过](validation/ui-design-character-aarch64.json)。覆盖 API 鉴权、CSRF、密钥不回显、配置保存 / 校验 / 生效 / 冲突 / 回退，以及角色草稿 / 发布边界；使用隔离临时数据库与模拟 provider，没有真实模型或平台联调。
+- 远端实际运行 `python3 tools/smoke.py --binary <current/bin/dshd> --web-dir <current/web> --report <logs/ui-design-m1-SHA.json>` 与 `character-smoke.py` 同参数，各退出 0：[基础管理 19 项通过](validation/ui-design-m1-aarch64.json)、[角色卡 55 项通过](validation/ui-design-character-aarch64.json)。覆盖 API 鉴权、CSRF、密钥不回显、配置保存 / 校验 / 生效 / 冲突，以及角色草稿 / 发布边界；使用隔离临时数据库与模拟 provider，没有真实模型或平台联调。配置恢复旧版本未在本轮重测。
 - 生产浏览器只读检查总览、QQ 菜单与角色卡：Web 显示 `df8933f897`，固定侧栏和账号可见、菜单样式统一、角色输入正文与工具条正确；仅展开及关闭菜单、读取既有角色，没有保存、应用、发布或发消息。截图位于 `.local/ui-design-evidence/production-{overview,dropdown,character}.png`；浏览器临时视口覆盖已恢复。
 - 日志：`/home/campanus/apps/dsh/shared/logs/{deploy,test,build}-df8933f89733e95dcacee8bcd9ee3ac8b6e6bc9c.log`，黑盒日志为同目录 `ui-design-{m1,character}-<SHA>.log`。部署身份及制品摘要另见 [部署证据](validation/ui-design-deployment-aarch64.json)。
 
