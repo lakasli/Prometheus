@@ -1,0 +1,54 @@
+{
+  "kind": "Admin UI design deployment",
+  "target": "campanus@192.168.189.191",
+  "hardware": "Raspberry Pi 5 Model B Rev 1.1",
+  "os": "Ubuntu 24.04.4 LTS",
+  "architecture": "aarch64",
+  "commit": "df8933f89733e95dcacee8bcd9ee3ac8b6e6bc9c",
+  "deployed_at": "2026-10-24T14:51:08.787029+00:00",
+  "previous_commit": "bd914f8ea73ffad5697248ddf3df716f7208299a",
+  "archive_sha256": "c8b2caaac1360bd04f19465be448fe6f7f48cf2d88bd94e035cee3b6abedaaf3",
+  "binary_sha256": "062173064077a216e6c7424f7a1a679fdf56b0ed54e5838e03cad914c774f15a",
+  "source_directory": "/home/campanus/apps/dsh/releases/df8933f89733e95dcacee8bcd9ee3ac8b6e6bc9c/source",
+  "source_head_matches_commit": true,
+  "source_worktree_clean_before_deploy": true,
+  "web_manifest_matches_commit": true,
+  "health": "ready",
+  "service": {
+    "name": "dsh.service",
+    "active_state": "active",
+    "sub_state": "running",
+    "restarts": 0
+  },
+  "exit_codes": {
+    "deploy": 0,
+    "cargo_test_workspace_locked_j2": 0,
+    "cargo_build_release_locked_dshd_j2": 0,
+    "m1_smoke": 0,
+    "character_smoke": 0
+  },
+  "tests": {
+    "linux_backend": 171,
+    "linux_lifecycle": 4,
+    "m1_smoke": 19,
+    "character_smoke": 55,
+    "local_frontend_unit": 114,
+    "local_browser_cases": 8
+  },
+  "local_browser_note": "Eight distinct cases; the management case was rerun after the final navigation accessibility change.",
+  "startup_note": "The first ready probe was refused while the process started; subsequent probes confirmed this commit ready.",
+  "backup": "/home/campanus/apps/dsh/shared/backups/pre-df8933f89733e95dcacee8bcd9ee3ac8b6e6bc9c-20261024T145107394024964.sqlite",
+  "rollback_executed": false,
+  "data_restore_tested": false,
+  "real_external_model_tested": false,
+  "real_qq_tested": false,
+  "real_weixin_tested": false,
+  "production_browser": {
+    "read_only": true,
+    "pages": ["overview", "qq", "characters"],
+    "displayed_web_sha": "df8933f897",
+    "temporary_viewport_override_reset": true,
+    "evidence_directory": ".local/ui-design-evidence"
+  },
+  "log_directory": "/home/campanus/apps/dsh/shared/logs"
+}
