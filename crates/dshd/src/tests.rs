@@ -659,3 +659,280 @@ fn model_urls_reject_secrets_and_private_networks_by_default() {
     }
     assert!(validate_model_url("http://127.0.0.1:9999", true).is_ok());
 }
+
+fn published_qq_card(state: &AppState, name: &str, shared: bool) -> crate::character::CardRef {
+    state
+        .db(|db| {
+            let tx = db.transaction()?;
+            let (_, config) = crate::character::current_config_in(&tx)?;
+            let draft = crate::character::create(
+                &tx,
+                "fixture-admin",
+                crate::character::template(name, "按当前角色自然回复。"),
+            )?;
+            let result = crate::character::publish(
+                &tx,
+                &draft.card_id,
+                &draft.draft_id,
+                "fixture-admin",
+                &draft.draft_etag,
+                &uuid::Uuid::new_v4().to_string(),
+                &config,
+            )?;
+            let revision = result["revision"].as_i64().unwrap();
+            crate::character::set_qq_access(&tx, &draft.card_id, &revision.to_string(), shared)?;
+            tx.commit()?;
+            Ok(crate::character::CardRef {
+                card_id: draft.card_id,
+                revision,
+            })
+        })
+        .unwrap()
+}
+fn qq_fixture_config() -> RuntimeConfig {
+    let mut config = RuntimeConfig::default();
+    config.qq.app_id = "12345".into();
+    config.qq.credential_ref = Some("fixture-qq-reference".into());
+    config
+}
+fn qq_private_fixture(event: &str, message: &str, user: &str, text: &str) -> Value {
+    json!({"op":0,"id":event,"t":"C2C_MESSAGE_CREATE","d":{"id":message,"content":text,"author":{"user_openid":user}}})
+}
+
+#[test]
+fn qq_persona_switch_is_private_durable_and_deduplicated() {
+    let temp = TempDir::new().unwrap();
+    let state = open(temp.path());
+    let config = qq_fixture_config();
+    let role = published_qq_card(&state, "角色甲", true);
+    qq::ingest(
+        &state,
+        &config,
+        &qq_private_fixture("e0", "m0", "alice", "旧会话消息"),
+    )
+    .unwrap();
+    let old: String = state
+        .db(|db| {
+            Ok(db.query_row(
+                "SELECT id FROM conversations WHERE source_key='qq:12345:c2c:alice'",
+                [],
+                |r| r.get(0),
+            )?)
+        })
+        .unwrap();
+    let command = format!("/角色 切换 {}", role.card_id);
+    qq::ingest(
+        &state,
+        &config,
+        &qq_private_fixture("e1", "m1", "alice", &command),
+    )
+    .unwrap();
+    let new: String = state
+        .db(|db| {
+            Ok(db.query_row(
+                "SELECT id FROM conversations WHERE source_key='qq:12345:c2c:alice'",
+                [],
+                |r| r.get(0),
+            )?)
+        })
+        .unwrap();
+    assert_ne!(old, new);
+    qq::ingest(
+        &state,
+        &config,
+        &qq_private_fixture("e1-duplicate-dispatch", "m1", "alice", &command),
+    )
+    .unwrap();
+    let after: String = state
+        .db(|db| {
+            Ok(db.query_row(
+                "SELECT id FROM conversations WHERE source_key='qq:12345:c2c:alice'",
+                [],
+                |r| r.get(0),
+            )?)
+        })
+        .unwrap();
+    assert_eq!(new, after);
+    qq::ingest(
+        &state,
+        &config,
+        &qq_private_fixture("e2", "m2", "alice", "介绍一下自己"),
+    )
+    .unwrap();
+    qq::ingest(
+        &state,
+        &config,
+        &qq_private_fixture("e3", "m3", "bob", "别人的会话"),
+    )
+    .unwrap();
+    state.db(|db| {
+        let snapshot:String=db.query_row("SELECT character_snapshot_json FROM runs WHERE owner_id='qq:12345:c2c:alice' AND client_message_id='m2'",[],|r|r.get(0))?;
+        let snapshot:Value=serde_json::from_str(&snapshot)?;
+        assert_eq!(snapshot["card_id"],role.card_id); assert_eq!(snapshot["revision"],1);
+        assert!(snapshot["system_prompt"].as_str().unwrap().contains("角色甲"));
+        assert_eq!(db.query_row("SELECT count(*) FROM outbox WHERE content LIKE '已切换%'",[],|r|r.get::<_,i64>(0))?,1);
+        assert_eq!(db.query_row("SELECT run_kind FROM runs WHERE client_message_id='m1'",[],|r|r.get::<_,String>(0))?,"character_command");
+        assert_eq!(db.query_row("SELECT count(*) FROM conversation_character_bindings b JOIN conversations c ON c.id=b.conversation_id WHERE c.owner_id='qq:12345:c2c:bob'",[],|r|r.get::<_,i64>(0))?,0);
+        assert!(crate::character::default_reference(db)?.is_none());
+        assert_eq!(db.query_row("SELECT count(*) FROM runs WHERE conversation_id=?1 AND client_message_id='m0'",[old],|r|r.get::<_,i64>(0))?,1);
+        Ok(())
+    }).unwrap();
+    drop(state);
+    let state = open(temp.path());
+    state
+        .db(|db| {
+            assert_eq!(
+                crate::character::connection_character(db, &new)?["card_id"],
+                role.card_id
+            );
+            Ok(())
+        })
+        .unwrap();
+}
+
+#[test]
+fn qq_unshared_cards_and_group_persona_commands_do_not_change_bindings() {
+    let temp = TempDir::new().unwrap();
+    let state = open(temp.path());
+    let config = qq_fixture_config();
+    let role = published_qq_card(&state, "私有角色", false);
+    qq::ingest(
+        &state,
+        &config,
+        &qq_private_fixture("p1", "p1", "alice", &format!("/角色 切换 {}", role.card_id)),
+    )
+    .unwrap();
+    let event = json!({"op":0,"id":"g1","t":"GROUP_AT_MESSAGE_CREATE","d":{"id":"g1","content":"/角色 切换 私有角色","group_openid":"group1","author":{"member_openid":"alice"}}});
+    qq::ingest(&state, &config, &event).unwrap();
+    state
+        .db(|db| {
+            assert_eq!(
+                db.query_row(
+                    "SELECT count(*) FROM conversation_character_bindings",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )?,
+                0
+            );
+            assert_eq!(
+                db.query_row(
+                    "SELECT count(*) FROM runs WHERE run_kind='model'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )?,
+                0
+            );
+            assert_eq!(
+                db.query_row(
+                    "SELECT count(*) FROM outbox WHERE content LIKE '角色命令仅支持私聊%'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )?,
+                1
+            );
+            assert!(crate::character::list_published(db)?.is_empty());
+            Ok(())
+        })
+        .unwrap();
+}
+
+#[test]
+fn qq_control_commands_recover_from_expired_preferred_model_mapping() {
+    let temp = TempDir::new().unwrap();
+    let state = open(temp.path());
+    let qq_config = qq_fixture_config();
+    let fallback = published_qq_card(&state, "可恢复角色", true);
+    state
+        .db(|db| {
+            let tx = db.transaction()?;
+            let (_, config) = crate::character::current_config_in(&tx)?;
+            let mut card = crate::character::template("偏好角色", "简短回应。");
+            card["data"]["extensions"]["dsh"]["modules"]["chat"] =
+                json!({"mode":"prefer","provider_hint":"deepseek","model_hint":config.model.model});
+            let draft = crate::character::create(&tx, "fixture-admin", card)?;
+            let mapped = crate::character::map_draft_model(
+                &tx,
+                &draft.card_id,
+                &draft.draft_id,
+                "fixture-admin",
+                &draft.draft_etag,
+                &config,
+            )?;
+            let published = crate::character::publish(
+                &tx,
+                &draft.card_id,
+                &draft.draft_id,
+                "fixture-admin",
+                &mapped.draft_etag,
+                "prefer-fixture-key",
+                &config,
+            )?;
+            let reference = crate::character::CardRef {
+                card_id: draft.card_id,
+                revision: published["revision"].as_i64().unwrap(),
+            };
+            crate::character::set_default(&tx, &reference, "none", &config)?;
+            tx.commit()?;
+            Ok(())
+        })
+        .unwrap();
+    qq::ingest(
+        &state,
+        &qq_config,
+        &qq_private_fixture("r0", "r0", "alice", "建立偏好角色会话"),
+    )
+    .unwrap();
+    state
+        .db(|db| {
+            let (_, mut config) = crate::character::current_config_in(db)?;
+            config.model.model = "different-model".into();
+            db.execute(
+                "UPDATE config_revisions SET config_json=?1 WHERE revision=1",
+                [serde_json::to_string(&config)?],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    assert!(qq::ingest(
+        &state,
+        &qq_config,
+        &qq_private_fixture("rx", "rx", "alice", "失效映射不得静默回退")
+    )
+    .is_err());
+    qq::ingest(
+        &state,
+        &qq_config,
+        &qq_private_fixture("r1", "r1", "alice", "/角色"),
+    )
+    .unwrap();
+    qq::ingest(
+        &state,
+        &qq_config,
+        &qq_private_fixture("r2", "r2", "alice", "/角色 当前"),
+    )
+    .unwrap();
+    qq::ingest(
+        &state,
+        &qq_config,
+        &qq_private_fixture(
+            "r3",
+            "r3",
+            "alice",
+            &format!("/角色 切换 {}", fallback.card_id),
+        ),
+    )
+    .unwrap();
+    qq::ingest(
+        &state,
+        &qq_config,
+        &qq_private_fixture("r4", "r4", "alice", "恢复后可以继续对话"),
+    )
+    .unwrap();
+    state.db(|db| {
+        assert_eq!(db.query_row("SELECT count(*) FROM runs WHERE run_kind='character_command' AND status='completed'",[],|r|r.get::<_,i64>(0))?,3);
+        assert_eq!(db.query_row("SELECT count(*) FROM inbox WHERE event_key LIKE '%:rx'",[],|r|r.get::<_,i64>(0))?,0);
+        let id:String=db.query_row("SELECT id FROM conversations WHERE source_key='qq:12345:c2c:alice'",[],|r|r.get(0))?;
+        assert_eq!(crate::character::connection_character(db,&id)?["card_id"],fallback.card_id);
+        Ok(())
+    }).unwrap();
+}

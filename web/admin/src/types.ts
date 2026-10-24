@@ -66,6 +66,11 @@ export interface Conversation {
   id: string;
   title: string;
   created_at: Timestamp;
+  character?: CharacterIdentity | null;
+  legacy?: boolean;
+  test?: boolean;
+  is_test?: boolean;
+  greeting?: string | null;
 }
 export interface ChatMessage {
   id: string;
@@ -78,6 +83,73 @@ export interface Run {
   status: string;
   response?: string | null;
   error?: string | null;
+  character?: CharacterIdentity | null;
+}
+
+export interface CharacterIdentity {
+  card_id: string;
+  revision: number;
+  name: string;
+  digest?: string;
+  is_test?: boolean;
+  greeting?: string | null;
+}
+export interface CharacterCard {
+  spec: "chara_card_v3";
+  spec_version: "3.0";
+  data: {
+    name: string;
+    nickname?: string;
+    description: string;
+    personality: string;
+    scenario: string;
+    system_prompt: string;
+    first_mes: string;
+    mes_example: string;
+    post_history_instructions: string;
+    alternate_greetings: string[];
+    group_only_greetings: string[];
+    creator_notes: string;
+    tags: string[];
+    creator: string;
+    character_version: string;
+    extensions: {
+      dsh: {
+        schema_version: 1;
+        modules: Record<
+          "chat" | "vision" | "speech",
+          {
+            mode: string;
+            provider_hint?: string;
+            model_hint?: string;
+            voice_hint?: string;
+          }
+        >;
+      };
+    };
+  };
+}
+export interface CharacterDraft {
+  card_id: string;
+  draft_id: string;
+  draft_etag: string;
+  card: CharacterCard;
+}
+export interface CharacterCardSummary {
+  id: string;
+  name: string;
+  archived_at: Timestamp | null;
+  latest_revision: number | null;
+  qq_selectable?: boolean;
+  draft?: CharacterDraft | null;
+}
+export interface CharacterCardList {
+  items: CharacterCardSummary[];
+  default: CharacterIdentity | null;
+  default_etag: string;
+}
+export interface CharacterRevision extends CharacterIdentity {
+  created_at?: Timestamp;
 }
 export interface SystemStatus {
   version: string;

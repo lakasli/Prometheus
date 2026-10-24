@@ -25,6 +25,10 @@ export async function api<T>(
     method?: string;
     body?: unknown;
     revision?: number;
+    etag?: string;
+    idempotencyKey?: string;
+    file?: Blob;
+    contentType?: string;
     signal?: AbortSignal;
   } = {},
 ): Promise<T> {
@@ -34,12 +38,20 @@ export async function api<T>(
   if (method !== "GET" && csrfToken) headers["X-CSRF-Token"] = csrfToken;
   if (options.revision !== undefined)
     headers["If-Match"] = `"${options.revision}"`;
+  if (options.etag !== undefined)
+    headers["If-Match"] = `"${options.etag.replace(/^"|"$/g, "")}"`;
+  if (options.idempotencyKey)
+    headers["Idempotency-Key"] = options.idempotencyKey;
+  if (options.file)
+    headers["Content-Type"] = options.contentType || "application/octet-stream";
   const response = await fetch(`${PREFIX}${path}`, {
     method,
     headers,
     credentials: "same-origin",
     cache: "no-store",
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    body:
+      options.file ??
+      (options.body === undefined ? undefined : JSON.stringify(options.body)),
     signal: options.signal,
   });
   const data = await response.json().catch(() => null);

@@ -20,6 +20,28 @@
   --gold: #c5a56d;
   --soft-blue: #edf1fa;
 }
+.chat-character-choice {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.chat-character-choice small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+.chat-character-choice select {
+  font-size: 12px;
+  min-width: 0;
+  padding: 9px;
+}
+.character-greeting {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 600px;
+}
 * {
   box-sizing: border-box;
 }

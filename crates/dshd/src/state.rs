@@ -93,7 +93,7 @@ impl AppState {
     pub fn open(options: Options) -> anyhow::Result<Self> {
         private_dir(&options.data_dir)?;
         private_dir(&options.data_dir.join("secrets"))?;
-        let db = Connection::open(options.data_dir.join("dsh.db"))?;
+        let mut db = Connection::open(options.data_dir.join("dsh.db"))?;
         db.busy_timeout(Duration::from_secs(3))?;
         db.execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;",
@@ -118,6 +118,7 @@ impl AppState {
                 [],
             )?;
         }
+        crate::character::migrate(&mut db)?;
         // Queued items survive restart. An interrupted external request is not blindly replayed.
         db.execute("UPDATE runs SET status='interrupted',error='服务重启时任务仍在执行；结果未确认，请人工重试',updated_at=?1 WHERE status='running'",[now()])?;
         db.execute("UPDATE outbox SET status='unknown',error='服务重启时发送结果未知' WHERE status='sending'",[])?;
@@ -137,7 +138,13 @@ impl AppState {
 
     pub fn db<T>(&self, f: impl FnOnce(&mut Connection) -> anyhow::Result<T>) -> ApiResult<T> {
         let mut db = self.0.db.lock().map_err(|_| ApiError::internal())?;
-        f(&mut db).map_err(|_| ApiError::internal())
+        f(&mut db).map_err(|error| {
+            if let Some(character) = error.downcast_ref::<crate::character::CharacterError>() {
+                ApiError::new(character.status, character.code, character.message.clone())
+            } else {
+                ApiError::internal()
+            }
+        })
     }
     pub fn current_config(&self) -> ApiResult<(i64, RuntimeConfig)> {
         self.db(|db| {

@@ -1,4 +1,5 @@
 use crate::{
+    character::{self, StaticSnapshot},
     config::{public_ip, validate_model_url, RuntimeConfig},
     error::{ApiError, ApiResult},
     state::{now, AppState},
@@ -37,7 +38,6 @@ pub fn enqueue(
             "消息须为1到16000字节，且需要有效的客户端消息ID",
         ));
     }
-    let (_, config) = state.current_config()?;
     let id = uuid::Uuid::new_v4().to_string();
     let result=state.db(|db| {
         let tx=db.transaction()?;
@@ -47,7 +47,10 @@ pub fn enqueue(
         let pending:i64=tx.query_row("SELECT count(*) FROM runs WHERE status='queued'",[],|r|r.get(0))?;
         let per_conversation:i64=tx.query_row("SELECT count(*) FROM runs WHERE conversation_id=?1 AND status IN ('queued','running')",[conversation],|r|r.get(0))?;
         if pending>=500||per_conversation>=10{return Ok(None);}
-        tx.execute("INSERT INTO runs(id,conversation_id,owner_id,client_message_id,input,config_json,reply_json,status,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,'queued',?8,?8)",params![id,conversation,owner,client_id,input,serde_json::to_string(&config)?,reply.map(|r|serde_json::to_string(&r)).transpose()?,now()])?;
+        let (config_revision,config)=character::current_config_in(&tx)?;
+        let user_name=tx.query_row("SELECT username FROM admins WHERE id=?1",[owner],|r|r.get::<_,String>(0)).optional()?.unwrap_or_else(||"用户".into());
+        let snapshot=character::freeze_for_run(&tx,conversation,config_revision,&config,&user_name)?;
+        tx.execute("INSERT INTO runs(id,conversation_id,owner_id,client_message_id,input,config_json,reply_json,status,created_at,updated_at,character_snapshot_json,character_digest,compiler_version) VALUES(?1,?2,?3,?4,?5,?6,?7,'queued',?8,?8,?9,?10,?11)",params![id,conversation,owner,client_id,input,serde_json::to_string(&config)?,reply.map(|r|serde_json::to_string(&r)).transpose()?,now(),snapshot.as_ref().map(serde_json::to_string).transpose()?,snapshot.as_ref().map(|s|&s.projection_digest),snapshot.as_ref().map(|s|&s.compiler_version)])?;
         tx.execute("INSERT INTO messages(id,conversation_id,run_id,role,content,created_at) VALUES(?1,?2,?3,'user',?4,?5)",params![uuid::Uuid::new_v4().to_string(),conversation,id,input,now()])?;
         tx.commit()?;Ok(Some(id))
     })?;
@@ -67,6 +70,7 @@ struct Claimed {
     conversation: String,
     config: RuntimeConfig,
     reply: Option<ReplyTarget>,
+    character: Option<StaticSnapshot>,
 }
 fn claim(state: &AppState) -> ApiResult<Option<Claimed>> {
     let (_, config) = state.current_config()?;
@@ -74,11 +78,11 @@ fn claim(state: &AppState) -> ApiResult<Option<Claimed>> {
         let tx=db.transaction()?;
         let running:i64=tx.query_row("SELECT count(*) FROM runs WHERE status='running'",[],|r|r.get(0))?;
         if running>=config.assistant.max_concurrent_runs.min(2) as i64{return Ok(None);}
-        let item=tx.query_row("SELECT r.id,r.conversation_id,r.config_json,r.reply_json FROM runs r WHERE r.status='queued' AND NOT EXISTS(SELECT 1 FROM runs other WHERE other.conversation_id=r.conversation_id AND other.status='running') ORDER BY r.created_at,r.rowid LIMIT 1",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Option<String>>(3)?))).optional()?;
-        let Some((id,conversation,config,reply))=item else{return Ok(None)};
+        let item=tx.query_row("SELECT r.id,r.conversation_id,r.config_json,r.reply_json,r.character_snapshot_json FROM runs r WHERE r.status='queued' AND NOT EXISTS(SELECT 1 FROM runs other WHERE other.conversation_id=r.conversation_id AND other.status='running') ORDER BY r.created_at,r.rowid LIMIT 1",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Option<String>>(3)?,r.get::<_,Option<String>>(4)?))).optional()?;
+        let Some((id,conversation,config,reply,character))=item else{return Ok(None)};
         tx.execute("UPDATE runs SET status='running',updated_at=?1 WHERE id=?2 AND status='queued'",params![now(),id])?;
         tx.commit()?;
-        Ok(Some(Claimed{id,conversation,config:serde_json::from_str(&config)?,reply:reply.map(|s|serde_json::from_str(&s)).transpose()?}))
+        Ok(Some(Claimed{id,conversation,config:serde_json::from_str(&config)?,reply:reply.map(|s|serde_json::from_str(&s)).transpose()?,character:character.map(|s|serde_json::from_str(&s)).transpose()?}))
     })
 }
 
@@ -101,25 +105,9 @@ pub async fn run_worker(state: AppState, cancellation: CancellationToken) {
 }
 
 async fn process(state: &AppState, item: Claimed, cancel: &CancellationToken) {
-    let history=state.db(|db| {
-        let mut stmt=db.prepare("SELECT role,content FROM (SELECT r.rowid AS run_order,m.role,m.content FROM messages m JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=?1 AND r.rowid<=(SELECT rowid FROM runs WHERE id=?2) AND (r.status='completed' OR r.id=?2) ORDER BY r.rowid DESC,CASE m.role WHEN 'user' THEN 0 ELSE 1 END DESC LIMIT 24) ORDER BY run_order,CASE role WHEN 'user' THEN 0 ELSE 1 END")?;
-        let rows=stmt.query_map(params![item.conversation,item.id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?;Ok(rows.collect::<Result<Vec<_>,_>>()?)
-    });
-    let result = match history {
-        Ok(history) => {
-            let mut messages =
-                vec![json!({"role":"system","content":item.config.assistant.system_prompt})];
-            let mut selected = Vec::new();
-            let mut bytes = 0;
-            for (role, content) in history.into_iter().rev() {
-                if bytes + content.len() > 64000 {
-                    break;
-                }
-                bytes += content.len();
-                selected.push(json!({"role":role,"content":content}));
-            }
-            selected.reverse();
-            messages.extend(selected);
+    let prepared = prepare_messages(state, &item);
+    let result = match prepared {
+        Ok(messages) => {
             let cancelled = async {
                 loop {
                     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -141,7 +129,7 @@ async fn process(state: &AppState, item: Claimed, cancel: &CancellationToken) {
                 _=cancelled=>Err("任务已取消".into()),
             }
         }
-        Err(_) => Err("读取会话上下文失败".into()),
+        Err(_) => Err("准备或持久化会话上下文失败；未发送模型请求".into()),
     };
     let saved=state.db(|db| {
         let tx=db.transaction()?;
@@ -161,6 +149,48 @@ async fn process(state: &AppState, item: Claimed, cancel: &CancellationToken) {
         tracing::error!(run_id=%item.id,"failed to persist run result");
     }
     state.0.notify.notify_waiters();
+}
+
+// Freeze complete history only after the preceding run in this conversation has settled.
+// Static persona/model inputs were already frozen atomically at enqueue time.
+fn prepare_messages(state: &AppState, item: &Claimed) -> ApiResult<Vec<Value>> {
+    state.db(|db| {
+        let tx = db.transaction()?;
+        if let Some(text) = tx.query_row("SELECT messages_json FROM run_prompt_snapshots WHERE run_id=?1", [&item.id], |r|r.get::<_,String>(0)).optional()? {
+            return Ok(serde_json::from_str(&text)?);
+        }
+        let status:String=tx.query_row("SELECT status FROM runs WHERE id=?1",[&item.id],|r|r.get(0))?;
+        anyhow::ensure!(status=="running", "run is no longer active");
+        let history = {
+            let mut stmt=tx.prepare("SELECT run_id,role,content FROM (SELECT r.rowid AS run_order,m.run_id,m.role,m.content FROM messages m JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=?1 AND r.run_kind='model' AND r.rowid<=(SELECT rowid FROM runs WHERE id=?2) AND (r.status='completed' OR r.id=?2) ORDER BY r.rowid DESC,CASE m.role WHEN 'user' THEN 0 ELSE 1 END DESC LIMIT 24) ORDER BY run_order,CASE role WHEN 'user' THEN 0 ELSE 1 END")?;
+            let rows=stmt.query_map(params![item.conversation,item.id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?)))?;
+            rows.collect::<Result<Vec<_>,_>>()?
+        };
+        let mut groups:Vec<(String,Vec<Value>,usize)>=Vec::new();
+        for (run_id,role,content) in history {
+            if groups.last().is_none_or(|g|g.0!=run_id) { groups.push((run_id,Vec::new(),0)); }
+            let group=groups.last_mut().expect("group just inserted");
+            group.2+=content.len();
+            group.1.push(json!({"role":role,"content":content}));
+        }
+        // LIMIT may cut the oldest pair. Never send an orphan assistant turn.
+        groups.retain(|(id,messages,_)|id==&item.id || (messages.len()==2 && messages[0]["role"]=="user" && messages[1]["role"]=="assistant"));
+        let mut bytes:usize=groups.iter().map(|g|g.2).sum();
+        while bytes>64000 && groups.len()>1 {bytes-=groups.remove(0).2;}
+        let system=item.character.as_ref().map(|s|s.system_prompt.as_str()).unwrap_or(&item.config.assistant.system_prompt);
+        let messages=loop {
+            let mut messages=vec![json!({"role":"system","content":system})];
+            for (_,items,_) in &groups {messages.extend(items.iter().cloned());}
+            if serde_json::to_vec(&messages)?.len()<=96000 {break messages;}
+            anyhow::ensure!(groups.len()>1,"current input and persona exceed request budget");
+            groups.remove(0);
+        };
+        let text=serde_json::to_string(&messages)?;
+        let compiler=item.character.as_ref().map(|s|s.compiler_version.as_str()).unwrap_or("legacy-m1");
+        tx.execute("INSERT INTO run_prompt_snapshots(run_id,messages_json,digest,compiler_version,created_at) VALUES(?1,?2,?3,?4,?5)",params![item.id,text,character::digest(text.as_bytes()),compiler,now()])?;
+        tx.commit()?;
+        Ok(messages)
+    })
 }
 
 pub async fn model_client(

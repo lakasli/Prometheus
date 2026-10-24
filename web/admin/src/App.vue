@@ -9,6 +9,7 @@ import {
   watch,
 } from "vue";
 import Icon from "./components/Icon.vue";
+import CharacterCards from "./components/CharacterCards.vue";
 import {
   api,
   ApiError,
@@ -23,6 +24,7 @@ import type {
   AuthUser,
   ChatMessage,
   Check,
+  CharacterCardList,
   ConfigResponse,
   Conversation,
   Draft,
@@ -35,7 +37,7 @@ import type {
   SystemStatus,
 } from "./types";
 
-type Page = "overview" | "assistant" | "qq" | "chat" | "history";
+type Page = "overview" | "assistant" | "characters" | "qq" | "chat" | "history";
 const navigation: {
   id: Page;
   icon: string;
@@ -56,6 +58,13 @@ const navigation: {
     title: "助手与模型",
     eyebrow: "ASSISTANT & MODELS",
     description: "为你的助手选择模型、个性和工作节奏。",
+  },
+  {
+    id: "characters",
+    icon: "sparkles",
+    title: "角色卡",
+    eyebrow: "CHARACTER CARDS",
+    description: "设计助手的身份与表达，为新会话选择熟悉的角色。",
   },
   {
     id: "qq",
@@ -141,7 +150,26 @@ const dirty = ref(false);
 let replacingConfig = false;
 const revisions = ref<Revision[]>([]);
 const conversations = ref<Conversation[]>([]);
+const characterCards = ref<InstanceType<typeof CharacterCards> | null>(null);
+const characterOptions = ref<CharacterCardList | null>(null);
+const characterChoice = ref("");
 const selectedConversation = ref<string | null>(null);
+const selectedConversationData = computed(() =>
+  conversations.value.find((item) => item.id === selectedConversation.value),
+);
+const conversationAssistantName = computed(
+  () =>
+    selectedConversationData.value?.character?.name || config.assistant.name,
+);
+const conversationCharacterLabel = computed(() =>
+  selectedConversationData.value?.test ||
+  selectedConversationData.value?.is_test ||
+  selectedConversationData.value?.character?.is_test
+    ? "草稿测试会话"
+    : selectedConversationData.value?.character
+      ? `角色 v${selectedConversationData.value.character.revision}`
+      : "原有助手",
+);
 const messages = ref<ChatMessage[]>([]);
 const chatInput = ref("");
 const chatRunning = ref(false);
@@ -287,16 +315,36 @@ function refreshStatus(quiet = false): Promise<void> {
 }
 
 function navigate(id: Page) {
+  if (
+    id !== page.value &&
+    characterCards.value?.hasUnsaved &&
+    !window.confirm("角色卡有未保存的修改，确定离开？")
+  )
+    return;
   page.value = id;
   location.hash = id;
   mobileMenu.value = false;
   error.value = "";
   if (id === "history") void task("读取历史", loadHistory);
-  if (id === "chat") void task("读取会话", loadConversations);
+  if (id === "chat")
+    void task("读取会话", async () => {
+      await loadConversations();
+      await loadCharacterOptions();
+    });
 }
 function readHash() {
   const id = location.hash.slice(1);
-  if (navigation.some((item) => item.id === id)) page.value = id as Page;
+  if (navigation.some((item) => item.id === id)) {
+    if (
+      id !== page.value &&
+      characterCards.value?.hasUnsaved &&
+      !window.confirm("角色卡有未保存的修改，确定离开？")
+    ) {
+      location.hash = page.value;
+      return;
+    }
+    page.value = id as Page;
+  }
 }
 async function task(label: string, fn: () => Promise<unknown>) {
   if (busy.value) return;
@@ -383,6 +431,11 @@ async function authenticate() {
   });
 }
 async function logout() {
+  if (
+    characterCards.value?.hasUnsaved &&
+    !window.confirm("角色卡有未保存的修改，确定退出登录？")
+  )
+    return;
   await task("退出登录", async () => {
     await api("/auth/logout", { method: "POST" });
     auth.password = "";
@@ -546,11 +599,44 @@ async function loadConversations() {
   const result = await api<{ items: Conversation[] }>("/conversations");
   conversations.value = result.items;
 }
+async function loadCharacterOptions() {
+  characterOptions.value = await api<CharacterCardList>("/character-cards");
+}
+function newConversationCharacter() {
+  if (!characterChoice.value) return undefined;
+  const selected = characterOptions.value?.items.find(
+    (item) => item.id === characterChoice.value,
+  );
+  return selected?.latest_revision
+    ? { card_id: selected.id, revision: selected.latest_revision }
+    : undefined;
+}
+async function openTestConversation(conversation: Conversation) {
+  await task("读取测试会话", async () => {
+    await loadConversations();
+    await loadCharacterOptions();
+    messages.value = (
+      await api<{ items: ChatMessage[] }>(
+        `/conversations/${encodeURIComponent(conversation.id)}/messages`,
+      )
+    ).items;
+    selectedConversation.value = conversation.id;
+    chatRun.value = null;
+    page.value = "chat";
+    location.hash = "chat";
+    mobileMenu.value = false;
+    notice.value =
+      "独立草稿测试会话。发送消息后才会请求模型，不会投递 QQ 或写入用户长期记忆。";
+  });
+}
 async function createConversation() {
   await task("新建会话", async () => {
     const conversation = await api<Conversation>("/conversations", {
       method: "POST",
-      body: { title: `新对话 ${conversations.value.length + 1}` },
+      body: {
+        title: `新对话 ${conversations.value.length + 1}`,
+        character: newConversationCharacter(),
+      },
     });
     await loadConversations();
     selectedConversation.value = conversation.id;
@@ -587,7 +673,10 @@ async function sendMessage() {
     if (!selectedConversation.value) {
       const conversation = await api<Conversation>("/conversations", {
         method: "POST",
-        body: { title: content.slice(0, 28) },
+        body: {
+          title: content.slice(0, 28),
+          character: newConversationCharacter(),
+        },
       });
       selectedConversation.value = conversation.id;
       await loadConversations();
@@ -664,7 +753,10 @@ function chatKeydown(event: KeyboardEvent) {
 onMounted(() => {
   readHash();
   window.addEventListener("hashchange", readHash);
-  void initialize();
+  void initialize().then(() => {
+    if (authState.value === "ready" && page.value === "chat")
+      void task("读取角色", loadCharacterOptions);
+  });
 });
 onUnmounted(() => {
   disposed = true;
@@ -904,7 +996,9 @@ onUnmounted(() => {
             <h1>{{ activePage.title }}</h1>
             <p>{{ activePage.description }}</p>
           </div>
-          <span v-if="page !== 'chat' && configState" class="revision-label"
+          <span
+            v-if="page !== 'chat' && page !== 'characters' && configState"
+            class="revision-label"
             ><span class="status-dot" :class="{ amber: !effective }"></span
             >{{ effective ? "当前配置已生效" : "配置等待生效"
             }}<b>v{{ configState.applied_revision }}</b></span
@@ -1137,7 +1231,9 @@ onUnmounted(() => {
                 <div class="panel-heading">
                   <div>
                     <h2>助手身份</h2>
-                    <p>名称与提示词会用于新的对话。</p>
+                    <p>
+                      这里的名称与提示词用于未绑定角色卡的对话。角色人格请在“角色卡”中配置。
+                    </p>
                   </div>
                   <span class="soft-icon"><Icon name="settings" /></span>
                 </div>
@@ -1517,9 +1613,43 @@ onUnmounted(() => {
           </section>
         </template>
 
+        <CharacterCards
+          v-if="page === 'characters'"
+          ref="characterCards"
+          @changed="task('读取角色', loadCharacterOptions)"
+          @test-conversation="openTestConversation"
+          @auth-expired="expireSession"
+        />
+
         <template v-if="page === 'chat'">
           <section class="chat-workspace">
             <aside class="conversation-sidebar">
+              <label class="chat-character-choice"
+                >新对话角色
+                <select
+                  v-model="characterChoice"
+                  :disabled="chatRunning || !!busy"
+                  aria-label="新对话角色"
+                >
+                  <option value="">
+                    {{
+                      characterOptions?.default
+                        ? `默认：${characterOptions.default.name} v${characterOptions.default.revision}`
+                        : "默认：原有助手"
+                    }}
+                  </option>
+                  <option
+                    v-for="card in characterOptions?.items.filter(
+                      (item) => !item.archived_at && item.latest_revision,
+                    )"
+                    :key="card.id"
+                    :value="card.id"
+                  >
+                    {{ card.name }} v{{ card.latest_revision }}
+                  </option>
+                </select>
+                <small>仅影响新建对话；换角色请新建会话。</small>
+              </label>
               <button
                 class="button primary full"
                 :disabled="!!busy || chatRunning"
@@ -1555,8 +1685,11 @@ onUnmounted(() => {
                   <img :src="brandMarkUrl" alt="" width="33" height="33" />
                 </div>
                 <div>
-                  <strong>{{ config.assistant.name }}</strong
-                  ><span>{{ status?.model?.model || config.model.model }}</span>
+                  <strong>{{ conversationAssistantName }}</strong
+                  ><span
+                    >{{ conversationCharacterLabel }} ·
+                    {{ status?.model?.model || config.model.model }}</span
+                  >
                 </div>
                 <span
                   class="badge"
@@ -1574,7 +1707,23 @@ onUnmounted(() => {
                     height="144"
                   />
                   <h2>开始一段新的对话</h2>
-                  <p>今天有什么想和我分享？<br />回复将使用你配置的模型。</p>
+                  <template
+                    v-if="
+                      selectedConversationData?.greeting ||
+                      selectedConversationData?.character?.greeting
+                    "
+                  >
+                    <p class="character-greeting">
+                      {{
+                        selectedConversationData.greeting ||
+                        selectedConversationData.character?.greeting
+                      }}
+                    </p>
+                    <small class="muted">角色开场白 · 尚未生成模型回复</small>
+                  </template>
+                  <p v-else>
+                    今天有什么想和我分享？<br />回复将使用你配置的模型。
+                  </p>
                   <button
                     v-if="!configuredModel"
                     class="button secondary"
@@ -1596,7 +1745,7 @@ onUnmounted(() => {
                       message.role === "user"
                         ? "你"
                         : message.role === "assistant"
-                          ? config.assistant.name
+                          ? conversationAssistantName
                           : message.role
                     }}
                   </div>

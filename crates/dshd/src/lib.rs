@@ -1,5 +1,8 @@
 pub mod api;
 pub mod auth;
+pub mod character;
+pub mod character_api;
+pub mod character_import;
 pub mod config;
 pub mod error;
 pub mod qq;

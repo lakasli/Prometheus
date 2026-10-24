@@ -1,5 +1,6 @@
 use crate::{
     auth::{self, Admin},
+    character,
     config::RuntimeConfig,
     error::{ApiError, ApiResult},
     state::{now, private_write, AppState},
@@ -21,6 +22,7 @@ use tower_http::services::{ServeDir, ServeFile};
 pub fn router(state: AppState) -> Router {
     let web = state.0.options.web_dir.clone();
     Router::new()
+        .merge(crate::character_api::router())
         .route("/health/live",get(||async{Json(json!({"status":"ok","version":env!("CARGO_PKG_VERSION"),"commit":crate::build_sha()}))}))
         .route("/health/ready",get(ready))
         .route("/api/admin/v1/auth/status",get(auth::auth_status))
@@ -113,7 +115,7 @@ fn memory() -> (Option<u64>, Option<u64>) {
 }
 async fn capabilities(_admin: Admin) -> Json<Value> {
     Json(
-        json!({"api_version":"v1","milestone":"M1","backends":["native"],"channels":["web","cli","qq-c2c","qq-group","qq-channel"],"text":true,"memory":false,"harness_runtime":false,"vision":false,"asr":false,"tts":false,"generated_plugins":false,"runtime_limits":{"max_concurrent_runs":2},"configuration":{"hot_reload":true,"restart_required_fields":[]}}),
+        json!({"api_version":"v1","milestone":"M1.1","backends":["native"],"channels":["web","cli","qq-c2c","qq-group","qq-channel"],"text":true,"character_cards":true,"character_card_profile":1,"qq_persona_switch":"private_only","memory":false,"harness_runtime":false,"vision":false,"asr":false,"tts":false,"generated_plugins":false,"runtime_limits":{"max_concurrent_runs":2},"configuration":{"hot_reload":true,"restart_required_fields":[]}}),
     )
 }
 
@@ -211,7 +213,7 @@ async fn check_draft(
     ];
     if config.qq.enabled {
         let result = crate::qq::access_token(&state, &config).await;
-        checks.push(json!({"name":"qq","ok":result.is_ok(),"message":result.err().unwrap_or_else(||"QQ访问凭证获取成功；仍需配置公网HTTPS回调及真实消息验证".into())}));
+        checks.push(json!({"name":"qq","ok":result.is_ok(),"message":result.err().unwrap_or_else(||"QQ访问凭证获取成功；仍需确认实际连接状态和真实消息收发".into())}));
     }
     state.audit(&admin.id, "config.checks", &id)?;
     Ok(Json(
@@ -396,8 +398,10 @@ async fn delete_secret(
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ConversationBody {
     title: Option<String>,
+    character: Option<character::CardRef>,
 }
 async fn create_conversation(
     State(state): State<AppState>,
@@ -409,17 +413,24 @@ async fn create_conversation(
     if title.len() > 200 {
         return Err(ApiError::bad("invalid_title", "标题过长"));
     }
-    state.db(|db| {
-        db.execute(
+    let character = state.db(|db| {
+        let tx = db.transaction()?;
+        let (_, config) = character::current_config_in(&tx)?;
+        tx.execute(
             "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?1,?2,?3,?4)",
             params![id, admin.id, title, now()],
         )?;
-        Ok(())
+        character::bind_new_conversation(&tx, &id, body.character.as_ref(), &config)?;
+        let result = character::connection_character(&tx, &id)?;
+        tx.commit()?;
+        Ok(result)
     })?;
-    Ok(Json(json!({"id":id,"title":title})))
+    Ok(Json(
+        json!({"id":id,"title":title,"legacy":character.is_null(),"character":character}),
+    ))
 }
 async fn conversations(State(state): State<AppState>, admin: Admin) -> ApiResult<Json<Value>> {
-    let items=state.db(|db|{let mut stmt=db.prepare("SELECT id,title,created_at FROM conversations WHERE owner_id=?1 ORDER BY created_at DESC LIMIT 100")?;let rows=stmt.query_map([admin.id],|r|Ok(json!({"id":r.get::<_,String>(0)?,"title":r.get::<_,String>(1)?,"created_at":r.get::<_,i64>(2)?})))?;Ok(rows.collect::<Result<Vec<_>,_>>()?)})?;
+    let items=state.db(|db|{let mut stmt=db.prepare("SELECT id,title,created_at FROM conversations WHERE owner_id=?1 ORDER BY created_at DESC,rowid DESC LIMIT 100")?;let rows=stmt.query_map([admin.id],|r|Ok(json!({"id":r.get::<_,String>(0)?,"title":r.get::<_,String>(1)?,"created_at":r.get::<_,i64>(2)?})))?;let mut items=rows.collect::<Result<Vec<_>,_>>()?;for item in &mut items {let c=character::connection_character(db,item["id"].as_str().unwrap_or(""))?;item["legacy"]=json!(c.is_null());item["test"]=json!(c["is_test"].as_bool().unwrap_or(false));item["character"]=c;}Ok(items)})?;
     Ok(Json(json!({"items":items})))
 }
 fn own_conversation(state: &AppState, id: &str, owner: &str) -> ApiResult<()> {
@@ -480,7 +491,27 @@ async fn run(
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
     let record=state.db(|db|Ok(db.query_row("SELECT id,status,response,error,conversation_id,created_at FROM runs WHERE id=?1 AND owner_id=?2",params![id,admin.id],|r|Ok(json!({"id":r.get::<_,String>(0)?,"status":r.get::<_,String>(1)?,"response":r.get::<_,Option<String>>(2)?,"error":r.get::<_,Option<String>>(3)?,"conversation_id":r.get::<_,String>(4)?,"created_at":r.get::<_,i64>(5)?}))).optional()?))?.ok_or_else(ApiError::not_found)?;
+    let mut record = record;
+    record["character"] = run_character(&state, &id)?;
+    record["legacy"] = json!(record["character"].is_null());
     Ok(Json(record))
+}
+
+fn run_character(state: &AppState, id: &str) -> ApiResult<Value> {
+    let text = state.db(|db| {
+        Ok(db.query_row(
+            "SELECT character_snapshot_json FROM runs WHERE id=?1",
+            [id],
+            |r| r.get::<_, Option<String>>(0),
+        )?)
+    })?;
+    let Some(text) = text else {
+        return Ok(Value::Null);
+    };
+    let value: Value = serde_json::from_str(&text).map_err(|_| ApiError::internal())?;
+    Ok(
+        json!({"card_id":value["card_id"],"revision":value["revision"],"name":value["name"],"digest":value["card_digest"],"projection_digest":value["projection_digest"],"is_test":value["is_test"]}),
+    )
 }
 async fn runs(State(state): State<AppState>, admin: Admin) -> ApiResult<Json<Value>> {
     let items=state.db(|db|{let mut stmt=db.prepare("SELECT id,status,response,error,conversation_id,created_at FROM runs WHERE owner_id=?1 ORDER BY created_at DESC LIMIT 100")?;let rows=stmt.query_map([admin.id],|r|Ok(json!({"id":r.get::<_,String>(0)?,"status":r.get::<_,String>(1)?,"response":r.get::<_,Option<String>>(2)?,"error":r.get::<_,Option<String>>(3)?,"conversation_id":r.get::<_,String>(4)?,"created_at":r.get::<_,i64>(5)?})))?;Ok(rows.collect::<Result<Vec<_>,_>>()?)})?;

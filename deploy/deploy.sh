@@ -15,10 +15,12 @@ root=/home/campanus/apps/dsh
 printf '%s  %s\n' "$archive_hash" "$archive" | sha256sum -c -
 export PATH="/home/campanus/.cargo/bin:$PATH"
 export GIT_TERMINAL_PROMPT=0
-for tool in git cargo rustc cc python3 systemctl; do command -v "$tool" >/dev/null; done
+for tool in git cargo rustc cc python3 systemctl flock; do command -v "$tool" >/dev/null; done
 [[ $(uname -m) == aarch64 ]] || { echo 'This deployment target must be aarch64' >&2; exit 2; }
 
 mkdir -p "$root/shared/data" "$root/shared/logs" "$root/shared/config" "$root/releases" "$root/cache"
+exec 9>"$root/.deployment.lock"
+flock -n 9 || { echo 'Another DSH deployment or rollback is in progress' >&2; exit 2; }
 repo=$root/repo
 remote=http://8.136.201.30:8418/Campanus/DSH.git
 if [[ ! -d $repo ]]; then git clone "$remote" "$repo"; fi
@@ -65,6 +67,9 @@ cd "$release/source"
 "${cargo_cmd[@]}" build --release --locked -p dshd -j 2 >"$root/shared/logs/build-$sha.log" 2>&1 || { tail -n 60 "$root/shared/logs/build-$sha.log"; exit 1; }
 install -m 0755 "$CARGO_TARGET_DIR/release/dshd" "$release/bin/dshd"
 
+# Build before stopping the live service. Check durable features before switching.
+python3 deploy/check-compatibility.py "$root/shared/data" "$release/source"
+
 unit_dir=/home/campanus/.config/systemd/user
 mkdir -p "$unit_dir"
 if [[ -f $unit_dir/dsh.service ]] && ! grep -q '^# Managed by DSH ' "$unit_dir/dsh.service"; then
@@ -79,6 +84,21 @@ if [[ -e $root/current || -L $root/current ]]; then
 fi
 systemctl --user daemon-reload
 systemctl --user enable dsh.service
+systemctl --user stop dsh.service
+mkdir -p "$root/shared/backups"
+if ! python3 - "$root/shared/data/dsh.db" "$root/shared/backups/pre-$sha-$(date -u +%Y%m%dT%H%M%S%N).sqlite" <<'PY'
+import os,pathlib,sqlite3,sys
+source,destination=sys.argv[1:]
+if pathlib.Path(source).is_file():
+    with sqlite3.connect(pathlib.Path(source).resolve().as_uri()+'?mode=ro',uri=True) as src, sqlite3.connect(destination) as dst:
+        src.backup(dst)
+    os.chmod(destination,0o600)
+PY
+then
+  if [[ -n $previous ]]; then systemctl --user start dsh.service; fi
+  echo 'Pre-upgrade backup failed; release was not switched' >&2
+  exit 1
+fi
 ln -sfn "$release" "$root/current.next"
 mv -Tf "$root/current.next" "$root/current"
 if ! systemctl --user restart dsh.service; then
@@ -93,6 +113,11 @@ if [[ $healthy != true ]]; then
   echo 'New release did not become healthy' >&2
   journalctl --user -u dsh.service -n 30 --no-pager || true
   if [[ -n $previous ]]; then
+    if ! python3 "$release/source/deploy/check-compatibility.py" "$root/shared/data" "$previous/source"; then
+      systemctl --user stop dsh.service
+      echo 'Previous release is incompatible with durable features; service stopped. Preserve data and inspect the private pre-upgrade backup.' >&2
+      exit 1
+    fi
     ln -sfn "$previous" "$root/current.next"
     mv -Tf "$root/current.next" "$root/current"
     systemctl --user restart dsh.service

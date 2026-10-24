@@ -47,6 +47,10 @@ enum Command {
         username: String,
         #[arg(long)]
         conversation: Option<String>,
+        #[arg(long, requires = "character_revision", conflicts_with = "conversation")]
+        character_card: Option<String>,
+        #[arg(long, requires = "character_card", conflicts_with = "conversation")]
+        character_revision: Option<i64>,
         #[arg(long)]
         message: String,
     },
@@ -136,6 +140,23 @@ async fn main() -> Result<()> {
                     qq::run_gateway(gateway_state.clone(), cancel)
                 })
                 .await?;
+            let cleanup_state = state.clone();
+            kernel
+                .mount_task("character-import-cleanup", &[], move |cancel| {
+                    let state = cleanup_state.clone();
+                    async move {
+                        loop {
+                            if dshd::character_api::cleanup_expired_imports(&state).is_err() {
+                                tracing::warn!("character import cleanup unavailable");
+                            }
+                            tokio::select! {
+                                _ = cancel.cancelled() => break,
+                                _ = tokio::time::sleep(Duration::from_secs(60)) => {},
+                            }
+                        }
+                    }
+                })
+                .await?;
             let listener = tokio::net::TcpListener::bind(listen).await?;
             tracing::info!(address=%listen,version=env!("CARGO_PKG_VERSION"),commit=dshd::build_sha(),"DSH ready");
             let result = axum::serve(listener, api::router(state))
@@ -148,8 +169,15 @@ async fn main() -> Result<()> {
             url,
             username,
             conversation,
+            character_card,
+            character_revision,
             message,
-        } => chat(&url, &username, conversation, &message).await?,
+        } => {
+            let character = character_card
+                .zip(character_revision)
+                .map(|(card_id, revision)| dshd::character::CardRef { card_id, revision });
+            chat(&url, &username, conversation, character, &message).await?
+        }
     }
     Ok(())
 }
@@ -171,6 +199,7 @@ async fn chat(
     base: &str,
     username: &str,
     conversation: Option<String>,
+    character: Option<dshd::character::CardRef>,
     message: &str,
 ) -> Result<()> {
     let endpoint = url::Url::parse(base)?;
@@ -227,7 +256,7 @@ async fn chat(
             let response = client
                 .post(format!("{api}/conversations"))
                 .headers(headers.clone())
-                .json(&json!({"title":"CLI对话"}))
+                .json(&json!({"title":"CLI对话","character":character}))
                 .send()
                 .await?;
             anyhow::ensure!(response.status().is_success(), "cannot create conversation");

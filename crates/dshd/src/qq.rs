@@ -1,6 +1,7 @@
 //! QQ official gateway and webhook transports share durable event deduplication.
 //! Protocol references are recorded in docs/m0-m1-validation.md by the project.
 use crate::{
+    character,
     config::RuntimeConfig,
     error::{ApiError, ApiResult},
     state::{now, AppState},
@@ -318,22 +319,130 @@ pub fn ingest(state: &AppState, config: &RuntimeConfig, payload: &Value) -> ApiR
     state.db(|db| {
         let tx=db.transaction()?;
         if tx.query_row("SELECT 1 FROM inbox WHERE event_key=?1",[&event_key],|r|r.get::<_,i64>(0)).optional()?.is_some(){return Ok(());}
-        let existing=tx.query_row("SELECT id FROM conversations WHERE source_key=?1",[&source_key],|r|r.get::<_,String>(0)).optional()?;
-        let id=existing.unwrap_or_else(||uuid::Uuid::new_v4().to_string());
+        // A retransmission after a persona switch still belongs to the original Run.
+        if let Some(run)=tx.query_row("SELECT id FROM runs WHERE owner_id=?1 AND client_message_id=?2 ORDER BY rowid LIMIT 1",params![owner,message_id],|r|r.get::<_,String>(0)).optional()? {
+            tx.execute("INSERT INTO inbox(event_key,account_id,event_type,received_at,run_id) VALUES(?1,?2,?3,?4,?5)",params![event_key,account,event_type,now(),run])?;
+            tx.commit()?;return Ok(());
+        }
+        let existing=tx.query_row("SELECT id FROM conversations WHERE source_key=?1 AND owner_id=?2",params![source_key,owner],|r|r.get::<_,String>(0)).optional()?;
+        let fresh=existing.is_none();
+        let mut id=existing.unwrap_or_else(||uuid::Uuid::new_v4().to_string());
+        let (config_revision,active_config)=character::current_config_in(&tx)?;
         tx.execute("INSERT OR IGNORE INTO conversations(id,owner_id,title,source_key,created_at) VALUES(?1,?2,?3,?4,?5)",params![id,owner,format!("QQ {kind}"),source_key,now()])?;
+        let command=persona_command(&content);
+        let has_binding=tx.query_row("SELECT 1 FROM conversation_character_bindings WHERE conversation_id=?1",[&id],|r|r.get::<_,i64>(0)).optional()?.is_some();
+        let has_model_work=tx.query_row("SELECT 1 FROM runs WHERE conversation_id=?1 AND run_kind='model' LIMIT 1",[&id],|r|r.get::<_,i64>(0)).optional()?.is_some();
+        if command.is_none() && (fresh || (!has_binding && !has_model_work)) {character::bind_new_conversation(&tx,&id,None,&active_config)?;}
+        let run=uuid::Uuid::new_v4().to_string();
+        let command_response=if let Some(command)=command {
+            if kind!="c2c" {Some("角色命令仅支持私聊。群聊和频道的角色仍由管理员设置。".to_string())}
+            else {let(next,response)=handle_persona_command(&tx,&id,&source_key,&owner,command,&active_config)?;id=next;Some(response)}
+        }else{None};
         let pending:i64=tx.query_row("SELECT count(*) FROM runs WHERE status='queued'",[],|r|r.get(0))?;
         let per_conversation:i64=tx.query_row("SELECT count(*) FROM runs WHERE conversation_id=?1 AND status IN ('queued','running')",[&id],|r|r.get(0))?;
         anyhow::ensure!(pending<500&&per_conversation<10,"queue full");
-        let existing_run=tx.query_row("SELECT id FROM runs WHERE conversation_id=?1 AND client_message_id=?2",params![id,message_id],|r|r.get::<_,String>(0)).optional()?;
-        let run=existing_run.unwrap_or_else(||uuid::Uuid::new_v4().to_string());
-        // Inbox, Run and user message share one transaction. A crash cannot ACK a lost Run.
-        tx.execute("INSERT OR IGNORE INTO runs(id,conversation_id,owner_id,client_message_id,input,config_json,reply_json,status,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,'queued',?8,?8)",params![run,id,owner,message_id,content,serde_json::to_string(config)?,serde_json::to_string(&reply)?,now()])?;
-        tx.execute("INSERT OR IGNORE INTO messages(id,conversation_id,run_id,role,content,created_at) VALUES(?1,?2,?3,'user',?4,?5)",params![uuid::Uuid::new_v4().to_string(),id,run,content,now()])?;
+        // Local control replies must stay usable when a preferred model mapping expires.
+        let snapshot=if command_response.is_some(){None}else{character::freeze_for_run(&tx,&id,config_revision,&active_config,"用户")?};
+        let status=if command_response.is_some(){"completed"}else{"queued"};
+        let run_kind=if command_response.is_some(){"character_command"}else{"model"};
+        tx.execute("INSERT INTO runs(id,conversation_id,owner_id,client_message_id,input,config_json,reply_json,status,response,created_at,updated_at,character_snapshot_json,character_digest,compiler_version,run_kind) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10,?11,?12,?13,?14)",params![run,id,owner,message_id,content,serde_json::to_string(&active_config)?,serde_json::to_string(&reply)?,status,command_response,now(),snapshot.as_ref().map(serde_json::to_string).transpose()?,snapshot.as_ref().map(|s|&s.projection_digest),snapshot.as_ref().map(|s|&s.compiler_version),run_kind])?;
+        tx.execute("INSERT INTO messages(id,conversation_id,run_id,role,content,created_at) VALUES(?1,?2,?3,'user',?4,?5)",params![uuid::Uuid::new_v4().to_string(),id,run,content,now()])?;
+        if let Some(response)=command_response {
+            let pending:i64=tx.query_row("SELECT count(*) FROM outbox WHERE status IN ('queued','sending')",[],|r|r.get(0))?;
+            anyhow::ensure!(pending<200,"reply queue full");
+            tx.execute("INSERT INTO messages(id,conversation_id,run_id,role,content,created_at) VALUES(?1,?2,?3,'assistant',?4,?5)",params![uuid::Uuid::new_v4().to_string(),id,run,response,now()])?;
+            tx.execute("INSERT INTO outbox(id,run_id,account_id,credential_ref,target_json,content,status,deadline,created_at) VALUES(?1,?2,?3,?4,?5,?6,'queued',?7,?8)",params![uuid::Uuid::new_v4().to_string(),run,reply.account_id,reply.credential_ref,serde_json::to_string(&reply)?,response,reply.deadline,now()])?;
+        }
         tx.execute("INSERT INTO inbox(event_key,account_id,event_type,received_at,run_id) VALUES(?1,?2,?3,?4,?5)",params![event_key,account,event_type,now(),run])?;
         tx.commit()?;Ok(())
     })?;
     state.0.notify.notify_waiters();
     Ok(())
+}
+
+fn persona_command(content: &str) -> Option<&str> {
+    for prefix in ["/角色", "/persona"] {
+        if let Some(rest) = content.strip_prefix(prefix) {
+            if rest.is_empty() || rest.starts_with(char::is_whitespace) {
+                return Some(rest.trim());
+            }
+        }
+    }
+    None
+}
+
+fn handle_persona_command(
+    tx: &rusqlite::Transaction<'_>,
+    conversation: &str,
+    source_key: &str,
+    owner: &str,
+    command: &str,
+    config: &RuntimeConfig,
+) -> anyhow::Result<(String, String)> {
+    if command == "当前" || command == "current" {
+        let current = character::connection_character(tx, conversation)?;
+        let text = if current.is_null() {
+            "当前使用原有助手（legacy）。发送 /角色 查看管理员开放的角色。".into()
+        } else {
+            format!(
+                "当前角色：{} · v{}。切换将新建会话，保留原会话记录。",
+                current["name"].as_str().unwrap_or("角色"),
+                current["revision"]
+            )
+        };
+        return Ok((conversation.into(), text));
+    }
+    let selector = command
+        .strip_prefix("切换 ")
+        .or_else(|| command.strip_prefix("switch "))
+        .map(str::trim);
+    if let Some(selector) = selector.filter(|s| !s.is_empty()) {
+        let selected = match character::find_published(tx, selector) {
+            Ok(v) => v,
+            Err(e) => return Ok((conversation.into(), e.message)),
+        };
+        let next = uuid::Uuid::new_v4().to_string();
+        tx.execute_batch("SAVEPOINT persona_switch")?;
+        tx.execute("INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?1,?2,'QQ私聊 · 角色切换',?3)",params![next,owner,now()])?;
+        if let Err(error) = character::bind_new_conversation(tx, &next, Some(&selected), config) {
+            tx.execute_batch("ROLLBACK TO persona_switch; RELEASE persona_switch")?;
+            return Ok((conversation.into(), error.message));
+        }
+        tx.execute(
+            "UPDATE conversations SET source_key=NULL WHERE id=?1 AND source_key=?2",
+            params![conversation, source_key],
+        )?;
+        tx.execute(
+            "UPDATE conversations SET source_key=?1 WHERE id=?2",
+            params![source_key, next],
+        )?;
+        tx.execute("INSERT INTO audit_events(actor,action,resource,created_at) VALUES(?1,'character.qq_switch',?2,?3)",params![owner,selected.card_id,now()])?;
+        let current = character::connection_character(tx, &next)?;
+        tx.execute_batch("RELEASE persona_switch")?;
+        return Ok((
+            next,
+            format!(
+                "已切换为 {} · v{}，已开始新会话。原会话记录保留。",
+                current["name"].as_str().unwrap_or("角色"),
+                selected.revision
+            ),
+        ));
+    }
+    let cards = character::list_published(tx)?;
+    let mut text = String::from("可选角色（由管理员开放）：");
+    for card in cards.iter().take(8) {
+        text.push_str(&format!(
+            "\n{} · v{}\n{}",
+            card["name"].as_str().unwrap_or("角色"),
+            card["revision"],
+            card["card_id"].as_str().unwrap_or("")
+        ));
+    }
+    if cards.is_empty() {
+        text.push_str("\n暂无。请管理员在 Web 角色卡页面发布并开启 QQ 可选。");
+    }
+    text.push_str("\n发送 /角色 切换 <角色名称或完整ID>；/角色 当前 查看当前角色。切换只影响本人的私聊新会话。");
+    Ok((conversation.into(), text))
 }
 
 fn strip_mentions(input: &str) -> String {

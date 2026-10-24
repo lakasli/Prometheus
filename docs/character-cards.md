@@ -1,6 +1,6 @@
 # DSH 角色卡设计：基于 AIRI 思路的独立实现
 
-日期：2026-10-24。版本：设计稿 0.1。**本次交付是设计、交换格式 Schema 和示例，尚未实现角色卡服务、管理页面或数据库迁移，也未改变当前运行实例。**
+日期：2026-10-24。版本：0.2。本文为角色卡契约与实施基线。文本角色卡、Web管理、受限导入导出和QQ私聊切换已实现；实际部署SHA、测试结果与未执行项见 [角色卡验收记录](character-card-validation.md)。后续视觉 / 语音等能力仍按阶段边界保留。
 
 ## 1. 采用方案与边界
 
@@ -22,7 +22,7 @@ AIRI 研究快照为 `300773ef28299f2bead06abf97d998f5bb4055db`。具体实现�
 | `state.rs::open` 尚无版本化迁移框架 | 先补迁移版本、事务和兼容检查，再新增表 / 列 |
 | Vue `App.vue`、`types.ts` 使用全局助手名 | 对话显示绑定角色及 revision；角色编辑与模型配置表单分开 |
 
-以下组件名、表结构、路由和行为均为拟实现设计；现有源码路径在 `crates/dshd/src/` 和 `web/admin/src/`。
+以下定义为接口契约；首期实际实现入口在 `crates/dshd/src/` 和 `web/admin/src/`，运行验证范围见独立验收记录。
 
 ## 3. 服务与依赖
 
@@ -42,7 +42,7 @@ flowchart LR
 - `CharacterService`：卡 CRUD、校验、发布、默认引用、导入转换与归档。
 - `CharacterResolver`：在调用方提供的 SQLite 事务内读取已应用配置、解析会话归属、固定 revision 和模块映射；默认引用与模型配置来自同一事务视图，不得内部另开事务或调用网络。
 - `PromptCompiler`：纯逻辑，输入明确、排序确定、带版本号；不读取任意文件、不调用模型、不修改卡。
-- `CharacterRepository`：先放在 `dshd` 内实现，稳定后再拆 crate；通过 Cordis 服务注入供管理 API、入站与 worker 使用。服务撤销后停止新角色任务准入，已持久化快照的任务按原取消 / 清理规则处理。
+- `CharacterRepository`：首期在 `dshd` 内作为应用模块实现，供管理API、入站与worker调用；上传清理任务由Cordis托管并响应取消。后续拆crate / 动态注入时，撤销服务须停止新角色任务准入，已持久化快照按原取消 / 清理规则处理；首期不宣称已支持角色模块热卸载。
 
 一张卡是数据，不是一个常驻 Agent。卡库和历史会话不各自创建 Node、模型进程或 worker。
 
@@ -67,7 +67,7 @@ flowchart LR
 
 ## 5. AIRI 导入与导出契约
 
-首期输入为 UTF-8 CCv3 3.0 JSON，或 AIRI 分享 ZIP：根目录 `manifest.json` 声明 `format=airi-character-card`、`version=1`，卡路径严格为 `card.json`。只提取文本与可解释的偏好，不安装资源。PNG 内嵌卡、CHARX、V1/V2 及其他版本不在本期承诺内，明确返回 `unsupported_card_format`。
+首期输入为UTF-8 CCv3 3.0 JSON，或AIRI分享ZIP：根目录 `manifest.json` 声明 `format=airi-character-card`、`version=1`，卡路径严格为 `card.json`。ZIP仅支持单卷、无自解压前缀的标准非ZIP64格式、ASCII条目路径和Store / Deflate压缩；JSON文本仍使用UTF-8。扩展路径编码、加密、ZIP64、多卷、其他压缩方式、PNG内嵌卡、CHARX及V1/V2不在本期承诺内，明确拒绝。只提取文本与可解释偏好，不安装资源。
 
 | AIRI / CCv3 输入 | 转换处理 |
 | --- | --- |
@@ -111,7 +111,11 @@ AIRI模块值须先验证类型再做完整性分类：缺失 / 空白字符串�
 
 全局默认值是精确的 `(card_id, revision)` 引用，不是浮动 latest。发布 revision 2 不会将默认 revision 1 或已有会话自动升级。新会话在创建 / 首次入站的事务内固定引用；后续入队只读取该会话绑定。
 
-首期切换人格创建新会话。Web / CLI 可以选择已发布版本；QQ 新会话使用实例默认，现有 QQ 会话需要管理员显式“以新角色重新开始”，创建后继会话并原子切换该平台会话映射，旧消息和旧 Run 归属不变。QQ 普通消息不能直接改变默认卡或访问管理接口。后继会话仍沿用当前 QQ 主体隔离，不能因换卡混入其他用户历史。
+首期切换人格创建新会话。Web / CLI可以选择已发布版本；QQ新会话使用实例默认。按用户后续要求，QQ私聊支持 `/角色`、`/角色 当前`、`/角色 切换 <唯一名称或完整ID>`（英文别名 `/persona`）。管理员必须先发布卡并显式开启“QQ可选”，分享标记属于本机元数据，不进入导出。发布本身不向QQ开放角色。
+
+切换只作用于该QQ账号下当前私聊用户：创建后继会话，并在同一事务切换source_key映射；旧消息、旧排队Run和其他用户归属不变。群聊 / 频道不接受角色切换，普通QQ消息不能改变全局默认或访问管理API。命令使用持久Inbox / Run / Outbox，重复事件或同一消息ID的再次投递不重复切换；run_kind=character_command，不调用模型，其确认文本不进入模型历史。
+
+控制命令不依赖模型映射或模型快照，prefer映射失效后仍能查卡并切换到可用角色。QQ首次只发送控制命令时，未选择角色的会话到首条普通消息才解析默认；已有模型历史的legacy会话不会因此自动迁移。
 
 归档阻止新绑定，已绑定会话继续使用其不可变版本；首期不提供硬删除。紧急停用时先关闭新准入并显式处理 queued / running 任务，不把归档等同于撤销已发出的平台消息。
 
@@ -162,7 +166,7 @@ M3 接入 Harness 时复用同一静态人格投影与来源摘要；会话键�
 | `run_prompt_snapshots` | run_id 唯一、messages_json、digest、创建时间；联网前写入 |
 | `settings['character.default.v1']` | 精确卡引用及ETag，保持旧 RuntimeConfig JSON 结构不变 |
 
-摘要算法固定为 SHA-256；对归一化 JSON 用确定性序列化：对象键按 Unicode 标量顺序排序、UTF-8、无额外空白、数组顺序与字符串内容保持、整数十进制。本配置不使用浮点数；UUID、revision等本地字段不混入可分享卡内容摘要。编译器摘要还纳入 compiler_version 和实际宏取值，避免同卡不同投影误判相同。
+摘要算法固定为SHA-256；归一化JSON使用确定性键排序、UTF-8、无额外空白、数组顺序与字符串内容保持、整数十进制。card_digest仅表示规范卡内容；projection_digest纳入compiler_version、已展开人格文本、module_digest和测试来源，runs.character_digest保存该投影摘要。run_prompt_snapshots.digest表示最终完整消息JSON，编译器版本另列保存。本配置不使用浮点数，本地UUID / revision不混入可分享卡内容摘要。
 
 所有新路由位于 `/api/admin/v1`，复用当前管理认证、资源授权、CSRF、精确 Origin、大小限制与审计。普通 QQ 主体不能调用。首期沿用实例管理员权限，未来增加 workspace scope 时必须逐资源校验，不把 Cordis 服务注入当成用户授权。
 
@@ -170,7 +174,7 @@ M3 接入 Harness 时复用同一静态人格投影与来源摘要；会话键�
 
 | 拟实现接口 | 语义 |
 | --- | --- |
-| `GET /character-cards`、`POST /character-cards` | 分页列表；创建空卡和草稿 |
+| `GET /character-cards`、`POST /character-cards` | 首期最多100张列表，分页随后补充；创建空卡和草稿 |
 | `POST /character-cards/import/inspect` | 上传解析，返回 owner-bound import_id、摘要、字段差异和警告 |
 | `POST /character-cards/import/{import_id}/confirm` | 确认转换结果，创建新卡草稿；不发布或绑定 |
 | `POST /character-cards/{id}/drafts`、`PUT /character-cards/{id}/drafts/{draft_id}` | 从指定 revision 建草稿；更新要求 If-Match |
@@ -213,4 +217,4 @@ M3 接入 Harness 时复用同一静态人格投影与来源摘要；会话键�
 
 跨阶段用例还包括：同名卡不串会话、改变默认不修改旧会话、换provider不混用model / voice、未知宏不执行、恶意角色文本不能授予工具权限、保存草稿不影响正在运行任务、完整请求快照写失败时不调用模型、导入资源不触发外联、回滚拒绝不兼容release。
 
-本次只验证设计文件与示例一致性、链接、Schema及清理结果；上述运行验收属于后续实现，不能记为本轮通过。
+设计阶段只做Schema与示例静态检查；后续实现已补充运行验证，结论以独立验收记录为准，不能把模拟模型、离线QQ fixture或本地浏览器测试替代真实平台与目标系统验收。

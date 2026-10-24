@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:dsh:character-card:profile:1",
   "title": "DSH text character card profile v1",
-  "description": "Design contract, not a deployed feature. A normalized Character Card V3 subset with independent DSH module hints. Validate imported external cards before and after normalization; enforce total UTF-8 byte/depth/archive limits separately.",
+  "description": "Portable DSH text character card profile v1. Runtime capability and module-binding validation are separate; enforce total UTF-8 byte, depth, and archive limits independently.",
   "type": "object",
   "additionalProperties": false,
   "required": [

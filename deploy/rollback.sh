@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root=/home/campanus/apps/dsh
+exec 9>"$root/.deployment.lock"
+flock -n 9 || { echo 'Another DSH deployment or rollback is in progress' >&2; exit 2; }
 sha=${1:?usage: rollback.sh PREVIOUS_FULL_SHA}
 [[ $sha =~ ^[0-9a-f]{40}$ ]] || exit 2
 release=$root/releases/$sha
 [[ -x $release/bin/dshd && -f $release/web/release.json ]] || { echo 'Complete release not found' >&2; exit 2; }
 [[ $(git -C "$release/source" rev-parse HEAD) == "$sha" ]] || exit 2
+gate=$root/current/source/deploy/check-compatibility.py
+[[ -f $gate ]] || gate=$release/source/deploy/check-compatibility.py
+[[ -f $gate ]] || { echo 'No compatibility gate is available; preserve data and use a compatible deployment tool' >&2; exit 2; }
+python3 "$gate" "$root/shared/data" "$release/source"
 ln -sfn "$release" "$root/current.next"
 mv -Tf "$root/current.next" "$root/current"
 systemctl --user restart dsh.service
