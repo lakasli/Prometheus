@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import ConversationSummary from "../src/components/ConversationSummary.vue";
 import { clearCsrfToken, setCsrfToken } from "../src/api";
+import { selectValue, selectValues } from "./select-helpers";
 
 let wrapper: VueWrapper | undefined;
 afterEach(() => {
@@ -92,10 +93,10 @@ function button(label: string) {
   return found;
 }
 function select() {
-  return wrapper!.get('select[aria-label="查看摘要的会话"]');
+  return wrapper!.get('[aria-label="查看摘要的会话"]');
 }
 async function choose(id = "a") {
-  await select().setValue(id);
+  await selectValue(select(), id);
   await flushPromises();
 }
 async function confirmRebuild() {
@@ -108,11 +109,7 @@ describe("private conversation summaries", () => {
   it("shows only ordinary accessible conversations and traces the selected summary", async () => {
     const fetch = setup();
     await flushPromises();
-    expect(
-      select()
-        .findAll("option")
-        .map((option) => option.attributes("value")),
-    ).toEqual(["", "a", "b"]);
+    expect(await selectValues(select())).toEqual(["", "a", "b"]);
     expect(fetch).toHaveBeenCalledTimes(1);
     const help = select().attributes("aria-describedby");
     expect(wrapper!.get(`[id="${help}"]`).text()).toContain(

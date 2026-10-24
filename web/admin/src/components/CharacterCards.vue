@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { api, ApiError, errorMessage } from "../api";
 import { formatDate } from "../validation";
+import AdminSelect from "./AdminSelect.vue";
 import type {
   CharacterCard,
   CharacterCardList,
@@ -30,6 +31,7 @@ const error = ref("");
 const notice = ref("");
 const revisions = ref<CharacterRevision[]>([]);
 const revisionChoice = ref("");
+const importInput = ref<HTMLInputElement>();
 const validation = ref<{
   valid: boolean;
   bindable?: boolean;
@@ -494,13 +496,23 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
             @click="createCard"
           >
             新建卡片</button
-          ><label class="button secondary small character-upload"
-            >导入 JSON / ZIP<input
-              type="file"
-              accept=".json,.zip,application/json,application/zip"
-              :disabled="!!working"
-              @change="importFile"
-          /></label>
+          ><button
+            type="button"
+            class="button secondary small"
+            :disabled="!!working"
+            @click="importInput?.click()"
+          >
+            导入 JSON / ZIP</button
+          ><input
+            ref="importInput"
+            class="character-upload-input"
+            type="file"
+            tabindex="-1"
+            aria-hidden="true"
+            accept=".json,.zip,application/json,application/zip"
+            :disabled="!!working"
+            @change="importFile"
+          />
         </div>
         <p v-if="!library.items.length" class="character-empty">
           还没有角色卡。先创建或导入一张，校验后发布。
@@ -541,6 +553,49 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
           <p class="muted">
             草稿与已发布版本分开保存。修改草稿不影响运行中的角色。
           </p>
+          <div v-if="!selectedSummary?.archived_at" class="character-toolbar">
+            <div class="character-actions">
+              <button
+                class="button secondary"
+                :disabled="!!working || !hasUnsaved"
+                @click="save"
+              >
+                保存草稿
+              </button>
+              <button
+                class="button secondary"
+                :disabled="!!working"
+                @click="validate"
+              >
+                校验卡片
+              </button>
+              <button
+                class="button secondary"
+                :disabled="!!working"
+                @click="compilePreview"
+              >
+                编译预览
+              </button>
+              <button
+                class="button secondary"
+                :disabled="!!working"
+                @click="testConversation"
+              >
+                独立测试对话
+              </button>
+              <button
+                class="button primary"
+                :disabled="!!working || hasUnsaved || !validation?.valid"
+                @click="publish"
+              >
+                发布版本
+              </button>
+            </div>
+            <p class="footnote">
+              校验、预览与独立测试会先保存当前草稿；发布版本后才可用于普通新会话。
+            </p>
+            <p v-if="working" class="footnote" role="status">{{ working }}…</p>
+          </div>
           <fieldset
             class="character-fields"
             :disabled="!!working || !!selectedSummary?.archived_at"
@@ -626,26 +681,27 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
                 </p>
                 <div class="character-field-row">
                   <label
-                    >Chat<select
-                      :value="data.extensions.dsh.modules.chat.mode"
-                      @change="
+                    >文本模型<AdminSelect
+                      :model-value="data.extensions.dsh.modules.chat.mode"
+                      aria-label="文本模型"
+                      :options="[
+                        { value: 'inherit', label: '继承当前模型' },
+                        ...(data.extensions.dsh.modules.chat.mode !== 'inherit'
+                          ? [
+                              {
+                                value: data.extensions.dsh.modules.chat.mode,
+                                label: '导入的模型偏好（需改为继承）',
+                                disabled: true,
+                              },
+                            ]
+                          : []),
+                      ]"
+                      @update:model-value="
                         data.extensions.dsh.modules.chat = { mode: 'inherit' }
-                      "
-                    >
-                      <option value="inherit">继承当前模型</option>
-                      <option
-                        v-if="
-                          data.extensions.dsh.modules.chat.mode !== 'inherit'
-                        "
-                        :value="data.extensions.dsh.modules.chat.mode"
-                        disabled
-                      >
-                        导入的模型偏好（需改为继承）
-                      </option>
-                    </select></label
+                      " /></label
                   ><label
-                    >Vision / Speech<input
-                      :value="`视觉：${data.extensions.dsh.modules.vision.mode}；语音：${data.extensions.dsh.modules.speech.mode}`"
+                    >视觉与语音<input
+                      :value="`视觉：${data.extensions.dsh.modules.vision.mode === 'disabled' ? '未启用' : '导入偏好待处理'}；语音：${data.extensions.dsh.modules.speech.mode === 'disabled' ? '未启用' : '导入偏好待处理'}`"
                       readonly
                   /></label>
                 </div>
@@ -682,40 +738,6 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
               </div>
             </details>
           </fieldset>
-          <div v-if="!selectedSummary?.archived_at" class="character-actions">
-            <button
-              class="button secondary"
-              :disabled="!!working || !hasUnsaved"
-              @click="save"
-            >
-              保存草稿</button
-            ><button
-              class="button secondary"
-              :disabled="!!working"
-              @click="validate"
-            >
-              校验卡片</button
-            ><button
-              class="button secondary"
-              :disabled="!!working"
-              @click="compilePreview"
-            >
-              编译预览</button
-            ><button
-              class="button secondary"
-              :disabled="!!working"
-              @click="testConversation"
-            >
-              独立测试对话</button
-            ><button
-              class="button primary"
-              :disabled="!!working || hasUnsaved || !validation?.valid"
-              @click="publish"
-            >
-              发布版本
-            </button>
-          </div>
-          <p v-if="working" class="footnote" role="status">{{ working }}…</p>
           <div v-if="validation" class="character-validation" role="status">
             <strong>{{
               validation.valid ? "卡片格式校验通过" : "请修复以下问题"
@@ -750,16 +772,16 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
           <div class="character-published">
             <h3>已发布版本</h3>
             <div v-if="revisions.length" class="character-actions">
-              <select v-model="revisionChoice" aria-label="已发布角色版本">
-                <option
-                  v-for="revision in revisions"
-                  :key="revision.revision"
-                  :value="String(revision.revision)"
-                >
-                  v{{ revision.revision }} ·
-                  {{ formatDate(revision.created_at) }}
-                </option></select
-              ><button
+              <AdminSelect
+                v-model="revisionChoice"
+                aria-label="已发布角色版本"
+                :options="
+                  revisions.map((revision) => ({
+                    value: String(revision.revision),
+                    label: `v${revision.revision} · ${formatDate(revision.created_at)}`,
+                  }))
+                "
+              /><button
                 class="button secondary small"
                 :disabled="!!working"
                 @click="exportCard"
@@ -837,7 +859,8 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
   margin-bottom: 12px;
 }
 .character-heading h2 {
-  font-size: 18px;
+  font-size: 16px;
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 .character-default {
@@ -851,16 +874,26 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
   gap: 10px;
   margin-top: 18px;
 }
-.character-actions select {
+.character-actions .admin-select {
   width: auto;
+  min-width: 220px;
   max-width: 100%;
 }
-.character-upload {
-  display: inline-flex;
-  cursor: pointer;
-}
-.character-upload input {
+.character-upload-input {
   display: none;
+}
+.character-toolbar {
+  margin: 18px 0 22px;
+  padding: 16px;
+  background: #f7f8fc;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.character-toolbar .character-actions {
+  margin: 0 0 10px;
+}
+.character-toolbar .footnote {
+  margin: 8px 0 0;
 }
 .character-card-button {
   display: flex;
@@ -902,10 +935,17 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
   display: grid;
   gap: 7px;
   font-weight: 600;
+  font-size: 12px;
   min-width: 0;
 }
 .character-fields small {
   color: var(--muted);
+  font-weight: 400;
+  font-size: 12px;
+}
+.character-fields input,
+.character-fields textarea {
+  font-size: 14px;
   font-weight: 400;
 }
 .character-field-row {

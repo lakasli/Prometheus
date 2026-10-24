@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { selectValue } from "./select-helpers";
 
 const dataDir = path.resolve(
   process.env.DSH_E2E_DATA_DIR || "../../.local/memory-e2e",
@@ -150,15 +151,17 @@ test("conversation summary management rebuilds derived data with an opaque versi
     panel.getByRole("heading", { name: "长会话摘要", exact: true }),
   ).toBeVisible();
   const selector = panel.getByLabel("查看摘要的会话", { exact: true });
-  await expect(selector.locator(`option[value="${first.id}"]`)).toHaveCount(1);
-  await expect(selector.locator(`option[value="${second.id}"]`)).toHaveCount(1);
-  await expect(selector.locator(`option[value="${draftId}"]`)).toHaveCount(0);
+  await selector.click();
+  const options = page.getByRole("listbox");
+  await expect(options.locator(`[data-value="${first.id}"]`)).toHaveCount(1);
+  await expect(options.locator(`[data-value="${second.id}"]`)).toHaveCount(1);
+  await expect(options.locator(`[data-value="${draftId}"]`)).toHaveCount(0);
   const firstGet = page.waitForResponse(
     (response) =>
       response.url().endsWith(firstPath) &&
       response.request().method() === "GET",
   );
-  await selector.selectOption(first.id);
+  await selectValue(page, selector, first.id);
   const initial = await (await firstGet).json();
   expect(initial).toMatchObject({ conversation_id: first.id, summary: null });
   expect(typeof initial.revision).toBe("string");
@@ -249,7 +252,7 @@ test("conversation summary management rebuilds derived data with an opaque versi
       response.url().endsWith(secondPath) &&
       response.request().method() === "GET",
   );
-  await selector.selectOption(second.id);
+  await selectValue(page, selector, second.id);
   const secondView = await (await secondGet).json();
   expect(secondView).toMatchObject({
     conversation_id: second.id,

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import MemoryCandidates from "../src/components/MemoryCandidates.vue";
 import { clearCsrfToken, setCsrfToken } from "../src/api";
+import { selectValue, selectValues } from "./select-helpers";
 
 let wrapper: VueWrapper | undefined;
 beforeEach(() => {
@@ -114,10 +115,10 @@ function button(text: string, root = wrapper!) {
   return found;
 }
 function select() {
-  return wrapper!.get('select[aria-label="提取来源会话"]');
+  return wrapper!.get('[aria-label="提取来源会话"]');
 }
 async function choose(id = "a") {
-  await select().setValue(id);
+  await selectValue(select(), id);
   await flushPromises();
 }
 async function checkSource(index = 1) {
@@ -134,11 +135,7 @@ describe("explicit memory candidate review", () => {
     const localWrite = vi.spyOn(Storage.prototype, "setItem");
     const fetch = setup();
     await flushPromises();
-    expect(
-      select()
-        .findAll("option")
-        .map((item) => item.attributes("value")),
-    ).toEqual(["", "a", "b"]);
+    expect(await selectValues(select())).toEqual(["", "a", "b"]);
     const help = select().attributes("aria-describedby");
     expect(wrapper!.get(`[id="${help}"]`).text()).toContain(
       "草稿测试会话不可选",

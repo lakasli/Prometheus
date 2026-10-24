@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, useId, watch } from "vue";
 import { api, ApiError, errorMessage } from "../api";
 import { formatDate } from "../validation";
+import AdminSelect from "./AdminSelect.vue";
 import type { Conversation, Timestamp } from "../types";
 
 interface SummaryResponse {
@@ -240,23 +241,22 @@ onUnmounted(() => {
     </p>
     <label class="field"
       ><span>查看摘要的会话</span
-      ><select
+      ><AdminSelect
         v-model="selected"
         aria-label="查看摘要的会话"
         :aria-describedby="`${fieldId}-source-help`"
         :disabled="loadingConversations || rebuilding"
-      >
-        <option value="">
-          {{ loadingConversations ? "正在读取会话…" : "请选择普通会话" }}
-        </option>
-        <option
-          v-for="conversation in conversations"
-          :key="conversation.id"
-          :value="conversation.id"
-        >
-          {{ conversation.title }}
-        </option></select
-      ><small :id="`${fieldId}-source-help`"
+        :options="[
+          {
+            value: '',
+            label: loadingConversations ? '正在读取会话…' : '请选择普通会话',
+          },
+          ...conversations.map((conversation) => ({
+            value: conversation.id,
+            label: conversation.title,
+          })),
+        ]"
+      /><small :id="`${fieldId}-source-help`"
         >仅列出当前已认证账户可访问的普通来源会话；草稿测试会话不参与整理。</small
       ></label
     >

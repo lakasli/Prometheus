@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import CharacterCards from "../src/components/CharacterCards.vue";
 import App from "../src/App.vue";
+import AdminSelect from "../src/components/AdminSelect.vue";
 import { clearCsrfToken, setCsrfToken } from "../src/api";
 import type { CharacterCard } from "../src/types";
 
@@ -406,7 +407,8 @@ describe("conversation character binding", () => {
     await flushPromises();
     expect(wrapper.get(".chat-heading").text()).toContain("绑定的旧名字");
     expect(wrapper.get(".chat-heading").text()).toContain("角色 v1");
-    await wrapper.get('select[aria-label="新对话角色"]').setValue("card-a");
+    wrapper.findComponent(AdminSelect).vm.$emit("update:modelValue", "card-a");
+    await flushPromises();
     await button("新建对话").trigger("click");
     await flushPromises();
     const created = fetch.mock.calls.find(

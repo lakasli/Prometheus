@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import MemoryPanel from "../src/components/MemoryPanel.vue";
 import { clearCsrfToken, setCsrfToken } from "../src/api";
+import { selectValue, selectValues } from "./select-helpers";
 
 let wrapper: VueWrapper | undefined;
 afterEach(() => {
@@ -100,12 +101,12 @@ describe("assistant memory management", () => {
         : undefined,
     );
     await flushPromises();
-    const sources = wrapper!.findAll('select[aria-label="来源会话"]');
+    const sources = wrapper!.findAll(
+      '[role="combobox"][aria-label="来源会话"]',
+    );
     expect(sources).toHaveLength(2);
     for (const source of sources)
-      expect(
-        source.findAll("option").map((option) => option.attributes("value")),
-      ).toEqual(["", "normal"]);
+      expect(await selectValues(source)).toEqual(["", "normal"]);
     expect(wrapper!.text()).not.toContain("角色草稿测试");
   });
 
@@ -122,15 +123,21 @@ describe("assistant memory management", () => {
     expect(wrapper!.text()).toContain("message-1");
     const filters = wrapper!.get('form[aria-label="筛选记忆"]');
     expect(filters.find('input[aria-label="查询内容"]').exists()).toBe(true);
-    expect(filters.find('select[aria-label="可见范围"]').exists()).toBe(true);
-    expect(filters.find('select[aria-label="来源会话"]').exists()).toBe(true);
+    expect(
+      filters.find('[role="combobox"][aria-label="可见范围"]').exists(),
+    ).toBe(true);
+    expect(
+      filters.find('[role="combobox"][aria-label="来源会话"]').exists(),
+    ).toBe(true);
     const create = createForm();
-    expect(create.find('select[aria-label="使用范围"]').exists()).toBe(true);
+    expect(
+      create.find('[role="combobox"][aria-label="使用范围"]').exists(),
+    ).toBe(true);
     const content = create.get('textarea[aria-label="记忆内容"]');
     expect(
       create.get(`[id="${content.attributes("aria-describedby")}"]`).text(),
     ).toContain("4,000 UTF-8 字节");
-    const source = create.get('select[aria-label="来源会话"]');
+    const source = create.get('[role="combobox"][aria-label="来源会话"]');
     expect(source.attributes("aria-required")).toBe("true");
     expect(
       create.get(`[id="${source.attributes("aria-describedby")}"]`).text(),
@@ -139,9 +146,9 @@ describe("assistant memory management", () => {
       create.find('input[aria-label="来源消息 ID（可选）"]').exists(),
     ).toBe(true);
     await filters.get('input[type="search"]').setValue("关键词 & OR");
-    const selects = filters.findAll("select");
-    await selects[0]!.setValue("private");
-    await selects[1]!.setValue("conversation-1");
+    const selects = filters.findAll('[role="combobox"]');
+    await selectValue(selects[0]!, "private");
+    await selectValue(selects[1]!, "conversation-1");
     await filters.trigger("submit");
     await flushPromises();
     await button("下一页").trigger("click");
@@ -177,7 +184,7 @@ describe("assistant memory management", () => {
     expect(
       fetch.mock.calls.filter(([, options]) => options?.method === "POST"),
     ).toHaveLength(0);
-    await form.findAll("select")[1]!.setValue("conversation-1");
+    await selectValue(form.findAll('[role="combobox"]')[1]!, "conversation-1");
     await form.get("input").setValue("message-1");
     await form.trigger("submit");
     await flushPromises();
@@ -203,7 +210,7 @@ describe("assistant memory management", () => {
     await flushPromises();
     const form = createForm();
     await form.get("textarea").setValue("可公开使用的项目事实");
-    await form.findAll("select")[0]!.setValue("shared");
+    await selectValue(form.findAll('[role="combobox"]')[0]!, "shared");
     await form.trigger("submit");
     expect(wrapper!.text()).toContain("请明确确认允许助手在所有渠道使用");
     expect(
@@ -244,7 +251,9 @@ describe("assistant memory management", () => {
       editForm().find('textarea[aria-label="纠正后的内容"]').exists(),
     ).toBe(true);
     expect(
-      editForm().find('select[aria-label="纠正后的可见范围"]').exists(),
+      editForm()
+        .find('[role="combobox"][aria-label="纠正后的可见范围"]')
+        .exists(),
     ).toBe(true);
     await editForm().get("textarea").setValue("我正在编辑的纠正草稿");
     await editForm().trigger("submit");
@@ -281,7 +290,7 @@ describe("assistant memory management", () => {
     });
     await flushPromises();
     await button("编辑纠正").trigger("click");
-    await editForm().get("select").setValue("shared");
+    await selectValue(editForm().get('[role="combobox"]'), "shared");
     await editForm().trigger("submit");
     expect(
       fetch.mock.calls.filter(([, options]) => options?.method === "PATCH"),

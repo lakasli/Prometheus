@@ -42,6 +42,10 @@ async function expectNoHorizontalOverflow(page: Page) {
     ),
   ).toBe(true);
 }
+async function chooseTransport(page: Page, value: string) {
+  await page.getByRole("combobox", { name: "接入方式", exact: true }).click();
+  await page.getByRole("listbox").locator(`[data-value="${value}"]`).click();
+}
 
 async function expectLoginPortraitBesideCopy(page: Page) {
   await waitForVisualAssets(page);
@@ -131,11 +135,11 @@ test("M1 browser initialization, authenticated configuration and navigation", as
   await expect(
     page.getByRole("heading", { name: "QQ 官方机器人" }),
   ).toBeVisible();
-  await page.getByLabel("接入方式").selectOption("websocket");
+  await chooseTransport(page, "websocket");
   await expect(page.getByText("设备主动建立连接")).toBeVisible();
-  await page.getByLabel("接入方式").selectOption("webhook");
+  await chooseTransport(page, "webhook");
   await expect(page.getByText("Webhook 回调路径")).toBeVisible();
-  await page.getByLabel("接入方式").selectOption("websocket");
+  await chooseTransport(page, "websocket");
   await screenshot(page, "05-qq-desktop.png");
 
   await page.getByRole("button", { name: "助手与模型", exact: true }).click();

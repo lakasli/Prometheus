@@ -225,9 +225,11 @@ test("character cards use real local APIs for versioning, import and isolated co
   ).toBe(0);
 
   await page.getByRole("button", { name: "对话工作台", exact: true }).click();
+  await page.getByRole("combobox", { name: "新对话角色", exact: true }).click();
   await page
-    .getByLabel("新对话角色", { exact: true })
-    .selectOption(published.card_id);
+    .getByRole("listbox")
+    .locator(`[data-value="${published.card_id}"]`)
+    .click();
   const conversationResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/conversations") &&

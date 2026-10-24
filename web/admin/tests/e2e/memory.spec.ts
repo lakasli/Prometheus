@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { selectValue } from "./select-helpers";
 
 const dataDir = path.resolve(
   process.env.DSH_MEMORY_E2E_DATA_DIR ||
@@ -141,7 +142,11 @@ test("assistant memories retain scope, survive session navigation and support co
   expect(assistantId).toBeTruthy();
   const create = page.locator('section[aria-label="新增记忆"]');
   await create.getByLabel("记忆内容").fill(sharedContent);
-  await create.getByLabel("使用范围", { exact: true }).selectOption("shared");
+  await selectValue(
+    page,
+    create.getByLabel("使用范围", { exact: true }),
+    "shared",
+  );
   await create.getByRole("button", { name: "保存记忆", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("请明确确认");
   const beforePublish = await (
@@ -173,10 +178,16 @@ test("assistant memories retain scope, survive session navigation and support co
   await expect(sharedArticle).toContainText(sharedContent);
 
   await create.getByLabel("记忆内容").fill(privateContent);
-  await create.getByLabel("使用范围", { exact: true }).selectOption("private");
-  await create
-    .getByRole("combobox", { name: "来源会话", exact: false })
-    .selectOption(first.id);
+  await selectValue(
+    page,
+    create.getByLabel("使用范围", { exact: true }),
+    "private",
+  );
+  await selectValue(
+    page,
+    create.getByRole("combobox", { name: "来源会话", exact: true }),
+    first.id,
+  );
   const privateResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/memory") &&
@@ -213,7 +224,11 @@ test("assistant memories retain scope, survive session navigation and support co
   await filters
     .getByLabel("查询内容", { exact: true })
     .fill(`浏览器共享_${suffix}`);
-  await filters.getByLabel("可见范围", { exact: true }).selectOption("shared");
+  await selectValue(
+    page,
+    filters.getByLabel("可见范围", { exact: true }),
+    "shared",
+  );
   await filters.getByRole("button", { name: "查询", exact: true }).click();
   await expect(sharedArticle).toBeVisible();
   await expect(
@@ -225,9 +240,11 @@ test("assistant memories retain scope, survive session navigation and support co
   const edit = page.locator('section[aria-label="编辑记忆"]');
   const corrected = `浏览器共享_${suffix}：这是已对照合并的纠正内容。`;
   await edit.getByLabel("纠正后的内容").fill(corrected);
+  await edit.getByLabel("纠正后的可见范围").click();
   await expect(
-    edit.getByRole("option", { name: "来源账号域私有", exact: true }),
-  ).toHaveJSProperty("disabled", true);
+    page.getByRole("option", { name: "来源账号域私有", exact: true }),
+  ).toHaveAttribute("aria-disabled", "true");
+  await edit.getByLabel("纠正后的可见范围").press("Escape");
   const concurrent = await page.request.patch(
     `/api/admin/v1/memory/${encodeURIComponent(shared.id)}`,
     {

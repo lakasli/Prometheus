@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, reactive, ref, useId } from "vue";
 import { api, ApiError, errorMessage } from "../api";
 import { formatDate } from "../validation";
 import type { Conversation, Timestamp } from "../types";
+import AdminSelect from "./AdminSelect.vue";
 
 type Visibility = "shared" | "private";
 interface MemoryItem {
@@ -380,33 +381,30 @@ onUnmounted(() => {
         /></label>
         <label class="field"
           ><span>可见范围</span
-          ><select
+          ><AdminSelect
             v-model="filters.visibility"
             aria-label="可见范围"
             :disabled="!!busy"
-          >
-            <option value="">全部范围</option>
-            <option value="shared">助手共享</option>
-            <option value="private">来源账号域私有</option>
-          </select></label
-        >
+            :options="[
+              { value: '', label: '全部范围' },
+              { value: 'shared', label: '助手共享' },
+              { value: 'private', label: '来源账号域私有' },
+            ]"
+        /></label>
         <label class="field"
           ><span>来源会话</span
-          ><select
+          ><AdminSelect
             v-model="filters.source"
             aria-label="来源会话"
             :disabled="!!busy"
-          >
-            <option value="">全部来源</option>
-            <option
-              v-for="conversation in conversations"
-              :key="conversation.id"
-              :value="conversation.id"
-            >
-              {{ conversation.title }}
-            </option>
-          </select></label
-        >
+            :options="[
+              { value: '', label: '全部来源' },
+              ...conversations.map((conversation) => ({
+                value: conversation.id,
+                label: conversation.title,
+              })),
+            ]"
+        /></label>
         <button
           type="submit"
           class="button secondary"
@@ -558,7 +556,7 @@ onUnmounted(() => {
         >
         <label class="field"
           ><span>纠正后的可见范围</span
-          ><select
+          ><AdminSelect
             v-model="editForm.visibility"
             aria-label="纠正后的可见范围"
             :aria-describedby="
@@ -567,12 +565,15 @@ onUnmounted(() => {
                 : undefined
             "
             :disabled="!!busy"
-          >
-            <option value="shared">助手共享</option>
-            <option value="private" :disabled="!editing.source_conversation_id">
-              来源账号域私有
-            </option></select
-          ><small
+            :options="[
+              { value: 'shared', label: '助手共享' },
+              {
+                value: 'private',
+                label: '来源账号域私有',
+                disabled: !editing.source_conversation_id,
+              },
+            ]"
+          /><small
             v-if="!editing.source_conversation_id"
             :id="`${fieldId}-edit-source`"
             >此条没有来源会话。如需改为私有，请选定来源会话新建私有条目，再遗忘这条共享记忆。</small
@@ -661,38 +662,36 @@ onUnmounted(() => {
         <div class="field-row">
           <label class="field"
             ><span>使用范围</span
-            ><select
+            ><AdminSelect
               v-model="createForm.visibility"
               aria-label="使用范围"
               :disabled="!!busy"
               @change="createForm.publish = false"
-            >
-              <option value="private">来源账号域私有</option>
-              <option value="shared">助手共享</option>
-            </select></label
+              :options="[
+                { value: 'private', label: '来源账号域私有' },
+                { value: 'shared', label: '助手共享' },
+              ]" /></label
           ><label class="field"
             ><span
               >来源会话
               {{
                 createForm.visibility === "private" ? "（必选）" : "（可选）"
               }}</span
-            ><select
+            ><AdminSelect
               v-model="createForm.source"
               aria-label="来源会话"
               :aria-required="createForm.visibility === 'private'"
               :aria-describedby="`${fieldId}-create-source`"
               :disabled="!!busy"
               @change="createForm.sourceMessage = ''"
-            >
-              <option value="">请选择来源会话</option>
-              <option
-                v-for="conversation in conversations"
-                :key="conversation.id"
-                :value="conversation.id"
-              >
-                {{ conversation.title }}
-              </option></select
-            ><small :id="`${fieldId}-create-source`"
+              :options="[
+                { value: '', label: '请选择来源会话' },
+                ...conversations.map((conversation) => ({
+                  value: conversation.id,
+                  label: conversation.title,
+                })),
+              ]"
+            /><small :id="`${fieldId}-create-source`"
               >私有条目仅可在该来源账号域内使用，不自动进入其他账号或群聊。</small
             ></label
           >

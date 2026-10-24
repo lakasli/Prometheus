@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { selectValue } from "./select-helpers";
 
 // Authentication and empty-state/CSRF checks use the real isolated backend.
 // Extraction, candidate decisions and job status below are browser fixtures:
@@ -372,18 +373,21 @@ test("memory candidate browser fixtures require explicit sources and private rev
   await page.getByRole("button", { name: "助手记忆", exact: true }).click();
   const panel = page.getByRole("region", { name: "记忆候选审核", exact: true });
   const selector = panel.getByLabel("提取来源会话", { exact: true });
-  await expect(selector.locator(`option[value="${first.id}"]`)).toHaveCount(1);
-  await selector.selectOption(first.id);
+  await selector.click();
+  await expect(
+    page.getByRole("listbox").locator(`[data-value="${first.id}"]`),
+  ).toHaveCount(1);
+  await selectValue(page, selector, first.id);
   await expect(panel).toContainText(sourceText);
   await expect(
     panel.getByRole("button", { name: "仅提取所选消息", exact: true }),
   ).toBeDisabled();
   expect(extractionCount).toBe(0);
   await panel.getByLabel("选择来源 1", { exact: true }).check();
-  await selector.selectOption(second.id);
+  await selectValue(page, selector, second.id);
   await expect(panel).toContainText("合成来源乙：只属于另一个会话");
   await expect(panel).not.toContainText(sourceText);
-  await selector.selectOption(first.id);
+  await selectValue(page, selector, first.id);
   await expect(
     panel.getByLabel("选择来源 1", { exact: true }),
   ).not.toBeChecked();

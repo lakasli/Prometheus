@@ -9,6 +9,7 @@ import {
   watch,
 } from "vue";
 import Icon from "./components/Icon.vue";
+import AdminSelect from "./components/AdminSelect.vue";
 import CharacterCards from "./components/CharacterCards.vue";
 import MemoryPanel from "./components/MemoryPanel.vue";
 import ConversationSummary from "./components/ConversationSummary.vue";
@@ -135,9 +136,36 @@ const activePage = computed(() =>
   navigation.find((item) => item.id === page.value)!,
 );
 const mobileMenu = ref(false);
+const compactNavigation = ref(false);
+let navigationMedia: MediaQueryList | undefined;
+function syncNavigationSize() {
+  compactNavigation.value = navigationMedia?.matches ?? false;
+}
+const sidebarExtras = ref<HTMLDetailsElement | null>(null);
+watch(page, async () => {
+  await nextTick();
+  window.scrollTo(0, 0);
+});
+
+function dismissSidebarExtras(event: Event) {
+  if (event instanceof KeyboardEvent && event.key !== "Escape") return;
+  if (
+    sidebarExtras.value &&
+    (event instanceof KeyboardEvent ||
+      !sidebarExtras.value.contains(event.target as Node))
+  )
+    sidebarExtras.value.open = false;
+  if (event instanceof KeyboardEvent) mobileMenu.value = false;
+}
 const authState = ref<"loading" | "setup" | "login" | "ready" | "unavailable">(
   "loading",
 );
+watch(authState, async (state) => {
+  if (state === "ready") {
+    await nextTick();
+    window.scrollTo(0, 0);
+  }
+});
 const user = ref<AuthUser | null>(null);
 const auth = reactive({
   username: "admin",
@@ -378,6 +406,7 @@ function navigate(id: Page) {
     imageDiagnosticOpen.value = false;
   }
   page.value = id;
+  if (sidebarExtras.value) sidebarExtras.value.open = false;
   location.hash = id;
   mobileMenu.value = false;
   error.value = "";
@@ -903,8 +932,13 @@ async function followChatRun(submitted: ChatSubmission) {
   }
 }
 onMounted(() => {
+  navigationMedia = window.matchMedia("(max-width: 720px)");
+  syncNavigationSize();
+  navigationMedia.addEventListener("change", syncNavigationSize);
   readHash();
   window.addEventListener("hashchange", readHash);
+  document.addEventListener("pointerdown", dismissSidebarExtras);
+  document.addEventListener("keydown", dismissSidebarExtras);
   void initialize().then(() => {
     if (authState.value === "ready" && page.value === "chat")
       void task("读取角色", loadCharacterOptions);
@@ -916,6 +950,9 @@ onUnmounted(() => {
   if (statusTimer !== undefined) clearTimeout(statusTimer);
   statusController?.abort();
   window.removeEventListener("hashchange", readHash);
+  document.removeEventListener("pointerdown", dismissSidebarExtras);
+  document.removeEventListener("keydown", dismissSidebarExtras);
+  navigationMedia?.removeEventListener("change", syncNavigationSize);
   clearCsrfToken();
 });
 </script>
@@ -1052,64 +1089,91 @@ onUnmounted(() => {
       class="sidebar-backdrop"
       @click="mobileMenu = false"
     ></div>
-    <aside class="sidebar" :class="{ open: mobileMenu }">
-      <a href="#overview" class="brand" @click.prevent="navigate('overview')"
-        ><img class="brand-mark" :src="brandMarkUrl" alt="DSH 鲸鱼标志" />
-        <strong>DSH<span>助手控制台</span></strong></a
-      >
-      <div class="workspace-label">
-        个人工作空间 <span class="tiny-badge">自托管</span>
-      </div>
-      <nav aria-label="主导航">
-        <button
-          v-for="item in navigation"
-          :key="item.id"
-          :class="{ active: page === item.id }"
-          :aria-current="page === item.id ? 'page' : undefined"
-          @click="navigate(item.id)"
+    <aside
+      class="sidebar"
+      :class="{ open: mobileMenu }"
+      :inert="compactNavigation && !mobileMenu"
+      :aria-hidden="compactNavigation && !mobileMenu ? true : undefined"
+      aria-label="工作空间导航"
+    >
+      <div class="sidebar-header">
+        <a href="#overview" class="brand" @click.prevent="navigate('overview')"
+          ><img class="brand-mark" :src="brandMarkUrl" alt="DSH 鲸鱼标志" />
+          <strong>DSH<span>助手控制台</span></strong></a
         >
-          <Icon :name="item.icon" /><span>{{ item.title }}</span
-          ><span
-            v-if="item.id === 'qq' && status?.channels?.qq?.enabled"
-            class="nav-dot"
-          ></span>
-        </button>
-      </nav>
-      <div class="sidebar-future">
-        <span class="eyebrow">COMING NEXT</span>
-        <p>语音 · 插件工厂</p>
-        <span>后续阶段逐步开放</span>
-      </div>
-      <div class="companion-note">
-        <Icon name="whale" :size="26" />
-        <span>让每一次对话，<br />都有温柔的回响。</span>
-        <Icon class="companion-bow" name="bow" :size="17" />
-      </div>
-      <div class="device-card">
-        <div class="device-icon"><Icon name="cpu" /></div>
-        <div>
-          <strong>Raspberry Pi 5</strong
-          ><span>8GB · Ubuntu 24.04 LTS 64 位 / aarch64</span>
-        </div>
-        <span class="status-dot"></span>
-      </div>
-      <div class="sidebar-user">
-        <div class="avatar">
-          {{ user?.username?.slice(0, 1).toUpperCase() }}
-        </div>
-        <div>
-          <strong>{{ user?.username }}</strong
-          ><span>{{ user?.role === "admin" ? "实例管理员" : user?.role }}</span>
-        </div>
         <button
-          class="icon-button"
-          aria-label="退出登录"
-          title="退出登录"
-          :disabled="!!busy"
-          @click="logout"
+          class="icon-button sidebar-close"
+          aria-label="关闭导航"
+          @click="mobileMenu = false"
         >
-          <Icon name="logout" :size="18" />
+          <Icon name="close" :size="18" />
         </button>
+      </div>
+      <div class="sidebar-main">
+        <div class="workspace-label">
+          个人工作空间 <span class="tiny-badge">自托管</span>
+        </div>
+        <nav aria-label="主导航">
+          <button
+            v-for="item in navigation"
+            :key="item.id"
+            :class="{ active: page === item.id }"
+            :aria-current="page === item.id ? 'page' : undefined"
+            @click="navigate(item.id)"
+          >
+            <Icon :name="item.icon" /><span>{{ item.title }}</span
+            ><span
+              v-if="item.id === 'qq' && status?.channels?.qq?.enabled"
+              class="nav-dot"
+            ></span>
+          </button>
+        </nav>
+      </div>
+      <div class="sidebar-footer">
+        <details ref="sidebarExtras" class="sidebar-extras">
+          <summary>
+            <Icon name="sparkles" :size="18" />
+            <span>语音 · 插件工厂<small>后续能力</small></span>
+            <Icon class="extras-chevron" name="chevron" :size="14" />
+          </summary>
+          <div class="sidebar-extras-content">
+            <span class="eyebrow">COMING NEXT</span>
+            <strong>下一段旅程</strong>
+            <p>语音与完整插件工厂将在后续阶段逐步开放。</p>
+            <div class="companion-note">
+              <Icon name="whale" :size="24" />
+              <span>让每一次对话，<br />都有温柔的回响。</span>
+            </div>
+          </div>
+        </details>
+        <div class="device-card">
+          <div class="device-icon"><Icon name="cpu" /></div>
+          <div>
+            <strong>Raspberry Pi 5</strong
+            ><span>8GB · Ubuntu 24.04 LTS 64 位 / aarch64</span>
+          </div>
+          <span class="status-dot"></span>
+        </div>
+        <div class="sidebar-user">
+          <div class="avatar">
+            {{ user?.username?.slice(0, 1).toUpperCase() }}
+          </div>
+          <div>
+            <strong>{{ user?.username }}</strong
+            ><span>{{
+              user?.role === "admin" ? "实例管理员" : user?.role
+            }}</span>
+          </div>
+          <button
+            class="icon-button"
+            aria-label="退出登录"
+            title="退出登录"
+            :disabled="!!busy"
+            @click="logout"
+          >
+            <Icon name="logout" :size="18" />
+          </button>
+        </div>
       </div>
     </aside>
 
@@ -1413,12 +1477,14 @@ onUnmounted(() => {
                 <div class="field-row">
                   <label class="field"
                     ><span>最大活跃任务数</span
-                    ><select
-                      v-model.number="config.assistant.max_concurrent_runs"
-                    >
-                      <option :value="1">1 个任务</option>
-                      <option :value="2">2 个任务</option></select
-                    ><small>为树莓派 8GB 内存保留余量。</small></label
+                    ><AdminSelect
+                      v-model="config.assistant.max_concurrent_runs"
+                      aria-label="最大活跃任务数"
+                      :options="[
+                        { value: 1, label: '1 个任务' },
+                        { value: 2, label: '2 个任务' },
+                      ]"
+                    /><small>为树莓派 8GB 内存保留余量。</small></label
                   ><label class="field"
                     ><span>任务超时（秒）</span
                     ><input
@@ -1486,14 +1552,19 @@ onUnmounted(() => {
                 </div>
                 <label class="field"
                   ><span>接入方式</span
-                  ><select v-model="config.qq.transport">
-                    <option value="websocket">
-                      WebSocket · 主动连接，无需公网回调
-                    </option>
-                    <option value="webhook">
-                      Webhook · HTTPS 回调
-                    </option></select
-                  ><small>QQ 开放平台的接入方式需与此处保持一致。</small></label
+                  ><AdminSelect
+                    v-model="config.qq.transport"
+                    aria-label="接入方式"
+                    :options="[
+                      {
+                        value: 'websocket',
+                        label: 'WebSocket · 主动连接，无需公网回调',
+                      },
+                      { value: 'webhook', label: 'Webhook · HTTPS 回调' },
+                    ]"
+                  /><small
+                    >QQ 开放平台的接入方式需与此处保持一致。</small
+                  ></label
                 ><label class="field"
                   ><span>App ID</span
                   ><input
@@ -1783,28 +1854,27 @@ onUnmounted(() => {
             <aside class="conversation-sidebar">
               <label class="chat-character-choice"
                 >新对话角色
-                <select
+                <AdminSelect
                   v-model="characterChoice"
                   :disabled="chatRunning || chatSubmitting || !!busy"
                   aria-label="新对话角色"
-                >
-                  <option value="">
-                    {{
-                      characterOptions?.default
+                  :options="[
+                    {
+                      value: '',
+                      label: characterOptions?.default
                         ? `默认：${characterOptions.default.name} v${characterOptions.default.revision}`
-                        : "默认：原有助手"
-                    }}
-                  </option>
-                  <option
-                    v-for="card in characterOptions?.items.filter(
-                      (item) => !item.archived_at && item.latest_revision,
-                    )"
-                    :key="card.id"
-                    :value="card.id"
-                  >
-                    {{ card.name }} v{{ card.latest_revision }}
-                  </option>
-                </select>
+                        : '默认：原有助手',
+                    },
+                    ...(characterOptions?.items
+                      .filter(
+                        (item) => !item.archived_at && item.latest_revision,
+                      )
+                      .map((card) => ({
+                        value: card.id,
+                        label: `${card.name} v${card.latest_revision}`,
+                      })) || []),
+                  ]"
+                />
                 <small>仅影响新建对话；换角色请新建会话。</small>
               </label>
               <button
