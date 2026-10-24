@@ -1,0 +1,25 @@
+{
+  "kind": "synthetic vision capability preflight",
+  "started_at": "2026-10-24T11:30:05.515959+00:00",
+  "model": "deepseek-flash",
+  "status": "passed",
+  "requests": 2,
+  "max_requests": 2,
+  "production_model_configuration_read": true,
+  "production_database_modified": false,
+  "real_user_content_accessed": false,
+  "user_images_transmitted": false,
+  "image_chat_delivered": false,
+  "checks": [
+    {
+      "case": 1,
+      "response_matches_synthetic_pixels": true
+    },
+    {
+      "case": 2,
+      "response_matches_synthetic_pixels": true
+    }
+  ],
+  "probe_source_sha256": "384293916f9c60abadc17d8e19bd21d67110dd697a39691812410f8d101046c2",
+  "finished_at": "2026-10-24T11:30:07.557572+00:00"
+}
