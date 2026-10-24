@@ -1,0 +1,6 @@
+*.sh text eol=lf
+*.service.in text eol=lf
+*.rs text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.md text eol=lf

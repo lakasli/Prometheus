@@ -1,0 +1,15 @@
+[workspace]
+members = ["crates/dshd", "crates/dsh-kernel"]
+default-members = ["crates/dshd"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+license = "MIT"
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1

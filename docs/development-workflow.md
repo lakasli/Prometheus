@@ -14,11 +14,13 @@
 | SSH 用户 | `campanus` |
 | SSH 端口 | `22` |
 | 登录命令 | `ssh campanus@192.168.189.191` |
-| 历史已验证平台 | 2026-10-24 SSH 检查：Linux，`aarch64`；当时未核验机型、内存及系统发行版 |
+| 当前实测平台 | 2026-10-24：Raspberry Pi 5 Model B Rev 1.1，aarch64，约7.7 GiB内存，Ubuntu 24.04.4 LTS |
+| 系统差异 | 用户已授权先在现有 Ubuntu 验证，保留 Lite 为最终基线；未重装系统，默认启动目标为 graphical.target |
 | 已验证用户目录 | `/home/campanus` |
 | Git | 当前 SSH 会话中可用，路径 `/usr/bin/git` |
-| Rust 工具链 | 当前 SSH 会话的 PATH 中未找到 `cargo`、`rustc`；不据此断言机器完全未安装 |
-| 应用部署状态 | 尚无可运行程序，本次未部署应用 |
+| Rust 工具链 | 本轮用户级安装 Rust / Cargo 1.88.0，路径 `/home/campanus/.cargo/bin` |
+| Node 工具链 | 本轮实测 Node 24.22.1、npm 11.19.1；M1静态前端运行不依赖Node服务 |
+| 应用部署状态 | 以 [M0/M1验证记录](m0-m1-validation.md) 的部署SHA、命令与结果为准 |
 | Web 管理方式 | 用户浏览器访问 Rust 提供的静态管理页面；经 SSH 隧道或 HTTPS 代理连接 |
 
 SSH 密码使用用户已提供的会话凭证，不在本文件保存。后续可使用本地凭证管理器或 SSH key；不得把真实值写入脚本或提交记录。
@@ -35,7 +37,7 @@ SSH 密码使用用户已提供的会话凭证，不在本文件保存。后续�
 - 依赖 Linux / aarch64 的行为：在远端执行最终验证，不以 Windows 上的静态检查代替。
 - 前端：在加入实际前端工程后，本地或 CI 构建静态资源并执行相关检查，和 Rust API / 制品使用同一发布版本；不将前端开发服务器作为生产服务。
 
-当前仅有文档，不运行不存在的 Cargo 包，也不报告尚未进行的应用测试。
+当前 M1 可执行命令见 README。测试区分 Rust 集成、浏览器、模拟 provider 和真实外部账号，不互相替代；对尚未执行的检查明确报告。
 
 ## 2. Git 提交与上传
 
@@ -47,7 +49,7 @@ SSH 密码使用用户已提供的会话凭证，不在本文件保存。后续�
 
 通过 `ssh campanus@192.168.189.191` 登录，先核验树莓派 5 机型、8GB 内存对应的实际可用量、aarch64、`/etc/os-release` 与 Raspberry Pi OS Lite 64 位目标是否一致，再检查目录归属、磁盘空间、工具链与运行依赖。发行版信息不能单独证明 Lite 安装，还需结合镜像记录、默认启动目标和桌面服务 / 软件包状态确认无桌面基线。基线写入文档不代表已执行系统安装或重装。
 
-默认建议将后续部署放在 `/home/campanus/apps/dsh`；该目录是规划值，本次未创建，也未验证是否已有其他内容。首次部署必须检查已有内容与权限，再确定路径并更新文档。
+本项目部署根目录为 `/home/campanus/apps/dsh`。每次执行部署脚本前核对目录归属及已有内容，遇到未管理的源代码、服务或修改立即停止，不能覆盖。
 
 建议目录布局：
 
@@ -98,9 +100,41 @@ Web 管理功能还需验证：远程登录、未登录访问被拒、配置保�
 回滚：<上一可用版本、是否执行、复验结果>
 ```
 
-SSH 连通性检查不等于应用部署测试。首次加入可运行版本后，将这里的模板补充为与实际程序一致的命令清单。
+SSH 连通性检查不等于应用部署测试。当前实际部署命令如下，SHA与制品摘要从本地步骤获取，不能自行填入另一分支的移动头。
 
-### Web 管理访问路径（待实现后使用）
+```powershell
+# 本地代码通过检查并提交推送后：
+$deployCommit = (git rev-parse HEAD).Trim()
+./deploy/package-web.ps1 -Commit $deployCommit
+# 将输出的 .git/artifacts/admin-<SHA>.tar.gz 复制到远端用户私有缓存。
+scp .git/artifacts/admin-<SHA>.tar.gz campanus@192.168.189.191:/home/campanus/.cache/dsh/
+```
+
+```sh
+# 远端 repo 首次不存在时先克隆；已有目录须先核验 origin 和工作区。
+git clone http://8.136.201.30:8418/Campanus/DSH.git /home/campanus/apps/dsh/repo
+# 后续部署先fetch，并从目标SHA检出脚本到私有缓存后执行；不得运行未推送脚本。
+git -C /home/campanus/apps/dsh/repo fetch origin
+git -C /home/campanus/apps/dsh/repo show <SHA>:deploy/deploy.sh > /home/campanus/.cache/dsh/deploy.sh
+bash /home/campanus/.cache/dsh/deploy.sh <SHA> /home/campanus/.cache/dsh/admin-<SHA>.tar.gz <SHA256>
+systemctl --user status dsh.service
+journalctl --user -u dsh.service --no-pager -n 30
+```
+
+部署脚本检出独立 release、在树莓派限并行编译测试、校验前端SHA、切换用户级systemd并核对健康接口中的完整提交。`loginctl enable-linger campanus` 用于退出SSH后继续运行；本轮已开启。失败构建与测试日志保存在 `shared/logs/`；首次部署没有上一应用版本时不能声称已验证跨版本回滚。
+
+在私有临时数据库执行黑盒验证：
+
+```sh
+python3 /home/campanus/apps/dsh/current/source/tools/smoke.py \
+  --binary /home/campanus/apps/dsh/current/bin/dshd \
+  --web-dir /home/campanus/apps/dsh/current/web \
+  --report /home/campanus/apps/dsh/shared/logs/m1-smoke.json
+```
+
+初始化正式管理账户时，在SSH中运行 `current/bin/dshd bootstrap-token --data-dir shared/data`（工作目录为部署根目录），从受限文件复制一次性凭证到Web页面；不要把凭证输出进部署日志或提交到仓库。
+
+### Web 管理访问路径
 
 Rust 服务默认监听 `127.0.0.1:8419`，页面路径 `/admin/`。SSH 隧道方式在用户电脑执行：
 
@@ -108,7 +142,7 @@ Rust 服务默认监听 `127.0.0.1:8419`，页面路径 `/admin/`。SSH 隧道�
 ssh -N -L 18419:127.0.0.1:8419 campanus@192.168.189.191
 ```
 
-随后在该电脑浏览器打开 `http://127.0.0.1:18419/admin/`，仍需登录 DSH 管理账户。隧道保持运行期间有效；本次未启动应用，因此该地址目前不是已上线页面。
+随后在该电脑浏览器打开 `http://127.0.0.1:18419/admin/`，仍需登录 DSH 管理账户。隧道保持运行期间有效；具体上线状态以验证记录为准。
 
 日常通过局域网链接访问时，在树莓派配置 HTTPS 反向代理，提供 `https://<树莓派局域网地址或域名>/admin/` 并代理到 Rust 本地端口；需部署受浏览器信任的证书及正确的代理来源配置。跨互联网访问优先经 VPN 或受控入口，不直接开放未保护的管理端口。页面与 API 使用同一来源，业务 Webhook 的公开策略与管理入口分别配置。
 

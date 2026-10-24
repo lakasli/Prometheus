@@ -1,0 +1,24 @@
+# Managed by DSH deploy/deploy.sh
+[Unit]
+Description=DSH Rust AI assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@ROOT@/current
+Environment=DSH_WEB_DIR=@ROOT@/current/web
+Environment=RUST_LOG=info
+ExecStart=@ROOT@/current/bin/dshd serve --data-dir @ROOT@/shared/data --listen 127.0.0.1:8419 --origin http://127.0.0.1:18419
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+MemoryHigh=768M
+MemoryMax=1G
+TasksMax=128
+
+[Install]
+WantedBy=default.target

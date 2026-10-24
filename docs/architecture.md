@@ -24,7 +24,7 @@
 
 首版面向个人助手或小规模团队。采用单节点、模块化单体和独立 worker，不先引入 Kubernetes、分布式消息总线或微服务集群。后续通过既有接口替换存储与执行后端。
 
-本次交付为架构文档；平台账号开通、可运行代码、模型部署和服务器上线属于后续实施工作。
+本文保留完整目标架构，M0 / M1 已进入实施；当前实际功能、命令和未完成项以 README 与验证记录为准，不表示后续阶段已经实现。用户已授权先在现有 Ubuntu 24.04 树莓派验证，Lite 64 位仍是最终系统基线。
 
 ## 2. 已核实的技术边界与选型
 
@@ -257,7 +257,7 @@ Outbox 创建时固定租户、渠道、账号、目标会话、回复上下文�
 
 | 渠道 | 推荐适配方式 | 首版范围与约束 |
 | --- | --- | --- |
-| QQ 官方机器人 | Rust HTTPS Webhook 入站、OpenAPI 出站 | 实际支持的 C2C / 群 / 频道以账号授权和订阅为准 |
+| QQ 官方机器人 | Rust WebSocket 入站为个人部署默认，Webhook 可选；OpenAPI 出站 | 实际支持的 C2C / 群 / 频道以账号授权和订阅为准 |
 | 微信 iLink / ClawBot | Rust HTTPS JSON、扫码和长轮询 | 优先验证私聊；群能力按真实服务端验证 |
 | 企业微信智能机器人 | 独立 WebSocket 适配器 | 按官方协议认证、心跳、重连和媒体处理 |
 | 企业微信自建应用 | 独立回调与发送适配器 | 仅覆盖应用获授权的企业消息 |
@@ -265,7 +265,7 @@ Outbox 创建时固定租户、渠道、账号、目标会话、回复上下文�
 | OneBot v11 / v12 | 可选社区桥接插件 | 协议版本分开；底层实现的稳定性与授权单独评估 |
 | 本地 CLI / Web API | 内置适配器 | 作为开发与恢复入口，先于所有外部渠道打通 |
 
-QQ 官方 BotGo 已提示旧 WebSocket 推送逐步下线，设计以 Webhook 为主，不把长期 WebSocket 作为 QQ 默认方案。[QQ 官方 BotGo][S12]
+用户提供的最新官方接入指南明确支持在 WebSocket 与 Webhook 间切换，并推荐个人单机 / AI Agent 使用无需公网回调的 WebSocket。本项目据此将树莓派个人部署的默认传输改为 WebSocket，保留适合已有 HTTPS 回调入口的 Webhook；不得再把旧 BotGo 的下线提示视为当前平台能力的唯一依据。[QQ 官方接入指南][S38]
 
 腾讯已公开 `openclaw-weixin`，含多账号和媒体处理参考。Rust 适配器可以参考协议实现，无需把 OpenClaw 当成本项目运行内核。官方说明该文档依据客户端行为，并非完整服务端契约；某个类型中出现 `group_id` 不能作为已支持群聊的承诺。[微信参考实现][S13] [协议边界][S14]
 
@@ -804,7 +804,7 @@ max_concurrent_builds = 1
 enabled = false
 account_id = "qq-main"
 credential_ref = "secret://channels/qq-main"
-transport = "webhook"
+transport = "websocket"
 
 [channels.weixin_ilink]
 enabled = false
@@ -843,7 +843,7 @@ transport = "long-poll"
 
 ## 17. 代码仓库规划
 
-以下是后续实施的建议目录；当前仓库仍为文档与规则，前端、后端和脚本尚未实现：
+以下是完整目标的建议目录；M1 先合并实现于 `crates/dshd`、`crates/dsh-kernel` 和 `web/admin`，其余 crate / 插件按阶段拆出，不能据此目录图声称已经全部实现：
 
 ```text
 DSH/
@@ -929,7 +929,7 @@ M0 并行验证渠道、Cordis 和 Harness，避免到开发后期才发现账�
 | 复用 `cordis-rs` 并包装 | 避免从零复制生命周期语义 | 依赖与清理实验失败时替换 kernel |
 | ACP 为 Harness 默认接口 | 已有取消、会话与权限交互能力 | 锁定 profile、MCP 与模型版本联合验证 |
 | WASM 为生成插件默认形态 | 接口明确、权限可代理、升级可管理 | 系统集成用受限进程插件 |
-| QQ 官方 Webhook + iLink 优先 | 当前一手资料具备可实现路径 | 账号资格、回复窗口、群能力以实测为准 |
+| QQ 官方 WebSocket 默认、Webhook 可选；iLink 后续 | 当前官方指南支持个人单机无需公网回调 | 账号资格、事件订阅、回复窗口、群能力以实测为准 |
 | SQLite + FTS5 起步 | 单节点易用、恢复简单 | 规模增长后迁移 PostgreSQL / 向量后端 |
 | 主动记忆与自动抽取分开 | 用户可理解、可纠正和删除 | 抽取质量以实际中文对话集评估 |
 | 留言式语音先行 | 与消息渠道能力匹配 | 实时通话作为独立扩展阶段 |
@@ -977,6 +977,7 @@ M0 并行验证渠道、Cordis 和 Harness，避免到开发后期才发现账�
 - [S35：Vite 环境变量边界][S35]
 - [S36：OWASP 会话管理][S36]
 - [S37：OWASP CSRF 防护][S37]
+- [S38：QQ 官方接入指南与连接方式][S38]
 
 [S01]: https://github.com/cordiverse/cordis
 [S02]: https://docs.rs/cordis-rs/0.11.1/cordis/
@@ -1015,3 +1016,4 @@ M0 并行验证渠道、Cordis 和 Harness，避免到开发后期才发现账�
 [S35]: https://vite.dev/guide/env-and-mode.html
 [S36]: https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html
 [S37]: https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html
+[S38]: https://bot.q.qq.com/wiki/

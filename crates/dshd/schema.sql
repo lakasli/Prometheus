@@ -1,0 +1,14 @@
+CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS admins(id TEXT PRIMARY KEY,username TEXT UNIQUE NOT NULL,password_hash TEXT NOT NULL,created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES admins(id),csrf TEXT NOT NULL,expires_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS config_revisions(revision INTEGER PRIMARY KEY,config_json TEXT NOT NULL,created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS config_drafts(id TEXT PRIMARY KEY,owner_id TEXT NOT NULL,base_revision INTEGER NOT NULL,config_json TEXT NOT NULL,created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS operations(id TEXT PRIMARY KEY,owner_id TEXT NOT NULL,result_json TEXT NOT NULL,created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS secrets(id TEXT PRIMARY KEY,kind TEXT NOT NULL,created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS conversations(id TEXT PRIMARY KEY,owner_id TEXT NOT NULL,title TEXT NOT NULL,source_key TEXT UNIQUE,created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id),owner_id TEXT NOT NULL,client_message_id TEXT NOT NULL,input TEXT NOT NULL,config_json TEXT NOT NULL,reply_json TEXT,status TEXT NOT NULL,response TEXT,error TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,UNIQUE(conversation_id,client_message_id));
+CREATE INDEX IF NOT EXISTS runs_queue ON runs(status,created_at);
+CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id),run_id TEXT REFERENCES runs(id),role TEXT NOT NULL,content TEXT NOT NULL,created_at INTEGER NOT NULL,UNIQUE(run_id,role));
+CREATE TABLE IF NOT EXISTS inbox(event_key TEXT PRIMARY KEY,account_id TEXT NOT NULL,event_type TEXT NOT NULL,received_at INTEGER NOT NULL,run_id TEXT);
+CREATE TABLE IF NOT EXISTS outbox(id TEXT PRIMARY KEY,run_id TEXT UNIQUE NOT NULL REFERENCES runs(id),account_id TEXT NOT NULL,credential_ref TEXT NOT NULL,target_json TEXT NOT NULL,content TEXT NOT NULL,status TEXT NOT NULL,error TEXT,platform_message_id TEXT,deadline INTEGER NOT NULL,created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS audit_events(id INTEGER PRIMARY KEY AUTOINCREMENT,actor TEXT NOT NULL,action TEXT NOT NULL,resource TEXT NOT NULL,created_at INTEGER NOT NULL);

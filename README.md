@@ -1,31 +1,62 @@
-# DSH：面向 Linux 的 Rust AI 助手
+# DSH：树莓派上的 Rust AI 助手
 
-DSH 计划采用 Cordis 插件架构，以 Rust 实现主程序，连接 QQ、微信等渠道，提供长期记忆、DeepSeek Harness 接入、受控的插件自生成，以及图像理解、语音识别和语音合成。
+部署目标是 **树莓派 5、8GB、Raspberry Pi OS Lite 64 位 / aarch64**。当前正在交付 M0 验证和 M1 文本 / Web 管理基础：Rust 服务、真实 Cordis 生命周期、SQLite 持久任务、原生模型 API、QQ 官方接入，以及静态 Vue 管理控制台。
 
-当前仓库处于**架构设计阶段**，尚未提供可运行程序。
+用户已同意先在现有 Ubuntu 24.04 的树莓派上验证，保留 Lite 为最终基线；不能将 Ubuntu 测试记成 Lite 验收。实际执行结果见 [M0 记录](docs/m0-validation.md) 和 [部署 / 开发流程](docs/development-workflow.md)。
 
-固定部署目标：**树莓派 5、8GB 内存、Raspberry Pi OS Lite（64 位 / aarch64）**。计划提供浏览器 Web 管理页面，用户可远程配置 AI 助手，树莓派无需安装桌面环境；实际系统安装状态在部署前核验。
+## 当前功能范围
 
-## 项目规则
+- 管理员一次性初始化、密码哈希、可撤销会话、Origin / CSRF 检查。
+- 模型与 QQ 配置、受限密钥存储、配置草稿 / 校验 / 连接测试 / 版本应用 / 回退。
+- 浏览器和 CLI 文本对话、独立会话历史、全局最多两个活跃 Run。
+- SQLite 入站去重、持久队列与回复 Outbox；排队任务重启可恢复，在途结果未知时明确标记，不盲目重发。
+- QQ 官方 WebSocket（默认）和签名 Webhook（可选），实际平台能力需由已授权账号联调。
+- M0 的真实 Cordis 四组生命周期实验与真实 Harness ACP 探针。M1 生产聊天使用 NativeBackend，尚不启用完整 Harness 执行环境。
 
-开发遵循 **本地编写 → Git 提交和推送 → SSH 远端部署与测试**。仓库规则见 [AGENTS.md](AGENTS.md)，操作流程及远端环境记录见 [开发与远端部署流程](docs/development-workflow.md)。
+记忆管理、微信、图像 / ASR / TTS、生成插件和完整 Harness 工具桥属于后续阶段，界面不将它们伪装成已可用功能。完整设计见 [架构文档](docs/architecture.md)。
 
-## 架构文档
+## 本地运行
 
-阅读 [项目架构设计](docs/architecture.md)，其中包含：
+需要 Rust 1.88、C 编译工具链、Node.js 和 npm。前端只在构建阶段需要 Node，生产静态页面由 Rust 提供。
 
-- Rust 与 Cordis、DeepSeek Harness 的技术边界和选型依据。
-- 模块划分、插件接口、生命周期、隔离执行与热更新。
-- QQ、微信 iLink、企业微信等渠道接入方案。
-- 会话调度、身份权限、记忆检索与删除、多模态处理。
-- 远程 Web 管理页面、模型与渠道配置、密钥管理及配置生效流程。
-- AI 自制插件的构建、验证、发布和回滚流程。
-- 数据模型、Linux 部署、开发路线与验收标准。
+```powershell
+npm.cmd ci --prefix web/admin
+npm.cmd run build --prefix web/admin
+cargo test --workspace --locked
+cargo run -p dshd -- bootstrap-token --data-dir .local/dev
+cargo run -p dshd -- serve --data-dir .local/dev --origin http://127.0.0.1:8419
+```
 
-设计基线：2026-10-24。文档区分已核实的上游能力与本项目拟实现的接口；依赖版本和平台权限需要在开发阶段锁定、联调。
+打开 `http://127.0.0.1:8419/admin/`，在本地私有的 `.local/dev/bootstrap-token.json` 中读取 15 分钟有效的一次性初始化凭证，创建管理账户。它不使用 Linux SSH 密码，也没有默认管理口令。然后录入自己的模型 API key，保存草稿、校验、连接测试并应用。
 
-## 推荐实现路线
+凭证文件只供本机用户读取，不要将其上传、粘贴进日志或提交到 Git。模型地址默认要求 HTTPS，拒绝私网地址；本地模拟模型测试显式使用 `--allow-private-model`，生产部署不开启该例外。
 
-以 Rust 模块化单体起步，优先评估 `cordis-rs`；使用 WASM Component 承载生成插件，以 ACP 接入独立的 DeepSeek Harness 进程。纯 Rust 模式可使用原生 Agent 后端，接入官方 Harness 时需要其 Node.js 运行环境。
+## 检查与验收
 
-第一阶段先验证树莓派运行环境、Cordis 生命周期、Harness ACP 和一个真实消息渠道，交付最小 Web 配置入口，再扩展记忆、多模态与插件工厂。具体范围和退出条件见架构文档。
+```powershell
+npm.cmd test --prefix web/admin
+npm.cmd run build --prefix web/admin
+cargo test --workspace --locked
+python -S tools/smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
+```
+
+`tools/smoke.py` 会启动真实 Rust 进程、临时数据库和隔离的模拟模型，验证认证、配置、对话去重及重启恢复；它不会使用生产数据或凭证，不能代替真实 DeepSeek / QQ 联调。Linux 将 binary 参数改为实际可执行文件路径。
+
+## 树莓派部署和远程访问
+
+遵循 [AGENTS.md](AGENTS.md)：本地编写 → 检查 → Git 提交推送 → 固定 SHA 部署 → 远端测试。
+
+- 部署脚本：[deploy/deploy.sh](deploy/deploy.sh)，使用用户级 systemd，数据与 release 分离。
+- 前端打包：[deploy/package-web.ps1](deploy/package-web.ps1)，为已提交 SHA 构建静态制品并输出 SHA256。
+- 回滚：[deploy/rollback.sh](deploy/rollback.sh)，只切换已有应用 release，不还原数据库或外部动作。
+- 操作步骤及真实部署信息：[开发与部署流程](docs/development-workflow.md)。
+
+远端默认监听 loopback。在用户电脑建立隧道后打开管理页面：
+
+```sh
+ssh -N -L 18419:127.0.0.1:8419 campanus@192.168.189.191
+```
+
+访问 `http://127.0.0.1:18419/admin/`。若改为直接通过 HTTPS 域名访问，使用受控反向代理，保持前后端同源，配置对应 `--origin https://<管理域名>` 和 `--secure-cookie`；不要将管理端口直接暴露为普通局域网 HTTP。
+
+QQ 按 [最新官方指南](https://bot.q.qq.com/wiki/) 设置连接方式：个人树莓派默认选择 WebSocket，在页面录入 AppID / AppSecret，按实际账号权限订阅和测试；Webhook 才需要额外配置公网 HTTPS 回调。

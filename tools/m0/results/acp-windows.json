@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "started_at": "2026-10-24T07:01:15.810Z",
+  "implementation": "real-harness-stdio",
+  "checks": [
+    {
+      "name": "initialize_real_process",
+      "status": "passed"
+    },
+    {
+      "name": "create_persistent_session",
+      "status": "passed"
+    },
+    {
+      "name": "real_model_prompt",
+      "status": "not_run",
+      "reason": "no --prompt supplied; no model request"
+    },
+    {
+      "name": "cancel_inflight_model_prompt",
+      "status": "not_run",
+      "reason": "requires actual in-flight model work"
+    },
+    {
+      "name": "close_session",
+      "status": "passed"
+    },
+    {
+      "name": "initialize_restarted_process",
+      "status": "passed"
+    },
+    {
+      "name": "list_after_process_restart",
+      "status": "passed"
+    },
+    {
+      "name": "resume_after_process_restart",
+      "status": "passed"
+    },
+    {
+      "name": "close_resumed_session",
+      "status": "passed"
+    }
+  ],
+  "model_prompt_requested": false,
+  "credentials_in_report": false,
+  "agent": {
+    "name": "deepseek-harness-acp",
+    "version": "0.0.1"
+  },
+  "capabilities": {
+    "mcpCapabilities": {
+      "http": true
+    },
+    "promptCapabilities": {
+      "image": false,
+      "audio": false,
+      "embeddedContext": false
+    },
+    "sessionCapabilities": {
+      "close": {},
+      "list": {},
+      "resume": {}
+    }
+  },
+  "first_process": {
+    "stdout_bytes": 1233,
+    "stderr_bytes": 0
+  },
+  "final_process": {
+    "stdout_bytes": 1362,
+    "stderr_bytes": 0
+  },
+  "status": "passed_without_model",
+  "finished_at": "2026-10-24T07:01:25.116Z",
+  "environment": {
+    "os": "windows",
+    "arch": "x86_64",
+    "node": "24.19.0",
+    "harness_package": "0.2.1-rc.2"
+  }
+}

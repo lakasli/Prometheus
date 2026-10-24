@@ -1,0 +1,37 @@
+[package]
+name = "dshd"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0"
+argon2 = "0.5"
+axum = "=0.8.4"
+clap = { version = "=4.5.37", features = ["derive", "env"] }
+ed25519-dalek = "2.1"
+futures-util = "0.3"
+fs2 = "0.4"
+hex = "0.4"
+rand = "0.8"
+reqwest = { version = "=0.12.15", default-features = false, features = ["json", "rustls-tls"] }
+rpassword = "7.3"
+rusqlite = { version = "=0.32.1", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+subtle = "2.6"
+tokio = { version = "1.44", features = ["full"] }
+tokio-util = "0.7"
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+dsh-kernel = { path = "../dsh-kernel" }
+tower-http = { version = "=0.6.2", features = ["fs", "limit", "set-header"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2.5"
+uuid = { version = "=1.16.0", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tempfile = "3.19"
+tower = { version = "0.5", features = ["util"] }
