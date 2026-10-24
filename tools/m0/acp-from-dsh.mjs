@@ -2,10 +2,12 @@
 // Optional real-provider validation: reads M1's credential reference locally,
 // never exposes a key as a CLI argument or changes the production database.
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { readFile, writeFile, mkdtemp, chmod, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { startInflightProxy } from './inflight-proxy.mjs'
 
 const args = process.argv.slice(2)
 if (args.includes('--help')) {
@@ -41,6 +43,10 @@ const base = new URL(model.base_url)
 if (!['https:', 'http:'].includes(base.protocol) || base.username || base.password || base.search || base.hash) throw new Error('unsupported active model endpoint')
 const scratch = await mkdtemp(path.join(tmpdir(), 'dsh-acp-live-'))
 await chmod(scratch, 0o700)
+const proxy = await startInflightProxy({
+  upstreamBaseURL: model.base_url,
+  authorizationHash: createHash('sha256').update(`Bearer ${key}`).digest(),
+})
 const patchPath = path.join(scratch, 'model.patch.json')
 const patch = [
   {
@@ -50,7 +56,10 @@ const patch = [
         'dsh-m0-provider': {
           apiKeyEnv: 'DSH_M0_MODEL_KEY',
           api: 'openai-completions',
-          baseURL: model.base_url,
+          baseURL: proxy.baseURL,
+          // The loopback URL must not change endpoint heuristics into OpenAI
+          // defaults. Keep the same generic Chat Completions wire contract as M1.
+          compat: { supportsStore: false, supportsDeveloperRole: false, supportsUsageInStreaming: false, maxTokensField: 'max_tokens' },
           models: [{ id: model.model, name: model.model, contextWindow: 65536, maxTokens: 1024, input: ['text'] }],
           retryPolicy: { mode: 'normal', maxRetries: 0 },
           timeoutMs: 60000,
@@ -80,7 +89,28 @@ const child = spawn(process.execPath, [
   '--cwd', path.join(scratch, 'workspace'),
   '--report', options.report,
   '--timeout-ms', '90000',
+  '--inflight-ipc', 'true',
   '--prompt', 'Do not use any tools. Reply with exactly ACP_M0_OK.',
-], { env, stdio: 'inherit', shell: false, windowsHide: true })
-child.once('error', () => { console.error('Unable to launch real ACP probe'); process.exitCode = 1 })
-child.once('exit', code => { process.exitCode = code ?? 1 })
+], { env, stdio: ['inherit', 'inherit', 'inherit', 'ipc'], shell: false, windowsHide: true })
+proxy.attachProbe(child)
+let finishing = false
+async function finish(code) {
+  if (finishing) return
+  finishing = true
+  // Observe cancellation disconnect before cleanup itself aborts any remaining
+  // sockets, so cleanup is not misrepresented as proof of ACP cancellation.
+  await new Promise(resolve => setTimeout(resolve, 50))
+  const proxyEvidence = proxy.summary()
+  await proxy.close()
+  try {
+    const result = JSON.parse(await readFile(options.report, 'utf8'))
+    result.proxy_evidence = { listen_scope: 'loopback_only', stores_headers_or_bodies: false, upstream_requests: proxyEvidence }
+    await writeFile(options.report, JSON.stringify(result, null, 2) + '\n', { mode: 0o600 })
+  } catch {
+    console.error('Unable to append non-secret network lifecycle evidence')
+    code = 1
+  }
+  process.exitCode = code ?? 1
+}
+child.once('error', () => { console.error('Unable to launch real ACP probe'); void finish(1) })
+child.once('exit', code => { void finish(code) })

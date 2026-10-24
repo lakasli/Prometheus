@@ -17,11 +17,147 @@ use futures_util::{SinkExt, StreamExt};
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
 use std::time::Duration;
-use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::{
+    client::IntoClientRequest, protocol::WebSocketConfig, Message,
+};
 use tokio_util::sync::CancellationToken;
 
 const QQ_BASE: &str = "https://api.sgroup.qq.com";
 const QQ_TOKEN_BASE: &str = "https://bots.qq.com";
+const USER_AGENT: &str = "DSH/0.1 QQ-Gateway";
+const MAX_GATEWAY_MESSAGE: usize = 128 * 1024;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ClosePolicy {
+    pub clear_token: bool,
+    pub clear_session: bool,
+    pub terminal: bool,
+    pub retry_delay_seconds: Option<u64>,
+}
+
+/// Platform close codes determine recovery; the untrusted reason is never logged.
+pub fn close_policy(code: u16) -> ClosePolicy {
+    ClosePolicy {
+        clear_token: matches!(code, 4004 | 4006 | 4007 | 4009 | 4900..=4913),
+        clear_session: matches!(code, 4006 | 4007 | 4009 | 4900..=4913),
+        terminal: matches!(code, 4914 | 4915),
+        retry_delay_seconds: (code == 4008).then_some(60),
+    }
+}
+
+/// Text and binary UTF-8 JSON frames have identical handling and size limits.
+pub fn parse_gateway_message(message: &Message) -> Result<Option<Value>, &'static str> {
+    let data = match message {
+        Message::Text(text) => text.as_bytes(),
+        Message::Binary(bytes) => bytes.as_ref(),
+        _ => return Ok(None),
+    };
+    if data.len() > MAX_GATEWAY_MESSAGE {
+        return Err("QQ事件超过128KiB限制");
+    }
+    serde_json::from_slice(data)
+        .map(Some)
+        .map_err(|_| "QQ事件JSON无效")
+}
+
+#[derive(Debug)]
+struct GatewayFailure {
+    message: String,
+    recovery: Option<ClosePolicy>,
+}
+impl From<&str> for GatewayFailure {
+    fn from(message: &str) -> Self {
+        Self {
+            message: message.into(),
+            recovery: None,
+        }
+    }
+}
+impl From<String> for GatewayFailure {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            recovery: None,
+        }
+    }
+}
+fn closed(code: u16) -> GatewayFailure {
+    tracing::warn!(
+        channel = "qq",
+        stage = "websocket_close",
+        close_code = code,
+        "QQ gateway closed"
+    );
+    GatewayFailure {
+        message: format!("QQ网关关闭，代码{code}"),
+        recovery: Some(close_policy(code)),
+    }
+}
+fn websocket_failure(
+    error: &tokio_tungstenite::tungstenite::Error,
+    stage: &'static str,
+) -> GatewayFailure {
+    use tokio_tungstenite::tungstenite::Error;
+    let class = match error {
+        Error::Http(response) => {
+            let status = response.status().as_u16();
+            tracing::warn!(
+                channel = "qq",
+                stage,
+                http_status = status,
+                class = "http_rejected",
+                "QQ WebSocket operation failed"
+            );
+            return format!("QQ WebSocket {stage}失败，HTTP {status}").into();
+        }
+        Error::Tls(_) => "tls",
+        Error::Io(_) => "io",
+        Error::Capacity(_) => "capacity",
+        Error::Protocol(_) => "protocol",
+        Error::Utf8 => "utf8",
+        Error::ConnectionClosed | Error::AlreadyClosed => "closed",
+        _ => "other",
+    };
+    tracing::warn!(
+        channel = "qq",
+        stage,
+        class,
+        "QQ WebSocket operation failed"
+    );
+    format!("QQ WebSocket {stage}失败，分类{class}").into()
+}
+fn http_failure(error: &reqwest::Error, stage: &'static str) -> String {
+    let class = if error.is_timeout() {
+        "timeout"
+    } else if error.is_connect() {
+        "connection_or_tls"
+    } else if error.is_decode() {
+        "decode"
+    } else {
+        "network"
+    };
+    tracing::warn!(channel = "qq", stage, class, "QQ HTTP operation failed");
+    format!("QQ {stage}请求失败，分类{class}")
+}
+fn business_code(value: &Value) -> Option<i64> {
+    ["code", "err_code", "retcode"].iter().find_map(|key| {
+        value[*key]
+            .as_i64()
+            .or_else(|| value[*key].as_str().and_then(|v| v.parse().ok()))
+    })
+}
+fn known_event_type(payload: &Value) -> Option<&'static str> {
+    match payload["t"].as_str()? {
+        "READY" => Some("READY"),
+        "RESUMED" => Some("RESUMED"),
+        "C2C_MESSAGE_CREATE" => Some("C2C_MESSAGE_CREATE"),
+        "GROUP_AT_MESSAGE_CREATE" => Some("GROUP_AT_MESSAGE_CREATE"),
+        "AT_MESSAGE_CREATE" => Some("AT_MESSAGE_CREATE"),
+        "GROUP_MESSAGE_CREATE" => Some("GROUP_MESSAGE_CREATE"),
+        "DIRECT_MESSAGE_CREATE" => Some("DIRECT_MESSAGE_CREATE"),
+        _ => None,
+    }
+}
 
 fn key(secret: &str) -> Result<SigningKey, String> {
     if secret.is_empty() {
@@ -219,6 +355,7 @@ fn strip_mentions(input: &str) -> String {
 
 fn client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
+        .user_agent(USER_AGENT)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(12))
         .connect_timeout(Duration::from_secs(8))
@@ -246,11 +383,25 @@ pub async fn access_token(state: &AppState, config: &RuntimeConfig) -> Result<St
         .json(&json!({"appId":config.qq.app_id,"clientSecret":secret}))
         .send()
         .await
-        .map_err(|_| "QQ鉴权网络请求失败")?;
+        .map_err(|error| http_failure(&error, "token"))?;
+    tracing::info!(
+        channel = "qq",
+        stage = "token",
+        http_status = response.status().as_u16(),
+        "QQ token HTTP response"
+    );
     if !response.status().is_success() {
         return Err(format!("QQ鉴权返回HTTP {}", response.status().as_u16()));
     }
     let value: Value = response.json().await.map_err(|_| "QQ鉴权返回无效JSON")?;
+    if let Some(code) = business_code(&value) {
+        tracing::info!(
+            channel = "qq",
+            stage = "token",
+            business_code = code,
+            "QQ token business status"
+        );
+    }
     let token = value["access_token"]
         .as_str()
         .filter(|s| !s.is_empty())
@@ -267,7 +418,14 @@ pub async fn access_token(state: &AppState, config: &RuntimeConfig) -> Result<St
 
 fn connection(state: &AppState, status: &str) {
     if let Ok(mut value) = state.0.qq_connection.lock() {
-        *value = status.into();
+        if value.as_str() != status {
+            tracing::info!(
+                channel = "qq",
+                connection_state = status,
+                "QQ connection state changed"
+            );
+            *value = status.into();
+        }
     }
 }
 pub async fn run_gateway(state: AppState, cancel: CancellationToken) {
@@ -277,8 +435,8 @@ pub async fn run_gateway(state: AppState, cancel: CancellationToken) {
         if cancel.is_cancelled() {
             break;
         }
-        let config = match state.current_config() {
-            Ok((_, c)) => c,
+        let (revision, config) = match state.current_config() {
+            Ok(value) => value,
             Err(_) => {
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 continue;
@@ -309,20 +467,50 @@ pub async fn run_gateway(state: AppState, cancel: CancellationToken) {
         if cancel.is_cancelled() {
             break;
         }
+        let mut retry_delay = None;
         match outcome {
             Ok(()) => {
                 failures = 0;
                 continue;
             }
             Err(error) => {
+                // Only generated classifications and numeric statuses enter diagnostics.
+                tracing::warn!(channel="qq",error=%error.message,"QQ gateway attempt failed");
                 if let Ok(mut last) = state.0.qq_last_error.lock() {
-                    *last = Some(error);
+                    *last = Some(error.message);
+                }
+                if let Some(policy) = error.recovery {
+                    if policy.clear_token {
+                        *state.0.qq_token.lock().await = None;
+                    }
+                    if policy.clear_session {
+                        resume = None;
+                    }
+                    retry_delay = policy.retry_delay_seconds;
+                    if policy.terminal {
+                        connection(&state, "blocked");
+                        // A terminal platform close requires an operator/configuration change.
+                        loop {
+                            tokio::select! {_=cancel.cancelled()=>return,_=tokio::time::sleep(Duration::from_secs(1))=>{}}
+                            if state
+                                .current_config()
+                                .map(|(current, _)| current != revision)
+                                .unwrap_or(false)
+                            {
+                                break;
+                            }
+                        }
+                        failures = 0;
+                        resume = None;
+                        continue;
+                    }
                 }
                 connection(&state, "backoff");
                 failures = (failures + 1).min(6);
             }
         }
-        tokio::select! {_=cancel.cancelled()=>break,_=tokio::time::sleep(Duration::from_secs((1u64<<failures).min(60)))=>{}}
+        let delay = retry_delay.unwrap_or_else(|| (1u64 << failures).min(60));
+        tokio::select! {_=cancel.cancelled()=>break,_=tokio::time::sleep(Duration::from_secs(delay))=>{}}
     }
     connection(&state, "stopped");
 }
@@ -333,18 +521,32 @@ async fn gateway_session(
     cancel: &CancellationToken,
     identity: &str,
     resume: &mut Option<(String, i64, String)>,
-) -> Result<(), String> {
+) -> Result<(), GatewayFailure> {
     let token = access_token(state, config).await?;
     let response = client()?
         .get(format!("{QQ_BASE}/gateway"))
         .header("Authorization", format!("QQBot {token}"))
         .send()
         .await
-        .map_err(|_| "QQ网关查询失败")?;
+        .map_err(|error| http_failure(&error, "gateway"))?;
+    tracing::info!(
+        channel = "qq",
+        stage = "gateway",
+        http_status = response.status().as_u16(),
+        "QQ gateway HTTP response"
+    );
     if !response.status().is_success() {
-        return Err("QQ网关查询被拒绝".into());
+        return Err(format!("QQ网关查询被拒绝，HTTP {}", response.status().as_u16()).into());
     }
     let value: Value = response.json().await.map_err(|_| "QQ网关响应无效")?;
+    if let Some(code) = business_code(&value) {
+        tracing::info!(
+            channel = "qq",
+            stage = "gateway",
+            business_code = code,
+            "QQ gateway business status"
+        );
+    }
     let gateway = value["url"].as_str().ok_or("QQ网关未返回连接地址")?;
     let parsed = url::Url::parse(gateway).map_err(|_| "QQ网关地址无效")?;
     let hostname = parsed.host_str().unwrap_or("");
@@ -355,21 +557,59 @@ async fn gateway_session(
     {
         return Err("QQ网关主机不被允许".into());
     }
-    let (socket, _) = tokio::time::timeout(
+    let mut request = gateway
+        .into_client_request()
+        .map_err(|_| GatewayFailure::from("QQ WebSocket升级请求无效"))?;
+    request.headers_mut().insert(
+        "user-agent",
+        USER_AGENT
+            .parse()
+            .map_err(|_| GatewayFailure::from("QQ客户端标识无效"))?,
+    );
+    let socket_config = WebSocketConfig::default()
+        .max_message_size(Some(MAX_GATEWAY_MESSAGE))
+        .max_frame_size(Some(MAX_GATEWAY_MESSAGE));
+    let (socket, upgrade) = tokio::time::timeout(
         Duration::from_secs(15),
-        tokio_tungstenite::connect_async(gateway),
+        tokio_tungstenite::connect_async_with_config(request, Some(socket_config), false),
     )
     .await
     .map_err(|_| "QQ连接超时")?
-    .map_err(|_| "QQ连接失败")?;
+    .map_err(|error| websocket_failure(&error, "upgrade"))?;
+    tracing::info!(
+        channel = "qq",
+        stage = "websocket_upgrade",
+        http_status = upgrade.status().as_u16(),
+        "QQ WebSocket upgraded"
+    );
     let (mut writer, mut reader) = socket.split();
-    let hello = tokio::time::timeout(Duration::from_secs(15), reader.next())
-        .await
-        .map_err(|_| "QQ握手超时")?
-        .ok_or("QQ握手连接关闭")?
-        .map_err(|_| "QQ握手失败")?;
-    let hello: Value = serde_json::from_str(hello.to_text().map_err(|_| "QQ握手非文本")?)
-        .map_err(|_| "QQ握手JSON无效")?;
+    let hello = tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            let frame = reader
+                .next()
+                .await
+                .ok_or_else(|| closed(1006))?
+                .map_err(|error| websocket_failure(&error, "hello"))?;
+            match frame {
+                Message::Ping(bytes) => {
+                    writer
+                        .send(Message::Pong(bytes))
+                        .await
+                        .map_err(|error| websocket_failure(&error, "hello_pong"))?;
+                }
+                Message::Close(frame) => {
+                    return Err(closed(frame.map(|f| u16::from(f.code)).unwrap_or(1006)))
+                }
+                data => {
+                    if let Some(payload) = parse_gateway_message(&data)? {
+                        return Ok(payload);
+                    }
+                }
+            }
+        }
+    })
+    .await
+    .map_err(|_| "QQ握手超时")??;
     if hello["op"] != 10 {
         return Err("QQ握手opcode无效".into());
     }
@@ -377,6 +617,12 @@ async fn gateway_session(
         .as_u64()
         .unwrap_or(45000)
         .clamp(1000, 120000);
+    tracing::info!(
+        channel = "qq",
+        stage = "hello",
+        heartbeat_interval_ms = interval,
+        "QQ HELLO received"
+    );
     let identify = if let Some((session, seq, _)) = resume {
         json!({"op":6,"d":{"token":format!("QQBot {token}"),"session_id":session,"seq":seq}})
     } else {
@@ -385,8 +631,11 @@ async fn gateway_session(
     writer
         .send(Message::Text(identify.to_string().into()))
         .await
-        .map_err(|_| "QQ鉴权发送失败")?;
-    let mut heartbeat = tokio::time::interval(Duration::from_millis(interval));
+        .map_err(|error| websocket_failure(&error, "identify"))?;
+    let mut heartbeat = tokio::time::interval_at(
+        tokio::time::Instant::now() + Duration::from_millis(interval),
+        Duration::from_millis(interval),
+    );
     let mut config_check = tokio::time::interval(Duration::from_secs(1));
     let mut sequence: Option<i64> = resume.as_ref().map(|r| r.1);
     let mut awaiting_ack = false;
@@ -405,11 +654,11 @@ async fn gateway_session(
                 writer.send(Message::Text(json!({"op":1,"d":sequence}).to_string().into())).await.map_err(|_|"QQ心跳发送失败")?;awaiting_ack=true;
             },
             incoming=reader.next()=>{
-                let incoming=incoming.ok_or("QQ连接关闭")?.map_err(|_|"QQ连接读取失败")?;
+                let incoming=incoming.ok_or_else(||closed(1006))?.map_err(|error|websocket_failure(&error,"read"))?;
                 match incoming {
-                    Message::Text(text)=>{
-                        if text.len()>128*1024{return Err("QQ事件超过限制".into());}
-                        let payload:Value=serde_json::from_str(&text).map_err(|_|"QQ事件JSON无效")?;
+                    data @ (Message::Text(_) | Message::Binary(_))=>{
+                        let payload=parse_gateway_message(&data)?.ok_or("QQ事件不是JSON数据帧")?;
+                        if let Some(event_type)=known_event_type(&payload){tracing::info!(channel="qq",event_type,"QQ gateway event received");}
                         match payload["op"].as_i64().unwrap_or(-1) {
                             0=>{
                                 if payload["t"]=="READY" {
@@ -422,13 +671,17 @@ async fn gateway_session(
                                 if let Some(seq)=payload["s"].as_i64(){sequence=Some(seq);if let Some(r)=resume.as_mut(){r.1=seq;}}
                             },
                             7=>return Err("QQ请求重连".into()),
-                            9=>{*resume=None;return Err("QQ会话失效".into());},
+                            9=>{
+                                let resumable=payload["d"].as_bool().unwrap_or(false);
+                                tracing::warn!(channel="qq",opcode=9,resumable,"QQ session invalidated");
+                                return Err(GatewayFailure{message:"QQ会话失效，opcode9".into(),recovery:Some(ClosePolicy{clear_token:!resumable,clear_session:!resumable,terminal:false,retry_delay_seconds:Some(3)})});
+                            },
                             11=>awaiting_ack=false,
                             _=>{}
                         }
                     },
-                    Message::Ping(bytes)=>{writer.send(Message::Pong(bytes)).await.map_err(|_|"QQ ping失败")?;},
-                    Message::Close(_)=>return Err("QQ连接关闭".into()),
+                    Message::Ping(bytes)=>{writer.send(Message::Pong(bytes)).await.map_err(|error|websocket_failure(&error,"pong"))?;},
+                    Message::Close(frame)=>return Err(closed(frame.map(|f|u16::from(f.code)).unwrap_or(1006))),
                     _=>{}
                 }
             }

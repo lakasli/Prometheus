@@ -15,6 +15,8 @@ M1基础版本已在指定树莓派部署，运行提交为 `d5efc8d`。原生4�
 - QQ 官方 WebSocket（默认）和签名 Webhook（可选），实际平台能力需由已授权账号联调。
 - M0 的真实 Cordis 四组生命周期实验与真实 Harness ACP 探针。M1 生产聊天使用 NativeBackend，尚不启用完整 Harness 执行环境。
 
+ACP 通知属于已提交的语义输出，不承诺模型 token 流。M0 在途取消由临时回环 HTTP 代理确认真实上游请求仍未完成，再经私有 IPC 触发 ACP cancel；不以排队成功或已经结束的文本输出作为取消证据。代理不记录凭证、请求或回复正文。
+
 记忆管理、微信、图像 / ASR / TTS、生成插件和完整 Harness 工具桥属于后续阶段，界面不将它们伪装成已可用功能。完整设计见 [架构文档](docs/architecture.md)。
 
 ## 本地运行

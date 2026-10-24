@@ -5,6 +5,7 @@ const sessionId = 'unit-test-session'
 let prompts = 0
 let active = null
 let emittedAgent = false
+let controller = null
 const send = message => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n')
 const result = (id, value) => send({ id, result: value })
 const update = (type, text, id = sessionId) => send({ method: 'session/update', params: { sessionId: id, update: { sessionUpdate: type, content: { type: 'text', text } } } })
@@ -19,6 +20,29 @@ lines.on('line', line => {
     case 'session/close': result(message.id, {}); break
     case 'session/prompt':
       prompts++
+      if (mode === 'proxy-network') {
+        active = message.id
+        controller = new AbortController()
+        const ownId = message.id
+        void fetch(`${process.argv[3]}/chat/completions`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: 'Bearer unit-test-model-key' },
+          body: JSON.stringify({ messages: [], stream: false }),
+          signal: controller.signal,
+        }).then(response => response.json()).then(response => {
+          if (active === ownId) {
+            update('agent_message_chunk', response.text)
+            result(ownId, { stopReason: 'end_turn' })
+            active = null
+          }
+        }).catch(() => {
+          if (active === ownId) {
+            send({ id: ownId, error: { code: -32603, message: 'fixture upstream failed' } })
+            active = null
+          }
+        })
+        break
+      }
       if (prompts === 1) {
         update('user_message_chunk', 'ACP_M0_OK')
         update('agent_message_chunk', 'ACP_M0_OK', 'another-session')
@@ -50,6 +74,12 @@ lines.on('line', line => {
       break
     case 'session/cancel':
       if (active !== null) {
+        if (mode === 'proxy-network') {
+          controller.abort()
+          result(active, { stopReason: 'cancelled' })
+          active = null
+          break
+        }
         result(active, { stopReason: emittedAgent ? 'cancelled' : 'end_turn' })
         active = null
       }

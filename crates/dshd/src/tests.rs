@@ -540,6 +540,44 @@ fn qq_signature_rejects_tampering() {
     ));
 }
 
+#[test]
+fn qq_gateway_text_and_binary_share_bounded_json_parser() {
+    use tokio_tungstenite::tungstenite::Message;
+    let payload = r#"{"op":0,"t":"READY","d":{"session_id":"fixture-only"}}"#;
+    assert_eq!(
+        qq::parse_gateway_message(&Message::Text(payload.into())).unwrap(),
+        qq::parse_gateway_message(&Message::Binary(payload.as_bytes().to_vec().into())).unwrap()
+    );
+    assert!(qq::parse_gateway_message(&Message::Binary(vec![0xff, 0xfe].into())).is_err());
+    assert!(
+        qq::parse_gateway_message(&Message::Binary(vec![b' '; 128 * 1024 + 1].into())).is_err()
+    );
+    assert!(qq::parse_gateway_message(&Message::Text("x".repeat(128 * 1024 + 1).into())).is_err());
+    assert_eq!(
+        qq::parse_gateway_message(&Message::Ping(vec![1].into())).unwrap(),
+        None
+    );
+}
+
+#[test]
+fn qq_gateway_close_codes_control_recovery_without_reason_text() {
+    let auth = qq::close_policy(4004);
+    assert!(auth.clear_token);
+    assert!(!auth.clear_session);
+    assert!(!auth.terminal);
+    for code in [4006, 4007, 4009, 4900, 4913] {
+        let action = qq::close_policy(code);
+        assert!(action.clear_token && action.clear_session);
+        assert!(!action.terminal);
+    }
+    assert_eq!(qq::close_policy(4008).retry_delay_seconds, Some(60));
+    for code in [4914, 4915] {
+        assert!(qq::close_policy(code).terminal);
+    }
+    let regular = qq::close_policy(1000);
+    assert!(!regular.clear_token && !regular.clear_session && !regular.terminal);
+}
+
 #[tokio::test]
 async fn qq_url_validation_allows_unsigned_challenge_but_not_unsigned_events() {
     let temp = TempDir::new().unwrap();

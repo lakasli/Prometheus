@@ -1,19 +1,20 @@
 #!/usr/bin/env node
 // Run against a real Harness process. This file is not an ACP mock server.
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import readline from 'node:readline'
 
 const argv = process.argv.slice(2)
-const options = { command: 'dsh', args: [], timeout: 30000, prompt: null, expectedText: 'ACP_M0_OK' }
+const options = { command: 'dsh', args: [], timeout: 30000, prompt: null, expectedText: 'ACP_M0_OK', inflightIpc: false }
 for (let index = 0; index < argv.length; index++) {
   const name = argv[index]
   if (name === '--help') {
-    console.log('node tools/m0/acp-probe.mjs --command <executable> [--arg <argument>] [--cwd <workspace>] [--home <isolated DSH_HOME>] [--report <file>] [--prompt <harmless prompt>] [--expect-text <marker>] [--timeout-ms <milliseconds>]')
+    console.log('node tools/m0/acp-probe.mjs --command <executable> [--arg <argument>] [--cwd <workspace>] [--home <isolated DSH_HOME>] [--report <file>] [--prompt <harmless prompt>] [--expect-text <marker>] [--timeout-ms <milliseconds>] [--inflight-ipc true]')
     console.log('Pass every argument separately, including: --arg --profile --arg acp. No prompt means no model invocation.')
-    console.log('With --prompt, assistant text must contain --expect-text (default ACP_M0_OK). The cancellation probe waits for real agent output before cancelling.')
+    console.log('With --prompt, assistant text must contain --expect-text (default ACP_M0_OK). Use acp-from-dsh.mjs for an actual upstream HTTP in-flight witness; semantic output alone may arrive too late.')
     process.exit(0)
   }
   const value = argv[++index]
@@ -25,11 +26,13 @@ for (let index = 0; index < argv.length; index++) {
   else if (name === '--report') options.report = path.resolve(value)
   else if (name === '--prompt') options.prompt = value
   else if (name === '--expect-text') options.expectedText = value
+  else if (name === '--inflight-ipc') options.inflightIpc = value === 'true'
   else if (name === '--timeout-ms') options.timeout = Number(value)
   else throw new Error(`unknown option: ${name}`)
 }
 if (!Number.isSafeInteger(options.timeout) || options.timeout < 1000) throw new Error('invalid timeout')
 if (!options.expectedText || Buffer.byteLength(options.expectedText) > 256) throw new Error('expected marker must contain 1 to 256 bytes')
+if (options.inflightIpc && (!options.prompt || typeof process.send !== 'function')) throw new Error('network in-flight mode requires --prompt and a parent IPC channel')
 if (!options.args.length) options.args = ['--profile', 'acp']
 const scratch = await mkdtemp(path.join(tmpdir(), 'dsh-acp-probe-'))
 options.cwd ??= path.join(scratch, 'workspace')
@@ -43,6 +46,27 @@ const report = {
   checks: [],
   model_prompt_requested: Boolean(options.prompt),
   credentials_in_report: false,
+}
+
+const ipcObservers = new Set()
+process.on('message', message => { for (const observer of ipcObservers) observer(message) })
+function sendIpc(message) {
+  if (!process.connected || typeof process.send !== 'function') throw new Error('network witness IPC channel closed')
+  process.send(message)
+}
+async function armNetworkWitness(probeId) {
+  return await new Promise((resolve, reject) => {
+    const done = () => { clearTimeout(timer); ipcObservers.delete(receive) }
+    const receive = message => {
+      if (message?.type !== 'inflight_armed' || message.probe_id !== probeId) return
+      done()
+      if (!message.ready) reject(new Error('network proxy could not arm an idle next-request witness'))
+      else resolve(message)
+    }
+    const timer = setTimeout(() => { done(); reject(new Error('network witness arming timed out')) }, options.timeout)
+    ipcObservers.add(receive)
+    try { sendIpc({ type: 'arm_inflight', probe_id: probeId }) } catch (error) { done(); reject(error) }
+  })
 }
 
 function safeError(error) {
@@ -203,17 +227,42 @@ try {
         unobserve()
       }
     })
-    // An accepted/enqueued prompt or a user_message_chunk is not evidence of
-    // model activity. Cancel only after non-empty agent text/thought output is
-    // observed while this specific prompt is still pending.
+    // ACP semantic updates can arrive after the provider finished generating.
+    // The live helper supplies a private IPC witness from a real loopback proxy;
+    // direct use retains the stricter semantic-output fallback (which may fail
+    // honestly when generation has already finished).
     await check('cancel_inflight_model_prompt', async () => {
       let settled = false
       let observedType = null
       let cancelSent = false
+      let networkWitness = null
+      let upstreamCompletedBeforeCancel = false
+      const probeId = randomUUID()
+      let armed
+      if (options.inflightIpc) armed = await armNetworkWitness(probeId)
+      const receiveIpc = message => {
+        if (!options.inflightIpc || message?.probe_id !== probeId || message.request_index !== armed?.request_index) return
+        if (message.type === 'upstream_completed' && !cancelSent) upstreamCompletedBeforeCancel = true
+        if (message.type === 'upstream_inflight' && !settled && !cancelSent && !upstreamCompletedBeforeCancel) sendIpc({ type: 'confirm_inflight', probe_id: probeId })
+        if (message.type !== 'inflight_confirmed' || settled || cancelSent || upstreamCompletedBeforeCancel) return
+        if (!message.inflight || !message.connected || !message.request_body_finished || message.response_complete || message.closed) return
+        networkWitness = {
+          request_index: message.request_index,
+          connected: true,
+          request_body_finished: true,
+          response_headers_received: Boolean(message.response_headers_received),
+          response_complete_at_confirmation: false,
+          witness_source: 'loopback_proxy_upstream_http_lifecycle',
+        }
+        cancelSent = true
+        connection.notify('session/cancel', { sessionId: session.sessionId })
+      }
+      ipcObservers.add(receiveIpc)
       const unobserve = connection.observe(session.sessionId, update => {
-        if (settled || cancelSent || !['agent_message_chunk', 'agent_thought_chunk'].includes(update?.sessionUpdate)) return
+        if (settled || !['agent_message_chunk', 'agent_thought_chunk'].includes(update?.sessionUpdate)) return
         if (update.content?.type !== 'text' || typeof update.content.text !== 'string' || !update.content.text.length) return
         observedType = update.sessionUpdate
+        if (options.inflightIpc || cancelSent) return
         cancelSent = true
         // Send synchronously from the update callback: delaying until an await
         // continuation can let a quickly finishing prompt settle first.
@@ -225,11 +274,13 @@ try {
           prompt: [{ type: 'text', text: 'Do not use any tools. Output a numbered list from 1 through 300. Each line must contain the number followed by the words "ACP cancellation validation line". Do not abbreviate or summarize. Stop after line 300.' }],
         }).then(result => { settled = true; return result }, error => { settled = true; throw error })
         const result = await pending
-        report.cancellation_evidence = { activity_type: observedType, agent_output_observed: Boolean(observedType), cancel_sent_before_prompt_settlement: cancelSent, stop_reason: result.stopReason }
-        if (!observedType || !cancelSent) throw new Error('prompt finished before cancellable agent activity was observed; in-flight cancellation was not verified')
+        report.cancellation_evidence = { activity_type: networkWitness ? 'upstream_http_request' : observedType, agent_output_observed: Boolean(observedType), network_witness: networkWitness, cancel_sent_before_prompt_settlement: cancelSent, stop_reason: result.stopReason }
+        if (options.inflightIpc && !networkWitness) throw new Error('no confirmed unfinished upstream HTTP request; network in-flight cancellation was not verified')
+        if ((!options.inflightIpc && !observedType) || !cancelSent) throw new Error('prompt finished before cancellable activity was observed; in-flight cancellation was not verified')
         if (result.stopReason !== 'cancelled') throw new Error(`prompt was already finished or cancellation did not win (stop reason ${result.stopReason}); retry is required to verify in-flight cancellation`)
       } finally {
         unobserve()
+        ipcObservers.delete(receiveIpc)
       }
     })
   } else {
@@ -257,4 +308,5 @@ try {
     await writeFile(options.report, JSON.stringify(report, null, 2) + '\n')
   }
   console.log(JSON.stringify(report, null, 2))
+  if (process.connected && typeof process.disconnect === 'function') process.disconnect()
 }

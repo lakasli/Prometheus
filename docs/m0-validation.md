@@ -71,9 +71,11 @@ node tools/m0/acp-probe.mjs \
 
 真实模型与在途取消的补充实验可通过 `--prompt` 启用，使用无外部动作的简单提示；凭证通过受限环境或隔离 Harness 凭证存储注入，不作为命令行参数、不入库。第一轮必须从当前会话的 `agent_message_chunk` 收到预期标记，默认 `ACP_M0_OK`，可通过 `--expect-text` 指定其他短标记；仅 `session/prompt` 返回、用户消息回显或其他会话输出都不算模型回复通过。报告只保存命中布尔值、字符数和停止原因，不保存回复正文或思考内容。
 
-第二轮使用有上限的无害长列表请求，仅在收到本次未结算 prompt 的非空 `agent_message_chunk` / `agent_thought_chunk` 后才发送 cancel，并要求最终 `stopReason=cancelled`。若请求已经完成、只收到排队 / 用户事件或取消未能胜出，记录失败并要求重试，不将其计作在途取消通过。只有这些检查实际成功，报告才会记为 `passed_with_model`。
+ACP 通知是已提交的语义更新，不承诺逐 token 输出；收到 `agent_message_chunk` 时，上游生成可能已经完成。因此直接运行探针的语义输出取消路径保留严格失败检查，但推荐使用下面辅助脚本的真实 HTTP 在途见证模式。
 
-M1 配置已经通过 Web 页面录入后，可在树莓派上运行 [acp-from-dsh.mjs](../tools/m0/acp-from-dsh.mjs)。该脚本以只读方式读取当前 SQLite 配置和其 `model_api_key` 引用，校验凭证文件权限，然后仅将这一把模型密钥注入探针子进程的 `DSH_M0_MODEL_KEY` 环境；不会输出密钥，不修改生产数据库和 secret store：
+第二轮使用有上限的无害长列表请求。临时代理确认真实上游 TCP / TLS 连接已建立、请求数据已发送且响应尚未结束，通过私有父子进程 IPC 通知探针；探针再请求一次实时确认，只有该请求仍在途才向 ACP 发送 cancel，并要求最终 `stopReason=cancelled`。若请求已经完成、只收到排队 / 用户事件或取消未能胜出，记录失败并要求重试，不将其计作在途取消通过。只有这些检查实际成功，报告才会记为 `passed_with_model`。
+
+M1 配置已经通过 Web 页面录入后，可在树莓派上运行 [acp-from-dsh.mjs](../tools/m0/acp-from-dsh.mjs)。该脚本以只读方式读取当前 SQLite 配置和其 `model_api_key` 引用，校验凭证文件权限，然后仅将这一把模型密钥注入探针子进程的 `DSH_M0_MODEL_KEY` 环境；不会输出密钥，不修改生产数据库和 secret store。脚本启动仅监听 `127.0.0.1` 随机端口的临时 [HTTP 代理](../tools/m0/inflight-proxy.mjs)，仅转发带随机私有路径和匹配鉴权的模型 POST 请求到既有 endpoint，不记录请求 / 响应正文或标头，也不提供任意目标代理功能：
 
 ```sh
 node tools/m0/acp-from-dsh.mjs \
@@ -82,9 +84,11 @@ node tools/m0/acp-from-dsh.mjs \
   --report /home/campanus/apps/dsh/shared/logs/acp-live-result.json
 ```
 
-这些目录要以实际部署为准。该辅助脚本使用 Node 24 的 `node:sqlite`，在临时 home 和空工作区启动 Harness，将 M1 已配置的 OpenAI 兼容 endpoint / 模型映射到独立 `dsh-m0-provider` 路由。探针先请求并核验一句固定短回复，再等待第二次长列表请求出现 Agent 输出后取消，最后验证重启恢复。模型回复与取消的结果仍以实测报告为准。
+这些目录要以实际部署为准。该辅助脚本使用 Node 24 的 `node:sqlite`，在临时 home 和空工作区启动 Harness，将 M1 已配置的 OpenAI 兼容 endpoint / 模型经临时回环代理映射到独立 `dsh-m0-provider` 路由。探针先请求并核验一句固定短回复，再等待第二次长列表请求被真实上游网络见证后取消，最后验证重启恢复。模型回复与取消的结果仍以实测报告为准。
 
-探针自身的反误判回归测试使用明确标注的协议 fixture：`node --test tools/m0/tests/acp-probe.test.mjs`。这些测试覆盖标记跨 chunk、错误会话、用户回显、仅排队事件、生成已完成以及无 `--prompt` 路径；它们只验证探针逻辑，不作为真实 Harness / 模型验收记录。
+代理以 Node `ClientRequest.finish` 与 TCP `connect` / TLS `secureConnect` 事件共同见证请求已交给已建立的连接，以响应 `end` 排除已完成请求；这证明 HTTP 请求在途，不冒称已经观测到服务端具体 token 或模型内部状态。[Node HTTP 文档](https://nodejs.org/api/http.html#event-finish)、[TLS 文档](https://nodejs.org/api/tls.html#event-secureconnect)。报告只保存请求序号、连接 / 发送 / 完成布尔值以及取消后连接是否断开。脚本退出会关闭代理；清理前先记录状态，避免把脚本清理造成的中止假记为 ACP 取消。
+
+探针自身的反误判回归测试使用明确标注的协议 / 本地 HTTP fixture：`node --test tools/m0/tests/acp-probe.test.mjs tools/m0/tests/inflight-proxy.test.mjs`。8 项测试覆盖标记跨 chunk、错误会话、用户回显、仅排队事件、生成已完成、无 `--prompt` 路径、无语义 chunk 但真实本地 HTTP 在途的取消、未授权请求不转发，以及见证过期后的拒绝确认。它们只验证探针逻辑，不作为真实 Harness / 模型验收记录。
 
 [no-tools.patch.json](../tools/m0/no-tools.patch.json) 针对锁定的 `0.2.1-rc.2` 禁用默认 profile 的工具、子 Agent 和插件管理入口，且探针对权限请求一律拒绝。它是这次 M0 模型实验的限制措施；升级 Harness 后需重新核对最终 profile，不能将此 patch 当作完整的 M3 工具安全验收。
 

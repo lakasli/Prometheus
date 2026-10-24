@@ -17,6 +17,7 @@ import {
   setCsrfToken,
 } from "./api";
 import { formatBytes, formatDate, validateConfig } from "./validation";
+import { describeQqConnection } from "./connection";
 import type {
   AuthResponse,
   AuthUser,
@@ -97,6 +98,13 @@ const busy = ref("");
 const error = ref("");
 const notice = ref("");
 const status = ref<SystemStatus | null>(null);
+const statusSampledAt = ref<number | null>(null);
+const statusRefreshing = ref(false);
+const statusError = ref("");
+let statusTimer: ReturnType<typeof setTimeout> | undefined;
+let statusRequest: Promise<void> | null = null;
+let statusController: AbortController | null = null;
+let authEpoch = 0;
 const version = ref("M1");
 const frontendBuild = import.meta.env.VITE_BUILD_SHA || "local";
 const configState = ref<ConfigResponse | null>(null);
@@ -141,6 +149,16 @@ let disposed = false;
 
 const configuredModel = computed(() => Boolean(config.model.credential_ref));
 const configuredQq = computed(() => Boolean(config.qq.credential_ref));
+const qqConnection = computed(() =>
+  describeQqConnection(status.value, Boolean(statusError.value)),
+);
+const qqHasConnectionEvidence = computed(
+  () =>
+    qqConnection.value.connected ||
+    (!statusError.value &&
+      status.value?.channels?.qq?.connection_status === "webhook" &&
+      Boolean(status.value.channels.qq.last_event_at)),
+);
 const effective = computed(
   () =>
     configState.value &&
@@ -164,10 +182,7 @@ const setupProgress = computed(
   () =>
     [
       configuredModel.value,
-      Boolean(
-        status.value?.channels?.qq?.enabled &&
-        status.value?.channels?.qq?.configured,
-      ),
+      qqHasConnectionEvidence.value,
       conversations.value.length > 0,
     ].filter(Boolean).length,
 );
@@ -191,6 +206,83 @@ watch([modelKey, qqSecret], () => {
   validated.value = false;
   checks.value = [];
 });
+watch(
+  authState,
+  (value) => {
+    authEpoch++;
+    if (statusTimer !== undefined) clearTimeout(statusTimer);
+    statusTimer = undefined;
+    if (value === "ready") scheduleStatusPoll();
+    else statusController?.abort();
+  },
+  { flush: "sync" },
+);
+
+function expireSession() {
+  authState.value = "login";
+  user.value = null;
+  clearCsrfToken();
+  modelKey.value = "";
+  qqSecret.value = "";
+  configState.value = null;
+  status.value = null;
+  statusSampledAt.value = null;
+  statusError.value = "";
+  messages.value = [];
+  conversations.value = [];
+  selectedConversation.value = null;
+}
+
+function scheduleStatusPoll() {
+  if (disposed || authState.value !== "ready") return;
+  statusTimer = setTimeout(async () => {
+    statusTimer = undefined;
+    try {
+      if (!document.hidden) await refreshStatus(true);
+    } catch {
+      // A concurrent manual refresh reports its own failure through task().
+    } finally {
+      scheduleStatusPoll();
+    }
+  }, 5000);
+}
+
+function refreshStatus(quiet = false): Promise<void> {
+  if (statusRequest) return statusRequest;
+  if (disposed || authState.value !== "ready") return Promise.resolve();
+  const epoch = authEpoch;
+  const controller = new AbortController();
+  statusController = controller;
+  const deadline = setTimeout(() => controller.abort(), 10_000);
+  statusRefreshing.value = true;
+  statusRequest = (async () => {
+    try {
+      const result = await api<SystemStatus>("/status", {
+        signal: controller.signal,
+      });
+      if (disposed || epoch !== authEpoch || controller.signal.aborted) return;
+      status.value = result;
+      statusSampledAt.value = Date.now();
+      statusError.value = "";
+      version.value = result.version || version.value;
+    } catch (caught) {
+      if (disposed || epoch !== authEpoch) return;
+      if (caught instanceof ApiError && caught.status === 401) {
+        expireSession();
+        error.value = "管理会话已过期，请重新登录。";
+      } else
+        statusError.value =
+          "状态刷新未完成，以下为上次采样。请检查服务连接或手动刷新。";
+      if (!quiet) throw caught;
+    } finally {
+      clearTimeout(deadline);
+      statusRefreshing.value = false;
+      statusController = null;
+      statusRequest = null;
+    }
+  })();
+  return statusRequest;
+}
 
 function navigate(id: Page) {
   page.value = id;
@@ -218,11 +310,7 @@ async function task(label: string, fn: () => Promise<unknown>) {
       caught.status === 401 &&
       authState.value === "ready"
     ) {
-      authState.value = "login";
-      user.value = null;
-      clearCsrfToken();
-      modelKey.value = "";
-      qqSecret.value = "";
+      expireSession();
     }
   } finally {
     busy.value = "";
@@ -295,18 +383,9 @@ async function authenticate() {
 async function logout() {
   await task("退出登录", async () => {
     await api("/auth/logout", { method: "POST" });
-    clearCsrfToken();
-    user.value = null;
     auth.password = "";
     auth.bootstrap_token = "";
-    modelKey.value = "";
-    qqSecret.value = "";
-    configState.value = null;
-    status.value = null;
-    messages.value = [];
-    conversations.value = [];
-    selectedConversation.value = null;
-    authState.value = "login";
+    expireSession();
   });
 }
 async function loadConfig() {
@@ -329,15 +408,10 @@ async function loadConfig() {
 }
 async function refresh() {
   const results = await Promise.allSettled([
-    api<SystemStatus>("/status"),
+    refreshStatus(),
     loadConfig(),
     loadConversations(),
   ]);
-  const currentStatus = results[0];
-  if (currentStatus.status === "fulfilled") {
-    status.value = currentStatus.value;
-    version.value = currentStatus.value.version || version.value;
-  }
   for (const result of results)
     if (result.status === "rejected") throw result.reason;
 }
@@ -400,7 +474,9 @@ async function checkDraft() {
       { method: "POST" },
     );
     checks.value = result.checks || [];
-    notice.value = result.ok ? "连接测试通过。应用配置后可开始使用。" : "";
+    notice.value = result.ok
+      ? "探测通过，仅覆盖列出的模型调用或凭证鉴权。QQ WebSocket 连接与消息收发请查看实际运行状态和入站事件。"
+      : "";
   });
 }
 async function waitOperation(value: Operation): Promise<Operation> {
@@ -431,7 +507,9 @@ async function applyDraft() {
     );
     if (operation.value.status === "completed") {
       await refresh();
-      notice.value = "配置已生效。新的对话将使用这一版本。";
+      notice.value = config.qq.enabled
+        ? "配置已生效。QQ 连接与收发结果仍以运行状态及入站事件为准。"
+        : "配置已生效。新的对话将使用这一版本。";
     } else if (operation.value.status === "pending_restart")
       notice.value = "配置已保存，等待按部署流程重启服务。";
     else
@@ -567,7 +645,7 @@ async function sendMessage() {
     )
       notice.value = "任务仍在后台处理，可以稍后重新打开会话查看结果。";
     await scrollMessages();
-    status.value = await api<SystemStatus>("/status");
+    await refreshStatus();
   } catch (caught) {
     error.value = errorMessage(caught);
   } finally {
@@ -588,6 +666,8 @@ onMounted(() => {
 });
 onUnmounted(() => {
   disposed = true;
+  if (statusTimer !== undefined) clearTimeout(statusTimer);
+  statusController?.abort();
   window.removeEventListener("hashchange", readHash);
   clearCsrfToken();
 });
@@ -788,14 +868,15 @@ onUnmounted(() => {
         </div>
         <div class="topbar-right">
           <span class="connection-state"
-            ><span class="status-dot"></span>服务已连接</span
+            ><span class="status-dot" :class="{ amber: !!statusError }"></span
+            >{{ statusError ? "状态刷新失败" : "管理服务已连接" }}</span
           ><span class="version-tag">{{ version }}</span
           ><button
             class="icon-button"
             aria-label="刷新运行状态"
             title="刷新运行状态"
-            :disabled="!!busy || chatRunning"
-            @click="task('刷新状态', refresh)"
+            :disabled="!!busy || statusRefreshing"
+            @click="task('刷新状态', () => refreshStatus())"
           >
             <Icon name="refresh" :size="18" />
           </button>
@@ -904,10 +985,10 @@ onUnmounted(() => {
                 QQ 渠道<Icon name="channel" :size="17" />
               </div>
               <strong class="word-metric"
-                >{{ status?.channels?.qq?.enabled ? "已启用" : "未启用"
+                >{{ qqConnection.short
                 }}<span
                   class="status-dot"
-                  :class="{ amber: !status?.channels?.qq?.enabled }"
+                  :class="{ amber: !qqConnection.connected }"
                 ></span
               ></strong>
               <p>
@@ -956,16 +1037,9 @@ onUnmounted(() => {
                 ><button @click="navigate('qq')">
                   <span
                     class="step-number"
-                    :class="{
-                      done:
-                        status?.channels?.qq?.enabled &&
-                        status?.channels?.qq?.configured,
-                    }"
+                    :class="{ done: qqHasConnectionEvidence }"
                     ><Icon
-                      v-if="
-                        status?.channels?.qq?.enabled &&
-                        status?.channels?.qq?.configured
-                      "
+                      v-if="qqHasConnectionEvidence"
                       name="check"
                       :size="16"
                     /><template v-else>03</template></span
@@ -1186,6 +1260,24 @@ onUnmounted(() => {
                 >
                   {{ status.channels.qq.last_error }}
                 </div>
+                <div class="panel-heading">
+                  <div>
+                    <h3>实际运行状态</h3>
+                    <p>
+                      每 5 秒采样。凭证鉴权成功和配置生效不代表消息链路已连通。
+                    </p>
+                  </div>
+                  <button
+                    class="button secondary small"
+                    :disabled="!!busy || statusRefreshing"
+                    @click="task('刷新状态', () => refreshStatus())"
+                  >
+                    <Icon name="refresh" :size="16" />刷新状态
+                  </button>
+                </div>
+                <p v-if="statusError" class="alert error" role="status">
+                  {{ statusError }}
+                </p>
                 <dl class="detail-list">
                   <div>
                     <dt>当前启用状态</dt>
@@ -1195,16 +1287,20 @@ onUnmounted(() => {
                   </div>
                   <div>
                     <dt>连接状态</dt>
-                    <dd>
-                      {{
-                        status?.channels?.qq?.connection_status || "等待连接"
-                      }}
+                    <dd data-testid="qq-connection-status">
+                      {{ qqConnection.label }}
                     </dd>
                   </div>
                   <div>
                     <dt>最近入站事件</dt>
                     <dd>
                       {{ formatDate(status?.channels?.qq?.last_event_at) }}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>状态采样时间</dt>
+                    <dd data-testid="status-sampled-at">
+                      {{ formatDate(statusSampledAt) }}
                     </dd>
                   </div>
                 </dl>
@@ -1225,8 +1321,11 @@ onUnmounted(() => {
               <section v-if="checks.length" class="panel">
                 <div class="panel-heading">
                   <div>
-                    <h2>连接测试结果</h2>
-                    <p>测试不会替代配置应用。</p>
+                    <h2>凭证与模型探测结果</h2>
+                    <p>
+                      只验证列出的调用或鉴权，不证明 QQ WebSocket
+                      连接和消息收发正常。
+                    </p>
                   </div>
                 </div>
                 <div

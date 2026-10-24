@@ -310,6 +310,8 @@ trait AgentBackend: Send + Sync {
 
 事件统一映射为 `TextDelta`、`ToolStarted`、`ToolFinished`、`ApprovalRequested`、`Usage`、`Completed`、`Failed`；能力缺失时返回明确的 unsupported。`TextDelta` 表示可见文本增量，ACP 的语义更新不承诺等于底层模型 token 流。只转发面向用户的结果和允许展示的工具摘要，不把模型内部推理或敏感工具结果直接发送到群聊。
 
+ACP 的观测阶段应区分 `提交 / 排队 → 上游 HTTP 在途 → 语义输出提交 → prompt 结算`，这些是验收观测层次，不替换产品 Run 状态枚举。收到语义 chunk 不能证明生成仍在进行；M0 的真实取消实验用仅回环的临时模型代理与私有 IPC 见证尚未完成的上游 HTTP 请求，再发送 ACP cancel 并核对最终 cancelled。只返回入队或在完成之后取消，都不能记为在途取消通过。
+
 NativeBackend 的循环为：`组装上下文 → 模型推理 → 校验 tool call → 授权执行 → 追加结果 → 继续 / 完成`。默认限制工具轮数、输出 token、墙钟时间、重复调用次数和每用户预算；这些为可配置上限。
 
 HarnessBackend 中，该循环由 Harness 执行。Rust 不再在它外面包一个重复的工具推理循环；Rust 只管理任务、执行策略、外部上下文和渠道投递。

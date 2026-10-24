@@ -102,7 +102,7 @@ function credentials(dataDir) {
 async function fetchJson(url, init, emit, stage) {
   let response;
   try {
-    response = await fetch(url, { ...init, redirect: 'error', signal: AbortSignal.timeout(12000) });
+    response = await fetch(url, { ...init, redirect: 'manual', signal: AbortSignal.timeout(12000) });
   } catch (error) {
     emit({ stage, result: 'network_failed', kind: ['TimeoutError', 'AbortError'].includes(error?.name) ? 'timeout' : 'connection_or_tls' });
     throw new ProbeError(`${stage}_network_failed`);
