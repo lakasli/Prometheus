@@ -6,6 +6,8 @@ pub mod character_import;
 pub mod config;
 pub mod conversation_summary;
 pub mod error;
+pub mod image_analysis;
+pub mod image_analysis_api;
 pub mod memory;
 pub mod memory_api;
 pub mod memory_candidate_api;

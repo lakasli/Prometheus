@@ -126,6 +126,8 @@ impl AppState {
         crate::weixin_store::initialize(&db)?;
         crate::weixin_login::initialize(&db)?;
         crate::memory_candidates::initialize(&db)?;
+        crate::image_analysis::initialize(&db)?;
+        crate::worker::initialize(&db)?;
         // Queued items survive restart. An interrupted external request is not blindly replayed.
         db.execute("UPDATE runs SET status='interrupted',error='服务重启时任务仍在执行；结果未确认，请人工重试',updated_at=?1 WHERE status='running'",[now()])?;
         db.execute("UPDATE outbox SET status='unknown',error='服务重启时发送结果未知' WHERE status='sending'",[])?;

@@ -72,6 +72,8 @@ M2显式助手记忆切片已按稳定assistant identity实现并部署，覆盖
 
 显式来源的模型记忆候选审核已实现，发布状态见 [候选记录](docs/memory-candidate-validation.md)；只在明确选择来源后生成、审核后private入库，不等于后台自动事实采集。M3实机隔离限制见 [实测记录](docs/harness-isolation-validation.md)，不可将用户级systemd属性或cgroup限制当成完整沙箱而启用工具。
 
+独立PNG分析的发布范围见 [图片记录](docs/image-analysis-validation.md)：显式上传、现有DeepSeek-flash、去元数据、私有结果 / 24h保留，不能冒称普通聊天附件、渠道媒体、ASR或TTS已完成。普通Run、候选与图片统一按实际持有的请求lease核算并发，取消逻辑状态不提前释放网络占用；纯调度租约重启清理，不将它当用户历史删除。
+
 ## 8. 角色卡与参考源码
 
 - 角色卡遵循 [独立设计](docs/character-cards.md)：借鉴AIRI的CCv3角色内容及模块偏好方案，在Rust/Cordis与SQLite中重新实现，不直接复制、引用或依赖AIRI项目、默认人格与资源。

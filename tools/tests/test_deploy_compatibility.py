@@ -122,6 +122,21 @@ class CompatibilityTests(unittest.TestCase):
         manifest.write_text(json.dumps({"schema_reader": 5, "memory_candidates": 1}))
         compatibility.check(self.data, self.release)
 
+    def test_empty_image_analysis_table_allows_unused_upgrade_rollback(self):
+        with connect(self.data / "dsh.db") as db:
+            db.execute("CREATE TABLE image_analysis_jobs(id TEXT)")
+        compatibility.check(self.data, self.release)
+
+    def test_image_analysis_tombstone_requires_ownership_and_erasure_reader(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE image_analysis_jobs(id TEXT,status TEXT); INSERT INTO image_analysis_jobs VALUES('synthetic','deleted');")
+        manifest = self.release / "deploy/release-capabilities.json"
+        manifest.write_text(json.dumps({"schema_reader": 6}))
+        with self.assertRaisesRegex(RuntimeError, "image analysis ownership"):
+            compatibility.check(self.data, self.release)
+        manifest.write_text(json.dumps({"schema_reader": 6, "standalone_image_analysis": 1}))
+        compatibility.check(self.data, self.release)
+
 
 if __name__ == "__main__":
     unittest.main()

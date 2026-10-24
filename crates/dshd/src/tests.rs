@@ -136,6 +136,83 @@ async fn credential_deletion_preserves_frozen_channel_replies_and_disabled_weixi
         .exists());
 }
 
+#[tokio::test]
+async fn cancelled_native_request_retains_its_credential_and_slot_until_lease_release() {
+    let temporary = TempDir::new().unwrap();
+    let state = open(temporary.path());
+    let (cookie, csrf) = bootstrap(&state).await;
+    let key = uuid::Uuid::new_v4().to_string();
+    private_write(
+        &state.0.options.data_dir.join("secrets").join(&key),
+        b"synthetic-cancelled-model-key",
+    )
+    .unwrap();
+    state.db(|db| {
+        let owner:String=db.query_row("SELECT id FROM admins LIMIT 1",[],|row|row.get(0))?;
+        let mut config=RuntimeConfig::default();
+        config.model.credential_ref=Some(key.clone());
+        db.execute("INSERT INTO secrets(id,kind,created_at) VALUES(?1,'model_api_key',?2)",params![key,now()])?;
+        db.execute("INSERT INTO conversations(id,owner_id,title,created_at) VALUES('leased-secret',?1,'synthetic lease',?2)",params![owner,now()])?;
+        db.execute("INSERT INTO runs(id,conversation_id,owner_id,client_message_id,input,config_json,status,created_at,updated_at) VALUES('leased-secret-run','leased-secret',?1,'one','synthetic',?2,'cancelled',?3,?3)",params![owner,serde_json::to_string(&config)?,now()])?;
+        db.execute("INSERT INTO native_worker_leases(run_id,claimed_at) VALUES('leased-secret-run',?1)",[now()])?;
+        Ok(())
+    }).unwrap();
+    let status = request(
+        &state,
+        "GET",
+        "/api/admin/v1/status",
+        Value::Null,
+        Some(&cookie),
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status.1["queue"]["running"], 1);
+    let path = format!("/api/admin/v1/secrets/{key}");
+    let blocked = request(
+        &state,
+        "DELETE",
+        &path,
+        Value::Null,
+        Some(&cookie),
+        Some(&csrf),
+        Some(ORIGIN),
+    )
+    .await;
+    assert_eq!(blocked.0, StatusCode::CONFLICT);
+    assert_eq!(blocked.1["error"]["code"], "credential_in_use");
+    assert!(state
+        .0
+        .options
+        .data_dir
+        .join("secrets")
+        .join(&key)
+        .is_file());
+    state
+        .db(|db| {
+            db.execute(
+                "DELETE FROM native_worker_leases WHERE run_id='leased-secret-run'",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(
+        request(
+            &state,
+            "DELETE",
+            &path,
+            Value::Null,
+            Some(&cookie),
+            Some(&csrf),
+            Some(ORIGIN)
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+}
+
 fn open(path: &Path) -> AppState {
     AppState::open(Options {
         data_dir: path.to_owned(),

@@ -673,9 +673,10 @@ pub fn claim_next(state: &AppState) -> ApiResult<Option<ClaimedJob>> {
     state.db(|db|Ok(transaction(db,|tx| {
         let (_,config)=crate::character::current_config_in(tx).map_err(internal)?;
         let busy_chat:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM runs q WHERE q.status='queued' AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.conversation_id=q.conversation_id AND r.status='running'))",[],|r|r.get(0)).api()?;
-        let running:i64=tx.query_row("SELECT count(*) FROM runs WHERE status='running'",[],|r|r.get(0)).api()?;
+        let running=crate::worker::running_count(tx).map_err(internal)?;
         let candidates=running_count(tx).map_err(internal)?;
-        if busy_chat || candidates!=0 || running+candidates>=config.assistant.max_concurrent_runs.min(2) as i64 { return Ok(None); }
+        let images=crate::image_analysis::running_count(tx).map_err(internal)?;
+        if busy_chat || candidates!=0 || running+candidates+images>=config.assistant.max_concurrent_runs.min(2) as i64 { return Ok(None); }
         // A bounded queue allows checking all stale entries without an unbounded loop.
         let mut statement=tx.prepare("SELECT id FROM memory_candidate_jobs j WHERE status='queued' AND expires_at>?1 AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.conversation_id=j.conversation_id AND r.status='running') ORDER BY rowid LIMIT 20").api()?;
         let ids=statement.query_map([now()],|r|r.get::<_,String>(0)).api()?.collect::<rusqlite::Result<Vec<_>>>().api()?;

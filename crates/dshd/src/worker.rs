@@ -5,10 +5,16 @@ use crate::{
     memory, memory_context,
     state::{now, AppState},
 };
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{net::SocketAddr, time::Duration};
+use std::{
+    future::Future,
+    net::SocketAddr,
+    pin::Pin,
+    task::{Context, Poll},
+    time::Duration,
+};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -125,24 +131,93 @@ pub(crate) fn enqueue_in(
     Ok(Some(id))
 }
 
-struct Claimed {
+struct RunInput {
     id: String,
     conversation: String,
     config: RuntimeConfig,
     reply: Option<ReplyTarget>,
     character: Option<StaticSnapshot>,
 }
+struct Claimed {
+    input: RunInput,
+    lease: NativeLease,
+}
+
+/// Runtime scheduling state, not a data feature or a reason to raise a reader.
+/// A new daemon cannot inherit live transport futures from its predecessor.
+pub fn initialize(db: &Connection) -> anyhow::Result<()> {
+    db.execute_batch("CREATE TABLE IF NOT EXISTS native_worker_leases(run_id TEXT PRIMARY KEY REFERENCES runs(id),claimed_at INTEGER NOT NULL);DELETE FROM native_worker_leases;")?;
+    Ok(())
+}
+pub fn running_count(db: &Connection) -> anyhow::Result<i64> {
+    let leases:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='native_worker_leases')",[],|r|r.get(0))?;
+    let sql = if leases {
+        "SELECT count(*) FROM runs r WHERE r.status='running' OR EXISTS(SELECT 1 FROM native_worker_leases l WHERE l.run_id=r.id)"
+    } else {
+        "SELECT count(*) FROM runs WHERE status='running'"
+    };
+    Ok(db.query_row(sql, [], |r| r.get(0))?)
+}
+struct NativeLease {
+    state: AppState,
+    run: String,
+}
+impl Drop for NativeLease {
+    fn drop(&mut self) {
+        if self
+            .state
+            .db(|db| {
+                db.execute(
+                    "DELETE FROM native_worker_leases WHERE run_id=?1",
+                    [&self.run],
+                )?;
+                Ok(())
+            })
+            .is_err()
+        {
+            tracing::warn!("native worker lease release unavailable");
+        }
+        self.state.0.notify.notify_waiters();
+    }
+}
+/// Explicit drop order also covers abort/panic: no model or summary future can
+/// still own an HTTP transport when its scheduling lease becomes available.
+struct LeasedProcess<F> {
+    future: Option<Pin<Box<F>>>,
+    lease: Option<NativeLease>,
+}
+impl<F: Future> Future for LeasedProcess<F> {
+    type Output = F::Output;
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.get_mut()
+            .future
+            .as_mut()
+            .expect("active native process")
+            .as_mut()
+            .poll(cx)
+    }
+}
+impl<F> Drop for LeasedProcess<F> {
+    fn drop(&mut self) {
+        drop(self.future.take());
+        drop(self.lease.take());
+    }
+}
 fn claim(state: &AppState) -> ApiResult<Option<Claimed>> {
-    let (_, config) = state.current_config()?;
     state.db(|db| {
         let tx=db.transaction()?;
-        let running:i64=tx.query_row("SELECT count(*) FROM runs WHERE status='running'",[],|r|r.get::<_,i64>(0))? + crate::memory_candidates::running_count(&tx)?;
+        let (_,config)=character::current_config_in(&tx)?;
+        let running=running_count(&tx)? + crate::memory_candidates::running_count(&tx)? + crate::image_analysis::running_count(&tx)?;
         if running>=config.assistant.max_concurrent_runs.min(2) as i64{return Ok(None);}
-        let item=tx.query_row("SELECT r.id,r.conversation_id,r.config_json,r.reply_json,r.character_snapshot_json FROM runs r WHERE r.status='queued' AND NOT EXISTS(SELECT 1 FROM runs other WHERE other.conversation_id=r.conversation_id AND other.status='running') ORDER BY r.created_at,r.rowid LIMIT 1",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Option<String>>(3)?,r.get::<_,Option<String>>(4)?))).optional()?;
+        let item=tx.query_row("SELECT r.id,r.conversation_id,r.config_json,r.reply_json,r.character_snapshot_json FROM runs r WHERE r.status='queued' AND NOT EXISTS(SELECT 1 FROM runs other WHERE other.conversation_id=r.conversation_id AND (other.status='running' OR EXISTS(SELECT 1 FROM native_worker_leases l WHERE l.run_id=other.id))) ORDER BY r.created_at,r.rowid LIMIT 1",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Option<String>>(3)?,r.get::<_,Option<String>>(4)?))).optional()?;
         let Some((id,conversation,config,reply,character))=item else{return Ok(None)};
+        let config=serde_json::from_str(&config)?;
+        let reply=reply.map(|s|serde_json::from_str(&s)).transpose()?;
+        let character=character.map(|s|serde_json::from_str(&s)).transpose()?;
         tx.execute("UPDATE runs SET status='running',updated_at=?1 WHERE id=?2 AND status='queued'",params![now(),id])?;
+        tx.execute("INSERT INTO native_worker_leases(run_id,claimed_at) VALUES(?1,?2)",params![id,now()])?;
         tx.commit()?;
-        Ok(Some(Claimed{id,conversation,config:serde_json::from_str(&config)?,reply:reply.map(|s|serde_json::from_str(&s)).transpose()?,character:character.map(|s|serde_json::from_str(&s)).transpose()?}))
+        Ok(Some(Claimed{lease:NativeLease{state:state.clone(),run:id.clone()},input:RunInput{id,conversation,config,reply,character}}))
     })
 }
 
@@ -158,6 +233,10 @@ pub async fn run_worker(state: AppState, cancellation: CancellationToken) {
                     crate::memory_candidates::run_claimed(&state, job, &cancellation).await;
                     continue;
                 }
+                if let Ok(Some(job)) = crate::image_analysis::claim_next(&state) {
+                    crate::image_analysis::run_claimed(&state, job, &cancellation).await;
+                    continue;
+                }
                 tokio::select! {_=cancellation.cancelled()=>break,_=state.0.notify.notified()=>{},_=tokio::time::sleep(Duration::from_millis(500))=>{}}
             }
             Err(_) => {
@@ -169,6 +248,14 @@ pub async fn run_worker(state: AppState, cancellation: CancellationToken) {
 }
 
 async fn process(state: &AppState, item: Claimed, cancel: &CancellationToken) {
+    let Claimed { input, lease } = item;
+    LeasedProcess {
+        future: Some(Box::pin(process_inner(state, input, cancel))),
+        lease: Some(lease),
+    }
+    .await;
+}
+async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationToken) {
     match crate::memory_commands::execute(state, &item.id) {
         Ok(true) => return,
         Ok(false) => {}
@@ -230,7 +317,7 @@ async fn process(state: &AppState, item: Claimed, cancel: &CancellationToken) {
 
 // Freeze complete history only after the preceding run in this conversation has settled.
 // Static persona/model inputs were already frozen atomically at enqueue time.
-fn prepare_messages(state: &AppState, item: &Claimed) -> ApiResult<Vec<Value>> {
+fn prepare_messages(state: &AppState, item: &RunInput) -> ApiResult<Vec<Value>> {
     state.db(|db| {
         let tx = db.transaction()?;
         let status:String=tx.query_row("SELECT status FROM runs WHERE id=?1",[&item.id],|r|r.get(0))?;
@@ -386,4 +473,330 @@ pub(crate) async fn model_request(
         return Err("模型文字为空或超过64KiB限制".into());
     }
     Ok(content.to_string())
+}
+
+#[cfg(test)]
+mod lease_tests {
+    use super::*;
+    use axum::{
+        body::Body,
+        extract::State,
+        http::{Request, StatusCode},
+        routing::post,
+        Json, Router,
+    };
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+    use tempfile::TempDir;
+    use tokio::{net::TcpListener, sync::Notify, task::JoinHandle};
+    use tower::ServiceExt;
+
+    struct Model {
+        received: AtomicBool,
+        release: Notify,
+    }
+    async fn model(State(model): State<Arc<Model>>, _body: Json<Value>) -> Json<Value> {
+        model.received.store(true, Ordering::SeqCst);
+        model.release.notified().await;
+        Json(json!({"choices":[{"message":{"content":"synthetic"}}]}))
+    }
+    async fn fixture() -> (TempDir, AppState, Arc<Model>, JoinHandle<()>, String) {
+        let directory = TempDir::new().unwrap();
+        let state = AppState::open(crate::state::Options {
+            data_dir: directory.path().into(),
+            origin: "http://127.0.0.1:18432".into(),
+            allow_private_model: true,
+            cookie_secure: false,
+            web_dir: directory.path().join("web"),
+        })
+        .unwrap();
+        let model = Arc::new(Model {
+            received: AtomicBool::new(false),
+            release: Notify::new(),
+        });
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = Router::new()
+            .route("/chat/completions", post(self::model))
+            .with_state(model.clone());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let key = uuid::Uuid::new_v4().to_string();
+        crate::state::private_write(
+            &directory.path().join("secrets").join(&key),
+            b"fixture-native-key",
+        )
+        .unwrap();
+        let token = crate::state::random_token();
+        state.db(|db|{
+            let (_,mut config)=character::current_config_in(db)?;config.model.base_url=format!("http://{address}");config.model.credential_ref=Some(key.clone());config.assistant.max_concurrent_runs=1;
+            db.execute("UPDATE config_revisions SET config_json=?1 WHERE revision=1",[serde_json::to_string(&config)?])?;
+            db.execute("INSERT INTO secrets(id,kind,created_at) VALUES(?1,'model_api_key',0)",[key])?;
+            db.execute("INSERT INTO admins(id,username,password_hash,created_at) VALUES('owner','native-lease-owner','unused',0)",[])?;
+            db.execute("INSERT INTO sessions(token_hash,user_id,csrf,expires_at) VALUES(?1,'owner','native-csrf',?2)",params![crate::state::token_hash(&token),now()+3600])?;
+            for id in ["native-one","native-two","candidate-source"]{db.execute("INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?1,'owner','lease test',0)",[id])?;}
+            let config=serde_json::to_string(&config)?;
+            db.execute("INSERT INTO runs(id,conversation_id,owner_id,client_message_id,input,config_json,status,response,created_at,updated_at,run_kind) VALUES('source-run','candidate-source','owner','source-run','用户偏好蓝色',?1,'completed','source reply',0,0,'model')",[config])?;
+            db.execute("INSERT INTO messages(id,conversation_id,run_id,role,content,created_at) VALUES('source-user','candidate-source','source-run','user','用户偏好蓝色',0)",[])?;Ok(())
+        }).unwrap();
+        (
+            directory,
+            state,
+            model,
+            server,
+            format!("dsh_session={token}"),
+        )
+    }
+    fn image() -> crate::image_analysis::CanonicalImage {
+        let mut bytes = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut bytes, 1, 1);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().unwrap();
+            writer.write_image_data(&[1, 2, 3, 255]).unwrap();
+            writer.finish().unwrap();
+        }
+        crate::image_analysis::canonicalize(&STANDARD.encode(bytes)).unwrap()
+    }
+    fn candidate(state: &AppState) -> crate::memory_candidates::JobView {
+        state
+            .db(|db| {
+                let page = crate::memory_candidates::page(db, "candidate-source", "owner").unwrap();
+                Ok(crate::memory_candidates::extract(
+                    db,
+                    "candidate-source",
+                    "owner",
+                    &page.source_revision,
+                    &crate::memory_candidates::ExtractBody {
+                        source_message_ids: vec!["source-user".into()],
+                    },
+                ))
+            })
+            .unwrap()
+            .unwrap()
+    }
+    async fn wait_model(model: &Model) {
+        for _ in 0..100 {
+            if model.received.load(Ordering::SeqCst) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("native HTTP was not dispatched");
+    }
+    async fn cancel(state: &AppState, cookie: &str, id: &str) {
+        let request = Request::builder()
+            .method("DELETE")
+            .uri(format!("/api/admin/v1/runs/{id}"))
+            .header("Host", "127.0.0.1:18432")
+            .header("Origin", "http://127.0.0.1:18432")
+            .header("Cookie", cookie)
+            .header("X-CSRF-Token", "native-csrf")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(
+            crate::api::router(state.clone())
+                .oneshot(request)
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+    }
+    #[tokio::test]
+    async fn cancelled_real_native_http_holds_max_one_against_candidate_image_and_next_native() {
+        let (_directory, state, model, server, cookie) = fixture().await;
+        let run = enqueue(
+            &state,
+            "native-one",
+            "owner",
+            "first",
+            "synthetic native request",
+            None,
+        )
+        .unwrap();
+        let claimed = claim(&state).unwrap().unwrap();
+        let task_state = state.clone();
+        let task = tokio::spawn(async move {
+            process(&task_state, claimed, &CancellationToken::new()).await;
+        });
+        wait_model(&model).await;
+        let first_candidate = candidate(&state);
+        state
+            .db(|db| {
+                Ok(crate::image_analysis::create(
+                    db,
+                    "owner",
+                    &uuid::Uuid::new_v4().to_string(),
+                    "synthetic image",
+                    image(),
+                    true,
+                ))
+            })
+            .unwrap()
+            .unwrap();
+        cancel(&state, &cookie, &run).await;
+        // No await between cancellation and claims: the first transport is
+        // demonstrably still owned by its process until the next 200ms poll.
+        assert_eq!(state.db(|db| running_count(db)).unwrap(), 1);
+        assert!(crate::memory_candidates::claim_next(&state)
+            .unwrap()
+            .is_none());
+        state
+            .db(|db| {
+                Ok(crate::memory_candidates::cancel(
+                    db,
+                    &first_candidate.id,
+                    "owner",
+                    1,
+                ))
+            })
+            .unwrap()
+            .unwrap();
+        assert!(crate::image_analysis::claim_next(&state).unwrap().is_none());
+        let second = enqueue(
+            &state,
+            "native-two",
+            "owner",
+            "second",
+            "second native request",
+            None,
+        )
+        .unwrap();
+        assert!(claim(&state).unwrap().is_none());
+        tokio::time::timeout(Duration::from_secs(2), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(state.db(|db| running_count(db)).unwrap(), 0);
+        let next = claim(&state).unwrap().unwrap();
+        assert_eq!(next.input.id, second);
+        state
+            .db(|db| {
+                db.execute("UPDATE runs SET status='cancelled' WHERE id=?1", [&second])?;
+                Ok(())
+            })
+            .unwrap();
+        drop(next);
+        candidate(&state);
+        let next = crate::memory_candidates::claim_next(&state)
+            .unwrap()
+            .unwrap();
+        state
+            .db(|db| Ok(crate::memory_candidates::cancel(db, &next.id, "owner", 2)))
+            .unwrap()
+            .unwrap();
+        assert!(crate::image_analysis::claim_next(&state).unwrap().is_some());
+        model.release.notify_waiters();
+        server.abort();
+    }
+    #[tokio::test]
+    async fn abort_drops_process_before_lease_and_restart_clears_stale_leases() {
+        let (_directory, state, model, server, cookie) = fixture().await;
+        let run = enqueue(
+            &state,
+            "native-one",
+            "owner",
+            "abort",
+            "native abort fixture",
+            None,
+        )
+        .unwrap();
+        let claimed = claim(&state).unwrap().unwrap();
+        let task_state = state.clone();
+        let task = tokio::spawn(async move {
+            process(&task_state, claimed, &CancellationToken::new()).await;
+        });
+        wait_model(&model).await;
+        cancel(&state, &cookie, &run).await;
+        task.abort();
+        let _ = task.await;
+        assert_eq!(state.db(|db| running_count(db)).unwrap(), 0);
+        assert_eq!(
+            state
+                .db(|db| Ok(db.query_row(
+                    "SELECT count(*) FROM native_worker_leases",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )?))
+                .unwrap(),
+            0
+        );
+        state
+            .db(|db| {
+                db.execute("UPDATE runs SET status='running' WHERE id=?1", [&run])?;
+                db.execute(
+                    "INSERT INTO native_worker_leases(run_id,claimed_at) VALUES(?1,0)",
+                    [run],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        let options = state.0.options.clone();
+        drop(state);
+        let reopened = AppState::open(options).unwrap();
+        assert_eq!(reopened.db(|db| running_count(db)).unwrap(), 0);
+        assert_eq!(
+            reopened
+                .db(|db| Ok(db.query_row(
+                    "SELECT max(version) FROM dsh_schema_migrations",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )?))
+                .unwrap(),
+            1
+        );
+        model.release.notify_waiters();
+        server.abort();
+    }
+    #[tokio::test]
+    async fn malformed_frozen_run_is_not_claimed_or_leased_before_validation() {
+        let (_directory, state, _model, server, _cookie) = fixture().await;
+        let run = enqueue(
+            &state,
+            "native-one",
+            "owner",
+            "malformed",
+            "native malformed fixture",
+            None,
+        )
+        .unwrap();
+        state
+            .db(|db| {
+                db.execute("UPDATE runs SET config_json='not-json' WHERE id=?1", [&run])?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(claim(&state).is_err());
+        assert_eq!(state.db(|db| running_count(db)).unwrap(), 0);
+        assert_eq!(
+            state
+                .db(|db| Ok(db
+                    .query_row("SELECT status FROM runs WHERE id=?1", [run], |r| r
+                        .get::<_, String>(0))?))
+                .unwrap(),
+            "queued"
+        );
+        server.abort();
+    }
+    #[test]
+    fn synthetic_running_fallback_and_lease_union_are_not_double_counted() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE runs(id TEXT PRIMARY KEY,status TEXT);INSERT INTO runs VALUES('synthetic','running');").unwrap();
+        assert_eq!(running_count(&db).unwrap(), 1);
+        initialize(&db).unwrap();
+        db.execute("INSERT INTO native_worker_leases VALUES('synthetic',0)", [])
+            .unwrap();
+        assert_eq!(running_count(&db).unwrap(), 1);
+        db.execute("UPDATE runs SET status='cancelled'", [])
+            .unwrap();
+        assert_eq!(running_count(&db).unwrap(), 1);
+        db.execute("DELETE FROM native_worker_leases", []).unwrap();
+        assert_eq!(running_count(&db).unwrap(), 0);
+    }
 }

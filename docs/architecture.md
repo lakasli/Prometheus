@@ -1,6 +1,6 @@
 # DSH 项目架构设计
 
-> 设计版本：0.9；资料核实日期：2026-10-24；状态：完整目标架构，M0/M1、M1.1文本角色卡、M2助手记忆 / 长会话摘要、显式来源候选审核与受限微信文字适配已实现。本文仍包含后续阶段目标；实测范围以 [M0/M1记录](m0-m1-validation.md)、[角色卡记录](character-card-validation.md)、[记忆记录](memory-validation.md)、[摘要记录](summary-validation.md)、[候选记录](memory-candidate-validation.md) 和 [微信记录](weixin-validation.md) 为准；真实微信扫码与收发尚未验收。
+> 设计版本：0.10；资料核实日期：2026-10-24；状态：完整目标架构，M0/M1、M1.1文本角色卡、M2助手记忆 / 长会话摘要、显式来源候选审核、受限微信文字适配及独立PNG分析已实现。本文仍包含后续阶段目标；实测范围以 [M0/M1记录](m0-m1-validation.md)、[角色卡记录](character-card-validation.md)、[记忆记录](memory-validation.md)、[摘要记录](summary-validation.md)、[候选记录](memory-candidate-validation.md)、[微信记录](weixin-validation.md) 和 [图片记录](image-analysis-validation.md) 为准；真实微信扫码与收发尚未验收。
 
 ## 1. 项目目标与范围
 
@@ -449,6 +449,8 @@ tool call
 不能因 API 兼容某种格式就认定支持图像或音频。DeepSeek 已有视觉文档，模型能力随版本变化；按具体模型与 endpoint 验证，避免笼统声称整个 DeepSeek 系列都支持或都不支持视觉。[DeepSeek Vision][S19]
 
 同一任务不把附件发给多个云 provider 竞速，除非用户策略明确允许。对私密附件可限定本地模型；provider 切换不能静默改变数据出域策略。
+
+当前独立图片分析仅接受显式上传的单张受限PNG，经Rust校验 / 解码 / 去元数据后发给现有DeepSeek账号的固定Flash模型；任务 / 结果按owner私有，复用原生运行槽并支持取消、幂等和逻辑清除。它不自动成为普通对话附件、记忆或角色视觉模块，完整附件和音频路由仍属后续目标，见 [当前实施](image-analysis.md)。
 
 ### 10.2 附件服务
 

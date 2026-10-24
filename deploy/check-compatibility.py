@@ -60,6 +60,9 @@ def check(data_dir, release_source):
         )
         if uses_candidates and int(capabilities.get("memory_candidates", 0)) < 1:
             raise RuntimeError("Target release lacks memory candidate review and invalidation support")
+        uses_images = "image_analysis_jobs" in tables and db.execute("SELECT EXISTS(SELECT 1 FROM image_analysis_jobs)").fetchone()[0]
+        if uses_images and int(capabilities.get("standalone_image_analysis", 0)) < 1:
+            raise RuntimeError("Target release lacks standalone image analysis ownership and erasure support")
 
 
 if __name__ == "__main__":

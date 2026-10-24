@@ -19,10 +19,11 @@ M0/M1原始部署与真实Harness / QQ联调已通过，历史证据见 [M0/M1�
 - 同来源长会话增量摘要：复用现有任务槽、来源与覆盖水位、敏感资料省略、超长轮次明确摘录、取消恢复和遗忘联动；管理页可查看并重建派生摘要。独立验收见 [摘要记录](docs/summary-validation.md)。
 - 会话记忆候选：明确勾选来源消息、模型提取、审核后私有入库，拒绝 / 到期 / 遗忘清除候选正文，不自动共享或覆盖事实。当前发布与验证状态见 [候选记录](docs/memory-candidate-validation.md)。
 - 微信 iLink 单账号文字私聊适配：管理页扫码、本人来源限制、原子游标 / 入站去重、冻结回复上下文、凭据失效与不确定发送处理。实现与模拟验证见 [微信说明](docs/weixin.md) 和 [验收边界](docs/weixin-validation.md)；真实手机扫码与收发仍待验收。
+- 独立PNG图片分析：本地预览、实际解码与元数据剥离、现有DeepSeek-flash、私有有界任务、取消及24小时结果保留；不自动写入普通聊天或记忆。部署与真实模型范围见 [图片记录](docs/image-analysis-validation.md)。
 
 ACP 通知属于已提交的语义输出，不承诺模型 token 流。M0 在途取消由临时回环 HTTP 代理确认真实上游请求仍未完成，再经私有 IPC 触发 ACP cancel；不以排队成功或已经结束的文本输出作为取消证据。代理不记录凭证、请求或回复正文。
 
-自动事实抽取、微信真实平台收发验收、图像 / ASR / TTS、生成插件和完整 Harness 工具桥属于后续阶段。当前切片不代表M2全部完成。完整设计见 [架构文档](docs/architecture.md)。
+自动事实抽取、微信真实平台收发验收、普通对话图像附件 / ASR / TTS、生成插件和完整 Harness 工具桥属于后续阶段。当前切片不代表M2全部完成。完整设计见 [架构文档](docs/architecture.md)。
 
 角色卡根据AIRI源码研究独立实现，采用CCv3文本内容与DSH模块偏好扩展；服务端版本、会话绑定和入队快照按本项目设计。见 [角色卡契约](docs/character-cards.md)、[Schema](docs/schemas/dsh-character-card-v1.schema.json) 与 [原创示例](docs/examples/campanus.character-card.json)。未引入AIRI依赖。临时源码尚在忽略目录中，删除操作被工具策略拒绝；实际状态见 [研究记录](docs/research/airi-character-card-review.md)。
 

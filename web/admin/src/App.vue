@@ -14,6 +14,7 @@ import MemoryPanel from "./components/MemoryPanel.vue";
 import ConversationSummary from "./components/ConversationSummary.vue";
 import MemoryCandidates from "./components/MemoryCandidates.vue";
 import WeixinChannel from "./components/WeixinChannel.vue";
+import ImageAnalysis from "./components/ImageAnalysis.vue";
 import {
   api,
   ApiError,
@@ -48,6 +49,7 @@ type Page =
   | "characters"
   | "qq"
   | "weixin"
+  | "images"
   | "chat"
   | "history"
   | "memory";
@@ -99,6 +101,13 @@ const navigation: {
     title: "对话工作台",
     eyebrow: "CONVERSATIONS",
     description: "直接与助手对话，验证模型配置。",
+  },
+  {
+    id: "images",
+    icon: "picture",
+    title: "图片分析",
+    eyebrow: "IMAGE ANALYSIS",
+    description: "发送一张PNG，获得独立的图片分析。",
   },
   {
     id: "memory",
@@ -935,7 +944,7 @@ onUnmounted(() => {
         <strong>DSH<span>助手控制台</span></strong></a
       >
       <div class="workspace-label">
-        个人工作空间 <span class="tiny-badge">M1</span>
+        个人工作空间 <span class="tiny-badge">自托管</span>
       </div>
       <nav aria-label="主导航">
         <button
@@ -954,7 +963,7 @@ onUnmounted(() => {
       </nav>
       <div class="sidebar-future">
         <span class="eyebrow">COMING NEXT</span>
-        <p>多模态 · 插件工厂</p>
+        <p>语音 · 插件工厂</p>
         <span>后续阶段逐步开放</span>
       </div>
       <div class="companion-note">
@@ -1248,7 +1257,7 @@ onUnmounted(() => {
                 </div>
               </dl>
               <p class="runtime-note">
-                当前为 M1 基础版。记忆、多模态与插件工厂将在后续阶段开放。
+                已提供文本对话与长期记忆。图片分析单独使用，语音与插件工厂将在后续阶段开放。
               </p>
             </section>
           </div>
@@ -1828,6 +1837,7 @@ onUnmounted(() => {
           <ConversationSummary />
         </div>
         <WeixinChannel v-if="page === 'weixin'" />
+        <ImageAnalysis v-if="page === 'images'" />
         <footer class="page-footer">
           <span>DSH · 你的助手，你来掌控</span
           ><span title="前端构建提交"
