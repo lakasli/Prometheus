@@ -82,6 +82,16 @@ class CompatibilityTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "assistant memory"):
             compatibility.check(self.data, self.release)
 
+    def test_used_summary_metadata_requires_summary_reader_even_after_clear(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE conversation_summary_versions(revision INTEGER); INSERT INTO conversation_summary_versions VALUES(1);")
+        manifest = self.release / "deploy/release-capabilities.json"
+        manifest.write_text(json.dumps({"schema_reader": 3}))
+        with self.assertRaisesRegex(RuntimeError, "conversation summary"):
+            compatibility.check(self.data, self.release)
+        manifest.write_text(json.dumps({"schema_reader": 3, "conversation_summary": 1}))
+        compatibility.check(self.data, self.release)
+
 
 if __name__ == "__main__":
     unittest.main()

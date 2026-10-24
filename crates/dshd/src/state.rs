@@ -33,6 +33,7 @@ pub struct Inner {
     pub qq_connection: Mutex<String>,
     pub qq_last_error: Mutex<Option<String>>,
     pub checks: tokio::sync::Semaphore,
+    pub summary_slots: tokio::sync::Semaphore,
 }
 
 pub fn now() -> i64 {
@@ -120,6 +121,7 @@ impl AppState {
         }
         crate::character::migrate(&mut db)?;
         crate::memory::initialize(&mut db)?;
+        crate::conversation_summary::initialize(&db)?;
         // Queued items survive restart. An interrupted external request is not blindly replayed.
         db.execute("UPDATE runs SET status='interrupted',error='服务重启时任务仍在执行；结果未确认，请人工重试',updated_at=?1 WHERE status='running'",[now()])?;
         db.execute("UPDATE outbox SET status='unknown',error='服务重启时发送结果未知' WHERE status='sending'",[])?;
@@ -134,6 +136,7 @@ impl AppState {
             qq_connection: Mutex::new("disabled".into()),
             qq_last_error: Mutex::new(None),
             checks: tokio::sync::Semaphore::new(2),
+            summary_slots: tokio::sync::Semaphore::new(1),
         })))
     }
 

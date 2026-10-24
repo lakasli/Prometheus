@@ -48,6 +48,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/admin/v1/runs/{id}",get(run).delete(cancel_run))
         .route("/api/admin/v1/runs",get(runs))
         .merge(crate::memory_api::router())
+        .merge(crate::summary_api::router())
         .route("/webhooks/qq",post(crate::qq::webhook))
         .route("/",get(||async{axum::response::Redirect::temporary("/admin/")}))
         .route("/admin",get(||async{axum::response::Redirect::permanent("/admin/")}))
@@ -116,7 +117,7 @@ fn memory() -> (Option<u64>, Option<u64>) {
 }
 async fn capabilities(_admin: Admin) -> Json<Value> {
     Json(
-        json!({"api_version":"v1","milestone":"M2-memory","backends":["native"],"channels":["web","cli","qq-c2c","qq-group","qq-channel"],"text":true,"character_cards":true,"character_card_profile":1,"qq_persona_switch":"private_only","memory":true,"assistant_memory":{"identity":"stable-instance","visibility":["shared","private"],"explicit_commands":true,"full_text_search":true,"automatic_extraction":false,"summaries":false,"source_tracing":true,"context_invalidation":true},"harness_runtime":false,"vision":false,"asr":false,"tts":false,"generated_plugins":false,"runtime_limits":{"max_concurrent_runs":2},"configuration":{"hot_reload":true,"restart_required_fields":[]}}),
+        json!({"api_version":"v1","milestone":"M2-memory","backends":["native"],"channels":["web","cli","qq-c2c","qq-group","qq-channel"],"text":true,"character_cards":true,"character_card_profile":1,"qq_persona_switch":"private_only","memory":true,"assistant_memory":{"identity":"stable-instance","visibility":["shared","private"],"explicit_commands":true,"full_text_search":true,"automatic_extraction":false,"summaries":true,"summary_policy":{"keep_recent_turns":4,"max_batch_turns":8,"timeout_seconds":20,"max_concurrent":1},"source_tracing":true,"context_invalidation":true},"harness_runtime":false,"vision":false,"asr":false,"tts":false,"generated_plugins":false,"runtime_limits":{"max_concurrent_runs":2},"configuration":{"hot_reload":true,"restart_required_fields":[]}}),
     )
 }
 

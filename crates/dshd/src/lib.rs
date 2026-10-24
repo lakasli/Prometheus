@@ -4,6 +4,7 @@ pub mod character;
 pub mod character_api;
 pub mod character_import;
 pub mod config;
+pub mod conversation_summary;
 pub mod error;
 pub mod memory;
 pub mod memory_api;
@@ -11,6 +12,7 @@ pub mod memory_commands;
 pub mod memory_context;
 pub mod qq;
 pub mod state;
+pub mod summary_api;
 pub mod worker;
 
 pub fn build_sha() -> &'static str {

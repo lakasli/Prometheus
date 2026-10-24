@@ -128,6 +128,7 @@ pub fn invalidate(db: &Connection, assistant: &str, memory: &str) -> anyhow::Res
     };
     let timestamp = crate::state::now();
     for conversation in conversations {
+        crate::conversation_summary::invalidate(db, assistant, &conversation)?;
         let through: i64 = db.query_row(
             "SELECT coalesce(max(rowid),0) FROM runs WHERE conversation_id=?1",
             [&conversation],
@@ -150,10 +151,8 @@ pub fn invalidate(db: &Connection, assistant: &str, memory: &str) -> anyhow::Res
             params![INVALIDATED, timestamp, conversation],
         )?;
         db.execute(
-            &format!(
-                "UPDATE outbox SET status='cancelled',error=?1 WHERE status='queued'
-                 AND run_id IN (SELECT id FROM runs WHERE conversation_id=?2 AND rowid<=?3{model_only})"
-            ),
+            "UPDATE outbox SET status='cancelled',error=?1 WHERE status='queued'
+                 AND run_id IN (SELECT id FROM runs WHERE conversation_id=?2 AND rowid<=?3)",
             params![INVALIDATED, conversation, through],
         )?;
         if has_snapshots {
@@ -342,6 +341,13 @@ mod tests {
             )
             .unwrap();
         }
+        run(&db, "old-show", "source", "owner", "completed");
+        db.execute(
+            "UPDATE runs SET run_kind='memory_command' WHERE id='old-show'",
+            [],
+        )
+        .unwrap();
+        db.execute("INSERT INTO outbox(id,run_id,account_id,credential_ref,target_json,content,status,deadline,created_at) VALUES('old-show','old-show','account','credential','{}','previously inspected memory','queued',100,1)",[]).unwrap();
         run(&db, "control", "source", "owner", "running");
         db.execute(
             "UPDATE runs SET run_kind='memory_command' WHERE id='control'",
@@ -366,6 +372,10 @@ mod tests {
         assert_eq!(
             text(&db, "SELECT status FROM runs WHERE id=?1", "control"),
             "running"
+        );
+        assert_eq!(
+            text(&db, "SELECT status FROM outbox WHERE id=?1", "old-show"),
+            "cancelled"
         );
     }
 

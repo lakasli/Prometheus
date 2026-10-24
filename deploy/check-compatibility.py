@@ -40,6 +40,11 @@ def check(data_dir, release_source):
             or int(capabilities.get("memory_context", 0)) < 1
         ):
             raise RuntimeError("Target release lacks assistant memory/context invalidation; memory and forgetting must not be bypassed")
+        uses_summary = False
+        if "conversation_summary_versions" in tables:
+            uses_summary = db.execute("SELECT EXISTS(SELECT 1 FROM conversation_summary_versions)").fetchone()[0]
+        if uses_summary and int(capabilities.get("conversation_summary", 0)) < 1:
+            raise RuntimeError("Target release lacks conversation summary invalidation")
 
 
 if __name__ == "__main__":

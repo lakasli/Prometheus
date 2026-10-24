@@ -82,6 +82,33 @@ function editForm() {
 }
 
 describe("assistant memory management", () => {
+  it("does not offer character draft or test conversations as private memory sources", async () => {
+    setup((path) =>
+      path === "/conversations"
+        ? response({
+            items: [
+              { id: "normal", title: "普通来源", created_at: 1792830000 },
+              { id: "draft-1", title: "测试标记一", test: true },
+              { id: "draft-2", title: "测试标记二", is_test: true },
+              {
+                id: "draft-3",
+                title: "角色草稿测试",
+                character: { is_test: true },
+              },
+            ],
+          })
+        : undefined,
+    );
+    await flushPromises();
+    const sources = wrapper!.findAll('select[aria-label="来源会话"]');
+    expect(sources).toHaveLength(2);
+    for (const source of sources)
+      expect(
+        source.findAll("option").map((option) => option.attributes("value")),
+      ).toEqual(["", "normal"]);
+    expect(wrapper!.text()).not.toContain("角色草稿测试");
+  });
+
   it("keeps the assistant identity visible and applies filters to every page request", async () => {
     const fetch = setup((path, options) => {
       if (path.startsWith("/memory?") && options?.method === "GET")
@@ -108,9 +135,9 @@ describe("assistant memory management", () => {
     expect(
       create.get(`[id="${source.attributes("aria-describedby")}"]`).text(),
     ).toContain("不自动进入其他账号或群聊");
-    expect(create.find('input[aria-label="来源消息 ID（可选）"]').exists()).toBe(
-      true,
-    );
+    expect(
+      create.find('input[aria-label="来源消息 ID（可选）"]').exists(),
+    ).toBe(true);
     await filters.get('input[type="search"]').setValue("关键词 & OR");
     const selects = filters.findAll("select");
     await selects[0]!.setValue("private");
@@ -213,9 +240,9 @@ describe("assistant memory management", () => {
     });
     await flushPromises();
     await button("编辑纠正").trigger("click");
-    expect(editForm().find('textarea[aria-label="纠正后的内容"]').exists()).toBe(
-      true,
-    );
+    expect(
+      editForm().find('textarea[aria-label="纠正后的内容"]').exists(),
+    ).toBe(true);
     expect(
       editForm().find('select[aria-label="纠正后的可见范围"]').exists(),
     ).toBe(true);

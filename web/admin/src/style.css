@@ -2437,3 +2437,8 @@ small {
     padding: 20px 16px;
   }
 }
+.memory-page {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}

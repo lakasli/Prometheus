@@ -11,6 +11,7 @@ import {
 import Icon from "./components/Icon.vue";
 import CharacterCards from "./components/CharacterCards.vue";
 import MemoryPanel from "./components/MemoryPanel.vue";
+import ConversationSummary from "./components/ConversationSummary.vue";
 import {
   api,
   ApiError,
@@ -1810,7 +1811,10 @@ onUnmounted(() => {
             </div>
           </section>
         </template>
-        <MemoryPanel v-if="page === 'memory'" />
+        <div v-if="page === 'memory'" class="memory-page">
+          <MemoryPanel />
+          <ConversationSummary />
+        </div>
         <footer class="page-footer">
           <span>DSH · 你的助手，你来掌控</span
           ><span title="前端构建提交"

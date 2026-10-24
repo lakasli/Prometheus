@@ -141,7 +141,12 @@ async function initialize() {
   if (disposed) return;
   const conversationResult = results[1];
   if (conversationResult?.status === "fulfilled")
-    conversations.value = conversationResult.value.items;
+    conversations.value = conversationResult.value.items.filter(
+      (conversation) =>
+        !conversation.test &&
+        !conversation.is_test &&
+        !conversation.character?.is_test,
+    );
   else if (conversationResult?.status === "rejected")
     error.value = `来源会话未能载入。${errorMessage(conversationResult.reason)}`;
 }
