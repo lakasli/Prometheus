@@ -1,0 +1,325 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dsh:character-card:profile:1",
+  "title": "DSH text character card profile v1",
+  "description": "Design contract, not a deployed feature. A normalized Character Card V3 subset with independent DSH module hints. Validate imported external cards before and after normalization; enforce total UTF-8 byte/depth/archive limits separately.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "spec",
+    "spec_version",
+    "data"
+  ],
+  "properties": {
+    "spec": {
+      "const": "chara_card_v3"
+    },
+    "spec_version": {
+      "const": "3.0"
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "description",
+        "personality",
+        "scenario",
+        "first_mes",
+        "mes_example",
+        "creator_notes",
+        "system_prompt",
+        "post_history_instructions",
+        "alternate_greetings",
+        "group_only_greetings",
+        "tags",
+        "creator",
+        "character_version",
+        "extensions"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "nickname": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "description": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 8000
+        },
+        "personality": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4000
+        },
+        "scenario": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4000
+        },
+        "first_mes": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 2000
+        },
+        "mes_example": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4000
+        },
+        "creator_notes": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4000
+        },
+        "system_prompt": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 8000
+        },
+        "post_history_instructions": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4000
+        },
+        "alternate_greetings": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 2000
+          }
+        },
+        "group_only_greetings": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 2000
+          }
+        },
+        "tags": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "creator": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "character_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "extensions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "dsh"
+          ],
+          "properties": {
+            "dsh": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "schema_version",
+                "modules"
+              ],
+              "properties": {
+                "schema_version": {
+                  "const": 1
+                },
+                "modules": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "chat",
+                    "vision",
+                    "speech"
+                  ],
+                  "properties": {
+                    "chat": {
+                      "$ref": "#/$defs/chatPreference"
+                    },
+                    "vision": {
+                      "$ref": "#/$defs/optionalPreference"
+                    },
+                    "speech": {
+                      "$ref": "#/$defs/speechPreference"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "chatPreference": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "const": "inherit"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "provider_hint",
+            "model_hint"
+          ],
+          "properties": {
+            "mode": {
+              "const": "prefer"
+            },
+            "provider_hint": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 96
+            },
+            "model_hint": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      ]
+    },
+    "optionalPreference": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "const": "disabled"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "const": "inherit"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "provider_hint",
+            "model_hint"
+          ],
+          "properties": {
+            "mode": {
+              "const": "prefer"
+            },
+            "provider_hint": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 96
+            },
+            "model_hint": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      ]
+    },
+    "speechPreference": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "const": "disabled"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "const": "inherit"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "provider_hint",
+            "model_hint"
+          ],
+          "properties": {
+            "mode": {
+              "const": "prefer"
+            },
+            "provider_hint": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 96
+            },
+            "model_hint": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "voice_hint": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        }
+      ]
+    }
+  }
+}

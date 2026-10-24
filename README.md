@@ -19,6 +19,8 @@ ACP 通知属于已提交的语义输出，不承诺模型 token 流。M0 在途
 
 记忆管理、微信、图像 / ASR / TTS、生成插件和完整 Harness 工具桥属于后续阶段，界面不将它们伪装成已可用功能。完整设计见 [架构文档](docs/architecture.md)。
 
+角色卡已完成基于AIRI源码研究的独立设计，采用CCv3文本内容与DSH模块偏好扩展；服务端版本、会话绑定和入队快照按本项目重新设计。见 [角色卡设计](docs/character-cards.md)、[Schema](docs/schemas/dsh-character-card-v1.schema.json) 与 [示例](docs/examples/campanus.character-card.json)。当前尚未实现或上线角色卡功能，未引入AIRI依赖。临时源码尚在忽略目录中，删除操作被工具策略拒绝；实际状态见 [研究记录](docs/research/airi-character-card-review.md)。
+
 ## 本地运行
 
 需要 Rust 1.88、C 编译工具链、Node.js 和 npm。前端只在构建阶段需要 Node，生产静态页面由 Rust 提供。
