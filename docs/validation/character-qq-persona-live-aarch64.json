@@ -1,0 +1,87 @@
+{
+  "initial_character_release_commit": "154ebf8c5e8b9901b39f4de8fb0a116129c6888a",
+  "checked_at": "2026-10-24T13:45:44.124990+00:00",
+  "checked_running_commit": "7e4bb131f67fc7bc2f05e33302969abfb4150290",
+  "frontend_commit_matches_running_backend": true,
+  "checked_database_is_open_in_running_service": true,
+  "user_confirmed_list_switch_and_persona_reply_received": true,
+  "user_followup_confirmed_ordinary_reply_received": true,
+  "audit_mode": "read_only_sqlite_and_existing_service_ready_journal",
+  "provenance_note": "Run rows do not directly store an executable commit; per-step commit is inferred only when both creation and completion fall within the same observed service-ready interval. The current checked commit is not automatically the event execution commit.",
+  "observed_c2c_control_commands": 4,
+  "observed_c2c_completed_persona_model_runs": 1,
+  "observed_qq_model_runs_after_latest_successful_switch": 1,
+  "latest_recorded_qq_inbox_at": "2026-10-24T13:44:40+00:00",
+  "verified_control_chain": {
+    "list_command": {
+      "created_at": "2026-10-24T12:35:02+00:00",
+      "completed_at": "2026-10-24T12:35:02+00:00",
+      "run_status": "completed",
+      "c2c_event_recorded": true,
+      "delivery_status": "sent",
+      "platform_receipt_present": true,
+      "execution_commit_from_service_ready_interval": "720a30de7ed38c0db544cc2beb64a8671a4fb1f3"
+    },
+    "switch_command": {
+      "created_at": "2026-10-24T12:35:21+00:00",
+      "completed_at": "2026-10-24T12:35:21+00:00",
+      "run_status": "completed",
+      "c2c_event_recorded": true,
+      "delivery_status": "sent",
+      "platform_receipt_present": true,
+      "execution_commit_from_service_ready_interval": "720a30de7ed38c0db544cc2beb64a8671a4fb1f3"
+    },
+    "same_private_owner": true,
+    "switch_started_new_conversation": true,
+    "expected_persona_bound": true,
+    "bound_revision": 1
+  },
+  "control_switch_live_verified": true,
+  "verified_chain": {
+    "list_command": {
+      "created_at": "2026-10-24T12:35:02+00:00",
+      "completed_at": "2026-10-24T12:35:02+00:00",
+      "run_status": "completed",
+      "c2c_event_recorded": true,
+      "delivery_status": "sent",
+      "platform_receipt_present": true,
+      "execution_commit_from_service_ready_interval": "720a30de7ed38c0db544cc2beb64a8671a4fb1f3"
+    },
+    "switch_command": {
+      "created_at": "2026-10-24T12:35:21+00:00",
+      "completed_at": "2026-10-24T12:35:21+00:00",
+      "run_status": "completed",
+      "c2c_event_recorded": true,
+      "delivery_status": "sent",
+      "platform_receipt_present": true,
+      "execution_commit_from_service_ready_interval": "720a30de7ed38c0db544cc2beb64a8671a4fb1f3"
+    },
+    "persona_model_reply": {
+      "created_at": "2026-10-24T13:44:40+00:00",
+      "completed_at": "2026-10-24T13:44:41+00:00",
+      "run_status": "completed",
+      "c2c_event_recorded": true,
+      "delivery_status": "sent",
+      "platform_receipt_present": true,
+      "execution_commit_from_service_ready_interval": "7e4bb131f67fc7bc2f05e33302969abfb4150290"
+    },
+    "same_private_owner_for_all_steps": true,
+    "switch_started_new_conversation": true,
+    "expected_persona_name_in_snapshot": true,
+    "frozen_revision": 1,
+    "compiler_version": "dsh-character-v1",
+    "binding_matches_frozen_card_and_revision": true,
+    "projection_digest_matches": true,
+    "full_prompt_snapshot_retained": true,
+    "persona_prompt_present_in_request": true,
+    "control_commands_absent_from_user_history": true,
+    "compiler_versions_match": true,
+    "request_digest_matches_original_json_bytes": true,
+    "ordinary_reply_nonempty": true,
+    "sent_content_matches_run_response": true,
+    "expected_persona_name_in_response": false,
+    "introduction_request_recorded": true
+  },
+  "persona_switch_live_verified": true,
+  "stores_credentials_private_identifiers_or_message_content": false
+}
