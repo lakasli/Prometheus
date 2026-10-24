@@ -324,6 +324,7 @@ async function exportMemory() {
   });
 }
 
+defineExpose({ refresh: loadList });
 onMounted(() => void initialize());
 onUnmounted(() => {
   disposed = true;
@@ -355,7 +356,7 @@ onUnmounted(() => {
         </button>
       </div>
       <p class="memory-scope-note">
-        这里只保存你明确录入的内容。私有记忆是助手为来源账号保留的保密记录；公开共享需要管理员明确确认。请勿录入密码、验证码或密钥。
+        这里只保存你明确录入或审核通过的内容。私有记忆是助手为来源账号保留的保密记录；公开共享需要管理员明确确认。请勿录入密码、验证码或密钥。
       </p>
       <div v-if="error" role="alert" class="alert error">
         <span>{{ error }}</span>

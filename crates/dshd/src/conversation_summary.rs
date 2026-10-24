@@ -73,7 +73,7 @@ fn base64url(byte: u8) -> bool {
 
 /// Deliberately narrow format checks. This is deterministic secret-like-data
 /// blocking, not a claim to classify every sensitive natural-language fact.
-fn contains_sensitive(text: &str) -> bool {
+pub(crate) fn contains_sensitive(text: &str) -> bool {
     let lower = text.to_ascii_lowercase();
     if lower.contains("-----begin") && lower.contains("private key-----") {
         return true;

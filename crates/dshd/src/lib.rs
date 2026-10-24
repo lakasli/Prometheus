@@ -8,6 +8,8 @@ pub mod conversation_summary;
 pub mod error;
 pub mod memory;
 pub mod memory_api;
+pub mod memory_candidate_api;
+pub mod memory_candidates;
 pub mod memory_commands;
 pub mod memory_context;
 pub mod qq;

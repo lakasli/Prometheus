@@ -136,7 +136,7 @@ fn claim(state: &AppState) -> ApiResult<Option<Claimed>> {
     let (_, config) = state.current_config()?;
     state.db(|db| {
         let tx=db.transaction()?;
-        let running:i64=tx.query_row("SELECT count(*) FROM runs WHERE status='running'",[],|r|r.get(0))?;
+        let running:i64=tx.query_row("SELECT count(*) FROM runs WHERE status='running'",[],|r|r.get::<_,i64>(0))? + crate::memory_candidates::running_count(&tx)?;
         if running>=config.assistant.max_concurrent_runs.min(2) as i64{return Ok(None);}
         let item=tx.query_row("SELECT r.id,r.conversation_id,r.config_json,r.reply_json,r.character_snapshot_json FROM runs r WHERE r.status='queued' AND NOT EXISTS(SELECT 1 FROM runs other WHERE other.conversation_id=r.conversation_id AND other.status='running') ORDER BY r.created_at,r.rowid LIMIT 1",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Option<String>>(3)?,r.get::<_,Option<String>>(4)?))).optional()?;
         let Some((id,conversation,config,reply,character))=item else{return Ok(None)};
@@ -154,6 +154,10 @@ pub async fn run_worker(state: AppState, cancellation: CancellationToken) {
         match claim(&state) {
             Ok(Some(item)) => process(&state, item, &cancellation).await,
             Ok(None) => {
+                if let Ok(Some(job)) = crate::memory_candidates::claim_next(&state) {
+                    crate::memory_candidates::run_claimed(&state, job, &cancellation).await;
+                    continue;
+                }
                 tokio::select! {_=cancellation.cancelled()=>break,_=state.0.notify.notified()=>{},_=tokio::time::sleep(Duration::from_millis(500))=>{}}
             }
             Err(_) => {

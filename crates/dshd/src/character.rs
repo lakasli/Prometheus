@@ -118,7 +118,7 @@ pub fn migrate(db: &mut Connection) -> anyhow::Result<()> {
         [],
         |r| r.get(0),
     )?;
-    anyhow::ensure!(version <= 4, "database schema is newer than this binary");
+    anyhow::ensure!(version <= 5, "database schema is newer than this binary");
     tx.execute_batch("CREATE TABLE IF NOT EXISTS dsh_schema_migrations(version INTEGER PRIMARY KEY,created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS character_cards(id TEXT PRIMARY KEY,created_by TEXT NOT NULL,created_at INTEGER NOT NULL,archived_at INTEGER,qq_selectable INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS character_card_revisions(card_id TEXT NOT NULL REFERENCES character_cards(id),revision INTEGER NOT NULL,canonical_json TEXT NOT NULL,digest TEXT NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(card_id,revision));

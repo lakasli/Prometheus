@@ -107,6 +107,21 @@ class CompatibilityTests(unittest.TestCase):
         manifest.write_text(json.dumps({"schema_reader": 4, "weixin_ilink": 1, "weixin_private_context": 1}))
         compatibility.check(self.data, self.release)
 
+    def test_empty_candidate_tables_allow_rollback_before_first_job(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE memory_candidate_jobs(id TEXT); CREATE TABLE memory_candidates(id TEXT);")
+        compatibility.check(self.data, self.release)
+
+    def test_cleared_candidate_job_still_requires_review_and_invalidation_reader(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE memory_candidate_jobs(id TEXT,status TEXT); INSERT INTO memory_candidate_jobs VALUES('synthetic','cancelled');")
+        manifest = self.release / "deploy/release-capabilities.json"
+        manifest.write_text(json.dumps({"schema_reader": 5}))
+        with self.assertRaisesRegex(RuntimeError, "candidate review"):
+            compatibility.check(self.data, self.release)
+        manifest.write_text(json.dumps({"schema_reader": 5, "memory_candidates": 1}))
+        compatibility.check(self.data, self.release)
+
 
 if __name__ == "__main__":
     unittest.main()

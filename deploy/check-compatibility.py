@@ -54,6 +54,12 @@ def check(data_dir, release_source):
             or int(capabilities.get("weixin_private_context", 0)) < 1
         ):
             raise RuntimeError("Target release lacks iLink account or private reply context support")
+        uses_candidates = any(
+            table in tables and db.execute(f"SELECT EXISTS(SELECT 1 FROM {table})").fetchone()[0]
+            for table in ("memory_candidate_jobs", "memory_candidates")
+        )
+        if uses_candidates and int(capabilities.get("memory_candidates", 0)) < 1:
+            raise RuntimeError("Target release lacks memory candidate review and invalidation support")
 
 
 if __name__ == "__main__":

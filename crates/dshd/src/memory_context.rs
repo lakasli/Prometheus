@@ -129,6 +129,7 @@ pub fn invalidate(db: &Connection, assistant: &str, memory: &str) -> anyhow::Res
     let timestamp = crate::state::now();
     for conversation in conversations {
         crate::conversation_summary::invalidate(db, assistant, &conversation)?;
+        crate::memory_candidates::invalidate(db, assistant, &conversation)?;
         crate::weixin_store::cancel_queued_for_conversation_in(db, &conversation)?;
         let through: i64 = db.query_row(
             "SELECT coalesce(max(rowid),0) FROM runs WHERE conversation_id=?1",

@@ -12,6 +12,7 @@ import Icon from "./components/Icon.vue";
 import CharacterCards from "./components/CharacterCards.vue";
 import MemoryPanel from "./components/MemoryPanel.vue";
 import ConversationSummary from "./components/ConversationSummary.vue";
+import MemoryCandidates from "./components/MemoryCandidates.vue";
 import WeixinChannel from "./components/WeixinChannel.vue";
 import {
   api,
@@ -39,6 +40,7 @@ import type {
   SecretMetadata,
   SystemStatus,
 } from "./types";
+const memoryPanel = ref<InstanceType<typeof MemoryPanel> | null>(null);
 
 type Page =
   | "overview"
@@ -1821,7 +1823,8 @@ onUnmounted(() => {
           </section>
         </template>
         <div v-if="page === 'memory'" class="memory-page">
-          <MemoryPanel />
+          <MemoryPanel ref="memoryPanel" />
+          <MemoryCandidates @accepted="memoryPanel?.refresh()" />
           <ConversationSummary />
         </div>
         <WeixinChannel v-if="page === 'weixin'" />

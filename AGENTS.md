@@ -70,6 +70,8 @@ M1.1文本角色卡、Web管理、受限JSON / AIRI ZIP导入、JSON导出和QQ�
 
 M2显式助手记忆切片已按稳定assistant identity实现并部署，覆盖Web管理、shared / private来源域、命令、全文检索、纠正、遗忘与上下文失效；实际SHA及模拟 / 真实模型边界见 [记忆验收记录](docs/memory-validation.md)。长会话摘要切片也已部署并通过真实模型、重启与遗忘验收，见 [摘要记录](docs/summary-validation.md)。微信单账号 / 扫码本人文字适配的实现和当前部署状态见 [微信记录](docs/weixin-validation.md)，真实平台扫码 / 手机收发待验收。自动事实抽取尚未交付，不得将当前切片称为M2全部完成；草稿测试会话和角色控制命令不得污染长期记忆。
 
+显式来源的模型记忆候选审核已实现，发布状态见 [候选记录](docs/memory-candidate-validation.md)；只在明确选择来源后生成、审核后private入库，不等于后台自动事实采集。M3实机隔离限制见 [实测记录](docs/harness-isolation-validation.md)，不可将用户级systemd属性或cgroup限制当成完整沙箱而启用工具。
+
 ## 8. 角色卡与参考源码
 
 - 角色卡遵循 [独立设计](docs/character-cards.md)：借鉴AIRI的CCv3角色内容及模块偏好方案，在Rust/Cordis与SQLite中重新实现，不直接复制、引用或依赖AIRI项目、默认人格与资源。
