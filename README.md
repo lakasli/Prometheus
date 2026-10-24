@@ -4,6 +4,10 @@ DSH 计划采用 Cordis 插件架构，以 Rust 实现主程序，连接 QQ、�
 
 当前仓库处于**架构设计阶段**，尚未提供可运行程序。
 
+## 项目规则
+
+开发遵循 **本地编写 → Git 提交和推送 → SSH 远端部署与测试**。仓库规则见 [AGENTS.md](AGENTS.md)，操作流程及远端环境记录见 [开发与远端部署流程](docs/development-workflow.md)。
+
 ## 架构文档
 
 阅读 [项目架构设计](docs/architecture.md)，其中包含：
