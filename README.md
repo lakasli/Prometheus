@@ -1,8 +1,8 @@
 # DSH：树莓派上的 Rust AI 助手
 
-部署目标是 **树莓派 5、8GB、Raspberry Pi OS Lite 64 位 / aarch64**。已实现并部署 M0 核心验证和 M1 文本 / Web 管理基础：Rust 服务、真实 Cordis 生命周期、SQLite 持久任务、原生模型 API、QQ 官方接入，以及静态 Vue 管理控制台。
+正式部署目标是 **`192.168.189.191` 现有树莓派 5、8GB、Ubuntu 24.04.4 LTS / aarch64**。已实现并部署 M0 核心验证和 M1 文本 / Web 管理基础：Rust 服务、真实 Cordis 生命周期、SQLite 持久任务、原生模型 API、QQ 官方接入，以及静态 Vue 管理控制台。
 
-用户已同意先在现有 Ubuntu 24.04 的树莓派上验证，保留 Lite 为最终基线；不能将 Ubuntu 测试记成 Lite 验收。实际执行结果见 [M0 记录](docs/m0-validation.md) 和 [部署 / 开发流程](docs/development-workflow.md)。
+用户2026-10-24已确认现有Ubuntu为正式基线，不再要求迁移Raspberry Pi OS Lite，也不重装或改变当前主机环境。历史记录中的Lite目标及Ubuntu例外保留原事实，由本次决定取代。实际执行结果见 [M0 记录](docs/m0-validation.md) 和 [部署 / 开发流程](docs/development-workflow.md)。
 
 M0/M1原始部署与真实Harness / QQ联调已通过，历史证据见 [M0/M1验证记录](docs/m0-m1-validation.md)。后续角色卡M1.1的当前部署版本、回归与真实QQ验证独立记录在 [角色卡验收记录](docs/character-card-validation.md)，不将文档提交SHA当成运行版本。
 
@@ -19,12 +19,13 @@ M0/M1原始部署与真实Harness / QQ联调已通过，历史证据见 [M0/M1�
 - 同来源长会话增量摘要：复用现有任务槽、来源与覆盖水位、敏感资料省略、超长轮次明确摘录、取消恢复和遗忘联动；管理页可查看并重建派生摘要。独立验收见 [摘要记录](docs/summary-validation.md)。
 - 会话记忆候选：明确勾选来源消息、模型提取、审核后私有入库，拒绝 / 到期 / 遗忘清除候选正文，不自动共享或覆盖事实。当前发布与验证状态见 [候选记录](docs/memory-candidate-validation.md)。
 - 微信 iLink 单账号文字私聊适配：管理页扫码、本人来源限制、原子游标 / 入站去重、冻结回复上下文、凭据失效与不确定发送处理。实现与模拟验证见 [微信说明](docs/weixin.md) 和 [验收边界](docs/weixin-validation.md)；真实手机扫码与收发仍待验收。
-- 独立PNG图片分析：本地预览、实际解码与元数据剥离、现有DeepSeek-flash、私有有界任务、取消及24小时结果保留；不自动写入普通聊天或记忆。部署与真实模型范围见 [图片记录](docs/image-analysis-validation.md)。
-- 纯计算工坊：明确生成WAT、独立Linux进程测试、查看源码和哈希后人工批准、手动执行双i32函数与撤销；不开通聊天或宿主工具。[使用与限制](docs/wasm-workbench.md)，[实际验收状态](docs/wasm-workbench-validation.md)。
+- PNG视觉底层已验证格式校验、实际解码、去元数据及DeepSeek-flash调用。本轮正把单PNG接入Web普通对话：VisionProvider先生成可追溯描述，再由现有Native角色与会话上下文回答；**本轮接入待验证**，不能引用旧独立分析测试替代。见 [图片对话契约](docs/image-analysis.md) 和 [历史图片记录](docs/image-analysis-validation.md)。
+
+管理页面按 [架构的信息架构](docs/architecture.md#143-页面与用户操作) 组织。图片从普通会话输入区发送，不设独立“图片分析”主导航；已存在的纯整数WAT原型收进“任务与诊断 → 开发诊断”默认折叠区域，入口调整待本轮浏览器与远端验证。该原型仅供开发诊断，不是原架构的Rust / WIT插件工厂，也不注册聊天工具。见 [诊断原型边界](docs/wasm-workbench.md) 与 [历史验收状态](docs/wasm-workbench-validation.md)。
 
 ACP 通知属于已提交的语义输出，不承诺模型 token 流。M0 在途取消由临时回环 HTTP 代理确认真实上游请求仍未完成，再经私有 IPC 触发 ACP cancel；不以排队成功或已经结束的文本输出作为取消证据。代理不记录凭证、请求或回复正文。
 
-后台自动事实抽取、微信真实平台收发验收、普通对话图像附件 / ASR / TTS、完整插件工厂和 Harness 工具桥属于后续阶段。当前切片不代表M2全部完成。完整设计见 [架构文档](docs/architecture.md)。
+后台自动事实抽取、微信真实平台收发验收、QQ / 微信渠道媒体、ASR / TTS、完整插件工厂和Harness工具桥仍待交付；Web图片对话正在本轮接入并待验收。受限图片与WAT验证原型不代表M4 / M5完成，当前切片也不代表M2全部完成。后续按 [架构文档](docs/architecture.md) 的功能与信息架构推进，重大偏离先说明并由用户确认，不改写目标来迁就原型。
 
 角色卡根据AIRI源码研究独立实现，采用CCv3文本内容与DSH模块偏好扩展；服务端版本、会话绑定和入队快照按本项目设计。见 [角色卡契约](docs/character-cards.md)、[Schema](docs/schemas/dsh-character-card-v1.schema.json) 与 [原创示例](docs/examples/campanus.character-card.json)。未引入AIRI依赖。临时源码尚在忽略目录中，删除操作被工具策略拒绝；实际状态见 [研究记录](docs/research/airi-character-card-review.md)。
 
