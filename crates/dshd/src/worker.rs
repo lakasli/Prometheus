@@ -509,7 +509,6 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
             if !plugin_command && trigger_context.is_none() && matches!(&selected, Ok(None)) =>
         {
             let prepared = async {
-                let mut plan = crate::chat_reply::parse(&content, &item.config.reply)?;
                 let owner = state
                     .db(|db| {
                         Ok(db.query_row(
@@ -519,6 +518,14 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
                         )?)
                     })
                     .map_err(|_| "回复来源不可用".to_owned())?;
+                let mut plan = crate::attachment_echo::prepare(
+                    state,
+                    &item.config,
+                    &item.id,
+                    &owner,
+                    &item.conversation,
+                    &content,
+                )?;
                 crate::chat_reply::materialize(
                     state,
                     &item.config,

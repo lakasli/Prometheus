@@ -1,4 +1,5 @@
 pub mod api;
+mod attachment_echo;
 pub mod auth;
 pub mod character;
 pub mod character_api;

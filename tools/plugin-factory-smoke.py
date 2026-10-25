@@ -256,6 +256,11 @@ def main():
                     first = activate(harness, approved)
                     value = harness.call('POST', ROOT + '/plugins/user.synthetic-sum/invoke', {'input': [4, 5]}, timeout=110)[0]
                     check('separate activation registers the tested tool and actual invocation returns nine', first['status'] == 'active' and value['output'] == 9)
+                    conversation = harness.conversation('Synthetic explicit Component command')
+                    command_run = harness.submit(conversation, '/plugin user.synthetic-sum [4,5]')
+                    command = harness.wait_run(command_run)
+                    check('explicit chat command invokes the owners active Component through the normal conversation path',
+                          command['status'] == 'completed' and 'user.synthetic-sum' in command['response'] and '9' in command['response'])
                     harness.call('POST', ROOT + '/plugins/user.synthetic-sum/invoke', {'input': {'owner': 'forged'}}, expected=400)
                     with helpers.other_admin(harness):
                         harness.call('POST', ROOT + '/plugins/user.synthetic-sum/invoke', {'input': [4, 5]}, expected=404)
