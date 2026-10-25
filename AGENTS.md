@@ -80,6 +80,8 @@ M2显式助手记忆切片已按稳定assistant identity实现并部署，覆盖
 
 任务触发正式 tab、持久调度及默认「设置触发任务」Skill 已实现并部署，运行 SHA、规则与中国 2026 年日历、隔离上下文、预算、事件范围和真实模型边界见 [任务触发验收](docs/task-triggers-validation.md)。模型只生成待审核草稿；结果仅入认证 Web 页面，未知日历年份阻断，不等同于 QQ / 微信主动推送、外部 webhook、完整 Cron 或通用工具执行。
 
+Rust / WIT / Wasmtime Component 插件工厂的空权限、无状态 JSON 工具纵切已按固定 SHA 部署，通过 32 个独立工作器隔离、18 项真实编译 / 执行 / 生命周期和单次真实模型 / Web 显式命令验收，见 [工厂记录](docs/plugin-factory-validation.md)。测试、摘要审批与激活分开，所有自动化审批只发生在临时合成账户，生产版本不自动批准；管理身份的工具不自动授权给 QQ / 微信。当前没有 host imports，HTTP / KV / 记忆 / 消息发送 broker、状态迁移及模型自主工具循环仍未交付，不称完整 M5，也不改变完整 Harness 不可用的原有边界。
+
 ## 8. 角色卡与参考源码
 
 - 角色卡遵循 [独立设计](docs/character-cards.md)：借鉴AIRI的CCv3角色内容及模块偏好方案，在Rust/Cordis与SQLite中重新实现，不直接复制、引用或依赖AIRI项目、默认人格与资源。
