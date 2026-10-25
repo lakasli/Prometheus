@@ -32,6 +32,7 @@ from contextlib import closing
 
 PREFIX = '/api/admin/v1'
 MARKER = 'DSH富媒体验收：'
+INTERFACE_MARKER = 'DSH接口验收：'
 MAX_FILE_BYTES = 5 * 1024 * 1024
 
 
@@ -104,7 +105,9 @@ def checked_video(path):
     return data, round(1000 * duration / scale)
 
 
-def source_context(source, run_id):
+def source_context(source, run_id, *, required_marker=MARKER):
+    if required_marker not in {MARKER, INTERFACE_MARKER}:
+        raise ValueError('only fixed acceptance markers are supported')
     with closing(sqlite3.connect((source / 'dsh.db').as_uri() + '?mode=ro', uri=True)) as db:
         db.execute('PRAGMA query_only=ON')
         db.row_factory = sqlite3.Row
@@ -116,7 +119,7 @@ def source_context(source, run_id):
         config = json.loads(config[0])
         qq = config['qq']
         target = json.loads(run['reply_json']) if run['reply_json'] else None
-        if not str(run['input']).startswith(MARKER) or run['status'] != 'completed' or not isinstance(target, dict):
+        if not str(run['input']).startswith(required_marker) or run['status'] != 'completed' or not isinstance(target, dict):
             raise RuntimeError('source Run is not the explicit completed media acceptance request')
         if target.get('kind') != 'c2c' or not qq.get('enabled'):
             raise RuntimeError('source test request is not enabled QQ C2C')

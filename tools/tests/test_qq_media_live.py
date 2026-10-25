@@ -42,6 +42,19 @@ class SourceScopeTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             MODULE.source_context(self.root, 'run-id')
 
+    def test_interface_probe_requires_its_distinct_explicit_marker(self):
+        self.db.execute('UPDATE runs SET input=?', (MODULE.INTERFACE_MARKER + 'synthetic controls request',))
+        self.db.commit()
+        with self.assertRaises(RuntimeError):
+            MODULE.source_context(self.root, 'run-id')
+        qq, target = MODULE.source_context(self.root, 'run-id', required_marker=MODULE.INTERFACE_MARKER)
+        self.assertEqual(qq, self.qq)
+        self.assertEqual(target, self.target)
+
+    def test_arbitrary_or_empty_marker_cannot_weaken_the_guard(self):
+        with self.assertRaises(ValueError):
+            MODULE.source_context(self.root, 'run-id', required_marker='')
+
     def test_more_than_one_existing_reply_blocks_probe(self):
         self.db.execute("INSERT INTO outbox_reply_parts VALUES('outbox-id',2,'queued')")
         self.db.commit()

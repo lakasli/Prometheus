@@ -73,6 +73,13 @@ python3 tools/qq-media-live.py --binary <fixed-release>/bin/dshd --web-dir <fixe
 python3 -m unittest discover -s tools/tests -p test_qq_media_live.py -v
 ```
 
+`tools/qq-c2c-controls-live.py` 使用单独的 `DSH接口验收：` 合成消息，要求该 Run 恰好只有 Native seq=1 已确认发送。输入状态占 seq=2，Markdown 占 seq=3；一个流式消息占 seq=4，按[官方流式契约](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_stream_messages.post.html)在 index=0/1 复用 seq=4 及首片返回的 stream ID，结束片为 input_state=10，replace 内容保持已发送前缀。只有脚本本次新建且已获得 ID 的 Markdown/stream 消息可在短暂显示后撤回，不能撤回 Native seq=1、入站消息或其他既有消息。unknown/异步响应立即阻断，finally 不继续发起网络清理，私有 journal 留下需要人工核对的本次消息引用。
+
+```sh
+python3 tools/qq-c2c-controls-live.py --binary <fixed-release>/bin/dshd --web-dir <fixed-release>/web --source-data-dir <shared-data> --source-run-id <explicit-interface-test-run> --report <new-private-report>
+python3 -m unittest discover -s tools/tests -p 'test_qq_*.py' -v
+```
+
 ## 固定操作清单
 
 ### 真实接口联调所需条件
