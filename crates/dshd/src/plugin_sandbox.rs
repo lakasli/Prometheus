@@ -88,7 +88,7 @@ mod linux {
     unsafe extern "C" {
         fn syscall(number: isize, ...) -> isize;
         fn prctl(option: i32, ...) -> i32;
-        fn open(path: *const i8, flags: i32, ...) -> i32;
+        fn open(path: *const std::ffi::c_char, flags: i32, ...) -> i32;
         fn close(fd: i32) -> i32;
         fn fcntl(fd: i32, command: i32, ...) -> i32;
         fn getpid() -> i32;

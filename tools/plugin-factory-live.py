@@ -96,7 +96,7 @@ def main():
             raise RuntimeError('model credential escaped its private store')
         key = path.read_text()
         report['production_model_credential_read'] = True
-        with tempfile.TemporaryDirectory(prefix='dsh-component-factory-live-') as temporary:
+        with factory.private_fixture('dsh-component-factory-live-', report) as temporary:
             fixture = types.SimpleNamespace(hold_release=threading.Event())
             harness = live.LiveHarness(str(binary), str(web), temporary, fixture)
             try:
@@ -172,6 +172,7 @@ def main():
                     report['factory_model_requests'] = calls
             finally:
                 try:
+                    harness.stop()
                     factory.cleanup_units(harness)
                 finally:
                     harness.close()

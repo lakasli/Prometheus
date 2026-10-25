@@ -6,12 +6,15 @@ No production user data, account credentials, or live QQ messages are used.
 An unavailable sandbox is reported unavailable (exit 2), never passed.
 """
 import argparse
+import contextlib
 import hashlib
 import http.server
 import importlib.util
 import json
+import os
 import pathlib
 import platform
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -25,6 +28,29 @@ helpers = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(helpers)
 ROOT = helpers.PREFIX + '/plugin-factory'
 SUM = '''let values: Vec<i64> = input.trim().trim_start_matches('[').trim_end_matches(']').split(',').filter(|v|!v.trim().is_empty()).map(|v|v.trim().parse::<i64>().unwrap_or(0)).collect(); values.iter().sum::<i64>().to_string()'''
+
+
+@contextlib.contextmanager
+def private_fixture(prefix, report):
+    """Never remove an unsuccessful fixture that may retain an unknown unit."""
+    root = pathlib.Path(tempfile.mkdtemp(prefix=prefix)).resolve(strict=True)
+    completed = False
+    try:
+        yield str(root)
+        completed = report.get('status') == 'passed'
+    finally:
+        if completed:
+            expected_parent = pathlib.Path(tempfile.gettempdir()).resolve(strict=True)
+            metadata = root.lstat()
+            if (root.parent != expected_parent or not root.name.startswith(prefix)
+                    or root.is_symlink() or not root.is_dir()
+                    or (hasattr(os, 'getuid') and metadata.st_uid != os.getuid())
+                    or (platform.system() == 'Linux' and not shutil.rmtree.avoids_symlink_attacks)):
+                raise RuntimeError('fixture cleanup target could not be verified')
+            shutil.rmtree(root)
+        else:
+            report['diagnostics_retained'] = True
+            report['diagnostics_directory'] = str(root)
 
 
 class Mock:
@@ -161,7 +187,7 @@ def main():
         print('PASS ' + name, flush=True)
 
     try:
-        with tempfile.TemporaryDirectory(prefix='dsh-plugin-factory-smoke-') as temporary:
+        with private_fixture('dsh-plugin-factory-smoke-', report) as temporary:
             harness = helpers.Harness(str(binary), str(web), temporary, mock)
             try:
                 harness.start()
@@ -260,6 +286,7 @@ def main():
                 exit_code = return_code
             finally:
                 try:
+                    harness.stop()
                     cleanup_units(harness)
                 finally:
                     harness.close()
