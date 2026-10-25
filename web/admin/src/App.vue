@@ -23,6 +23,7 @@ import SkillOutput from "./components/SkillOutput.vue";
 import TaskTriggers from "./components/TaskTriggers.vue";
 import SpeechPanel from "./components/SpeechPanel.vue";
 import ReplyMedia from "./components/ReplyMedia.vue";
+import ConversationMedia from "./components/ConversationMedia.vue";
 import QQPanel from "./components/QQPanel.vue";
 import ReplyDeliveryReview from "./components/ReplyDeliveryReview.vue";
 import PluginFactoryPanel from "./components/PluginFactoryPanel.vue";
@@ -2195,6 +2196,12 @@ onUnmounted(() => {
                 @accepted="followChatRun"
                 @unauthorized="expireSession"
                 @inspect-history="inspectChatHistory"
+              />
+              <ConversationMedia
+                v-if="selectedConversation && !selectedConversationData?.test && !selectedConversationData?.is_test && !selectedConversationData?.character?.is_test"
+                :conversation-id="selectedConversation"
+                :disabled="chatRunning || !!busy"
+                @unauthorized="expireSession"
               />
             </div>
           </section>
