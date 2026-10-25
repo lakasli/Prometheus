@@ -1,0 +1,104 @@
+{
+  "kind": "explicit QQ C2C real Rust multipart delivery acceptance",
+  "started_at": "2026-10-25T16:24:27.536909+00:00",
+  "mode": "prepare_only",
+  "commit": "c75b868e33fea4a3c6065d2d593acaeb19847fc7",
+  "expected_commit": "c75b868e33fea4a3c6065d2d593acaeb19847fc7",
+  "script_commit": "c977092c22b03b8811bd3c1fc3d04b615f6df177",
+  "script_sha256": "f66445545281da7504cdb8764606214f6eaed1f24048fa5c11e16b996b8bbc93",
+  "binary_sha256": "9a148978909efb2d6825faa1b4ff17f2a291b88c9d3ee81dc733a159155ebf0a",
+  "source_run_sha256": "3f723de1d3fd0fbaa9837f4aec079ab7dff0391ee4c0a91995afb3fd1fbd1a72",
+  "platform": "Linux",
+  "architecture": "aarch64",
+  "production_database_modified": false,
+  "production_message_history_copied": false,
+  "production_credential_read": true,
+  "second_gateway_started": false,
+  "model_requests_executed": false,
+  "automatic_retries": false,
+  "client_verified": false,
+  "real_qq_send_intent_recorded": false,
+  "prepare_intent_recorded": true,
+  "checks": [
+    "pinned synthetic padded MP4 exceeds direct-upload bound and stays below 20MiB",
+    "new fixed-marker C2C source has exactly native seq1 sent and at least 120 seconds",
+    "private daemon binary reports the required pushed commit",
+    "private QQ configuration validates without Gateway or model credentials",
+    "private webhook configuration is applied",
+    "actual Rust MP4 validator accepts the pinned padded video",
+    "frozen explicit source account credential target and floor remain unchanged"
+  ],
+  "operations": [
+    {
+      "operation": "post_v2_users_user_id_upload_prepare",
+      "outcome": "platform_accepted",
+      "platform_accepted": true,
+      "http_status": 200,
+      "business_code": null,
+      "trace_id": "a094e7a4e50fac397c6bafee2631ddd5",
+      "trace_id_present": true,
+      "trace_id_suppressed": false,
+      "response_shape": {
+        "root_is_object": true,
+        "data_wrapper_present": false,
+        "data_wrapper_is_object": false,
+        "root_fields": {
+          "upload_id_present": true,
+          "upload_id_protected_reference": true,
+          "upload_id_raw_nonempty_string": false,
+          "block_size_present": true,
+          "block_size": 6302964,
+          "parts_is_array": true,
+          "parts_count": 1,
+          "parts_within_128_bound": true,
+          "part_indices": [
+            1
+          ],
+          "part_indices_present": [
+            true
+          ],
+          "part_index_types": [
+            "integer"
+          ],
+          "part_index_fields_present": [
+            false
+          ],
+          "part_index_values": [
+            null
+          ],
+          "part_index_value_types": [
+            "missing"
+          ],
+          "part_block_sizes": [
+            6302964
+          ],
+          "part_indices_ordered": false,
+          "all_parts_have_presigned_url_field": true,
+          "all_part_urls_are_protected_references": true
+        },
+        "data_fields": null
+      },
+      "call_record_matches": true,
+      "private_outbox_count": 0
+    }
+  ],
+  "status": "prepare_platform_accepted_no_message_sent",
+  "fixture": {
+    "bytes": 6302964,
+    "sha256": "27c9497d696165a9cd044ac786929a3a2dab1fe87c44645a54b7f4bc0bd9fe82",
+    "duration_ms": 2000,
+    "padding_free_box_bytes": 6291456,
+    "padding_is_not_video_bitrate": true,
+    "Rust_validator_accepted": true
+  },
+  "deployment_sha": "c75b868e33fea4a3c6065d2d593acaeb19847fc7",
+  "evidence_boundary": "One authenticated Admin upload_prepare call only. HTTP metadata is cross-checked against private qq_api_calls. Response shape contains only booleans and bounded numbers; protected references are not raw upload IDs. No presigned PUT, upload_part_finish, files merge, Outbox or message send was attempted.",
+  "cleanup": {
+    "daemon_exit_confirmed": true,
+    "daemon_exit_code": 0,
+    "private_cleanup_complete": true,
+    "credentials_copy_retained": false,
+    "diagnostic_log_retained": false
+  },
+  "finished_at": "2026-10-25T16:24:30.679323+00:00"
+}

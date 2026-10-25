@@ -1,0 +1,1558 @@
+{
+  "kind": "QQ API cumulative direct HTTP evidence after prepare-only diagnostics",
+  "total_catalog_operations": 77,
+  "unique_platform_accepted_operations": 20,
+  "client_verification_included": false,
+  "guilds_returned_on_first_page": 0,
+  "old_controls_note": "Initial retraction was conservatively reported unknown; subsequent read-only inspection identified legacy local path rejection of opaque message ID character ! before dispatch; not counted as a platform retraction attempt.",
+  "operations": [
+    {
+      "operation": "get_users_me",
+      "method": "GET",
+      "path": "/users/@me",
+      "platform_accepted": true,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "post_v2_generate_url_link",
+      "method": "POST",
+      "path": "/v2/generate_url_link",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_v2_menu",
+      "method": "GET",
+      "path": "/v2/menu",
+      "platform_accepted": true,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "put_v2_menu",
+      "method": "PUT",
+      "path": "/v2/menu",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_v2_panels",
+      "method": "GET",
+      "path": "/v2/panels",
+      "platform_accepted": true,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        },
+        {
+          "report": "qq-resource-387652c-r3.json",
+          "script_commit": "c86ddef2d837899bd2322bd642d37664ec04eea6",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        },
+        {
+          "report": "qq-resource-387652c-r3.json",
+          "script_commit": "c86ddef2d837899bd2322bd642d37664ec04eea6",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "post_v2_panels",
+      "method": "POST",
+      "path": "/v2/panels",
+      "platform_accepted": true,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        },
+        {
+          "report": "qq-resource-387652c-r3.json",
+          "script_commit": "c86ddef2d837899bd2322bd642d37664ec04eea6",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "delete_v2_panels_panel_id",
+      "method": "DELETE",
+      "path": "/v2/panels/{panel_id}",
+      "platform_accepted": true,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        },
+        {
+          "report": "qq-resource-387652c-r3.json",
+          "script_commit": "c86ddef2d837899bd2322bd642d37664ec04eea6",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_v2_panels_panel_id",
+      "method": "GET",
+      "path": "/v2/panels/{panel_id}",
+      "platform_accepted": true,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "requires_resource",
+          "http_status": null,
+          "business_code": null
+        },
+        {
+          "report": "qq-resource-387652c-r3.json",
+          "script_commit": "c86ddef2d837899bd2322bd642d37664ec04eea6",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        },
+        {
+          "report": "qq-resource-387652c-r3.json",
+          "script_commit": "c86ddef2d837899bd2322bd642d37664ec04eea6",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        },
+        {
+          "report": "qq-resource-387652c-r3.json",
+          "script_commit": "c86ddef2d837899bd2322bd642d37664ec04eea6",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        },
+        {
+          "report": "qq-resource-387652c-r3.json",
+          "script_commit": "c86ddef2d837899bd2322bd642d37664ec04eea6",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "put_v2_panels_panel_id",
+      "method": "PUT",
+      "path": "/v2/panels/{panel_id}",
+      "platform_accepted": true,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        },
+        {
+          "report": "qq-resource-387652c-r3.json",
+          "script_commit": "c86ddef2d837899bd2322bd642d37664ec04eea6",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "put_v2_panels_panel_id_target",
+      "method": "PUT",
+      "path": "/v2/panels/{panel_id}/target",
+      "platform_accepted": true,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        },
+        {
+          "report": "qq-resource-387652c-r3.json",
+          "script_commit": "c86ddef2d837899bd2322bd642d37664ec04eea6",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        },
+        {
+          "report": "qq-resource-387652c-r3.json",
+          "script_commit": "c86ddef2d837899bd2322bd642d37664ec04eea6",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "post_v2_users_user_id_upload_part_finish",
+      "method": "POST",
+      "path": "/v2/users/{user_id}/upload_part_finish",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "post_v2_users_user_id_upload_prepare",
+      "method": "POST",
+      "path": "/v2/users/{user_id}/upload_prepare",
+      "platform_accepted": true,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        },
+        {
+          "report": "qq-multipart-prepare-c75b868-aarch64.json",
+          "script_commit": "2473bd9bcbb0108b111a0e138a0a3ed5a73a4518",
+          "binary_commit": "c75b868e33fea4a3c6065d2d593acaeb19847fc7",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null,
+          "trace_id": "0f2e598c3c42907db6316eb109074283"
+        },
+        {
+          "report": "qq-multipart-indices-c75b868-aarch64.json",
+          "script_commit": "c977092c22b03b8811bd3c1fc3d04b615f6df177",
+          "binary_commit": "c75b868e33fea4a3c6065d2d593acaeb19847fc7",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null,
+          "trace_id": "a094e7a4e50fac397c6bafee2631ddd5"
+        }
+      ]
+    },
+    {
+      "operation": "post_v2_users_user_openid_files",
+      "method": "POST",
+      "path": "/v2/users/{user_openid}/files",
+      "platform_accepted": true,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        },
+        {
+          "report": "qq-media-2c70999-aarch64.json",
+          "script_commit": "4a4ed40f2c4f0c46808b92a59cca455fa84ff9ae",
+          "binary_commit": "2c709999f0cc5537be177defd36dc6be1413cbd2",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null,
+          "media_kind": "voice",
+          "original_report": "qq-media-2c70999.json"
+        },
+        {
+          "report": "qq-media-2c70999-aarch64.json",
+          "script_commit": "4a4ed40f2c4f0c46808b92a59cca455fa84ff9ae",
+          "binary_commit": "2c709999f0cc5537be177defd36dc6be1413cbd2",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null,
+          "media_kind": "image",
+          "original_report": "qq-media-2c70999.json"
+        },
+        {
+          "report": "qq-media-2c70999-aarch64.json",
+          "script_commit": "4a4ed40f2c4f0c46808b92a59cca455fa84ff9ae",
+          "binary_commit": "2c709999f0cc5537be177defd36dc6be1413cbd2",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null,
+          "media_kind": "video",
+          "original_report": "qq-media-2c70999.json"
+        }
+      ]
+    },
+    {
+      "operation": "post_v2_users_user_openid_messages",
+      "method": "POST",
+      "path": "/v2/users/{user_openid}/messages",
+      "platform_accepted": true,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        },
+        {
+          "report": "qq-controls-387652c.json",
+          "script_commit": "1ab98878540f4680247b23da9a4d983592aa29f3",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        },
+        {
+          "report": "qq-controls-387652c.json",
+          "script_commit": "1ab98878540f4680247b23da9a4d983592aa29f3",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        },
+        {
+          "report": "qq-media-2c70999-aarch64.json",
+          "script_commit": "4a4ed40f2c4f0c46808b92a59cca455fa84ff9ae",
+          "binary_commit": "2c709999f0cc5537be177defd36dc6be1413cbd2",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null,
+          "media_kind": "voice",
+          "original_report": "qq-media-2c70999.json"
+        },
+        {
+          "report": "qq-media-2c70999-aarch64.json",
+          "script_commit": "4a4ed40f2c4f0c46808b92a59cca455fa84ff9ae",
+          "binary_commit": "2c709999f0cc5537be177defd36dc6be1413cbd2",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null,
+          "media_kind": "image",
+          "original_report": "qq-media-2c70999.json"
+        },
+        {
+          "report": "qq-media-2c70999-aarch64.json",
+          "script_commit": "4a4ed40f2c4f0c46808b92a59cca455fa84ff9ae",
+          "binary_commit": "2c709999f0cc5537be177defd36dc6be1413cbd2",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null,
+          "media_kind": "video",
+          "original_report": "qq-media-2c70999.json"
+        },
+        {
+          "report": "qq-controls-25d9738.json",
+          "script_commit": "45995830c108a563c3ca6b1d1982a4935d9ae235",
+          "binary_commit": "25d973820568d72c7ace88bd8239b15c8ee29f56",
+          "kind": "typing_seq2",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null,
+          "source_age_seconds_estimate": 862
+        },
+        {
+          "report": "qq-controls-25d9738.json",
+          "script_commit": "45995830c108a563c3ca6b1d1982a4935d9ae235",
+          "binary_commit": "25d973820568d72c7ace88bd8239b15c8ee29f56",
+          "kind": "markdown_seq3",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null,
+          "source_age_seconds_estimate": 866
+        }
+      ]
+    },
+    {
+      "operation": "delete_v2_users_user_openid_messages_message_id",
+      "method": "DELETE",
+      "path": "/v2/users/{user_openid}/messages/{message_id}",
+      "platform_accepted": true,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        },
+        {
+          "report": "qq-controls-387652c.json",
+          "script_commit": "1ab98878540f4680247b23da9a4d983592aa29f3",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "result_unknown",
+          "http_status": null,
+          "business_code": null
+        },
+        {
+          "report": "qq-controls-25d9738.json",
+          "script_commit": "45995830c108a563c3ca6b1d1982a4935d9ae235",
+          "binary_commit": "25d973820568d72c7ace88bd8239b15c8ee29f56",
+          "kind": "markdown_retract",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null,
+          "source_age_seconds_estimate": 878
+        },
+        {
+          "report": "qq-controls-25d9738.json",
+          "script_commit": "45995830c108a563c3ca6b1d1982a4935d9ae235",
+          "binary_commit": "25d973820568d72c7ace88bd8239b15c8ee29f56",
+          "kind": "stream_retract",
+          "outcome": "platform_rejected",
+          "http_status": 400,
+          "business_code": 40061001,
+          "source_age_seconds_estimate": 897
+        }
+      ]
+    },
+    {
+      "operation": "post_v2_users_user_openid_stream_messages",
+      "method": "POST",
+      "path": "/v2/users/{user_openid}/stream_messages",
+      "platform_accepted": true,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        },
+        {
+          "report": "qq-controls-25d9738.json",
+          "script_commit": "45995830c108a563c3ca6b1d1982a4935d9ae235",
+          "binary_commit": "25d973820568d72c7ace88bd8239b15c8ee29f56",
+          "kind": "stream_seq4_index0",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null,
+          "source_age_seconds_estimate": 882
+        },
+        {
+          "report": "qq-controls-25d9738.json",
+          "script_commit": "45995830c108a563c3ca6b1d1982a4935d9ae235",
+          "binary_commit": "25d973820568d72c7ace88bd8239b15c8ee29f56",
+          "kind": "stream_seq4_index1_end",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null,
+          "source_age_seconds_estimate": 886
+        }
+      ]
+    },
+    {
+      "operation": "delete_channels_channel_id",
+      "method": "DELETE",
+      "path": "/channels/{channel_id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_channels_channel_id",
+      "method": "GET",
+      "path": "/channels/{channel_id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "requires_resource",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "patch_channels_channel_id",
+      "method": "PATCH",
+      "path": "/channels/{channel_id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "post_channels_channel_id_announces",
+      "method": "POST",
+      "path": "/channels/{channel_id}/announces",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "delete_channels_channel_id_announces_message_id",
+      "method": "DELETE",
+      "path": "/channels/{channel_id}/announces/{message_id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "post_channels_channel_id_audio",
+      "method": "POST",
+      "path": "/channels/{channel_id}/audio",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_channels_channel_id_members_user_id_permissions",
+      "method": "GET",
+      "path": "/channels/{channel_id}/members/{user_id}/permissions",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "requires_resource",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "put_channels_channel_id_members_user_id_permissions",
+      "method": "PUT",
+      "path": "/channels/{channel_id}/members/{user_id}/permissions",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "post_channels_channel_id_messages",
+      "method": "POST",
+      "path": "/channels/{channel_id}/messages",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "delete_channels_channel_id_messages_message_id",
+      "method": "DELETE",
+      "path": "/channels/{channel_id}/messages/{message_id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "delete_channels_channel_id_messages_message_id_reactions_type_id",
+      "method": "DELETE",
+      "path": "/channels/{channel_id}/messages/{message_id}/reactions/{type}/{id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_channels_channel_id_messages_message_id_reactions_type_id",
+      "method": "GET",
+      "path": "/channels/{channel_id}/messages/{message_id}/reactions/{type}/{id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "requires_resource",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "put_channels_channel_id_messages_message_id_reactions_type_id",
+      "method": "PUT",
+      "path": "/channels/{channel_id}/messages/{message_id}/reactions/{type}/{id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "delete_channels_channel_id_mic",
+      "method": "DELETE",
+      "path": "/channels/{channel_id}/mic",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "put_channels_channel_id_mic",
+      "method": "PUT",
+      "path": "/channels/{channel_id}/mic",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_channels_channel_id_online_nums",
+      "method": "GET",
+      "path": "/channels/{channel_id}/online_nums",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "requires_resource",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_channels_channel_id_pins",
+      "method": "GET",
+      "path": "/channels/{channel_id}/pins",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "requires_resource",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "delete_channels_channel_id_pins_message_id",
+      "method": "DELETE",
+      "path": "/channels/{channel_id}/pins/{message_id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "put_channels_channel_id_pins_message_id",
+      "method": "PUT",
+      "path": "/channels/{channel_id}/pins/{message_id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_channels_channel_id_roles_role_id_permissions",
+      "method": "GET",
+      "path": "/channels/{channel_id}/roles/{role_id}/permissions",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "requires_resource",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "put_channels_channel_id_roles_role_id_permissions",
+      "method": "PUT",
+      "path": "/channels/{channel_id}/roles/{role_id}/permissions",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_channels_channel_id_schedules",
+      "method": "GET",
+      "path": "/channels/{channel_id}/schedules",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "requires_resource",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "post_channels_channel_id_schedules",
+      "method": "POST",
+      "path": "/channels/{channel_id}/schedules",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "delete_channels_channel_id_schedules_schedule_id",
+      "method": "DELETE",
+      "path": "/channels/{channel_id}/schedules/{schedule_id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_channels_channel_id_schedules_schedule_id",
+      "method": "GET",
+      "path": "/channels/{channel_id}/schedules/{schedule_id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "requires_resource",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "patch_channels_channel_id_schedules_schedule_id",
+      "method": "PATCH",
+      "path": "/channels/{channel_id}/schedules/{schedule_id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_channels_channel_id_threads",
+      "method": "GET",
+      "path": "/channels/{channel_id}/threads",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "requires_resource",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "put_channels_channel_id_threads",
+      "method": "PUT",
+      "path": "/channels/{channel_id}/threads",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "delete_channels_channel_id_threads_thread_id",
+      "method": "DELETE",
+      "path": "/channels/{channel_id}/threads/{thread_id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_channels_channel_id_threads_thread_id",
+      "method": "GET",
+      "path": "/channels/{channel_id}/threads/{thread_id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "requires_resource",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "post_dms_guild_id_messages",
+      "method": "POST",
+      "path": "/dms/{guild_id}/messages",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "delete_dms_guild_id_messages_message_id",
+      "method": "DELETE",
+      "path": "/dms/{guild_id}/messages/{message_id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_guilds_guild_id",
+      "method": "GET",
+      "path": "/guilds/{guild_id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "requires_resource",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "post_guilds_guild_id_announces",
+      "method": "POST",
+      "path": "/guilds/{guild_id}/announces",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "delete_guilds_guild_id_announces_message_id",
+      "method": "DELETE",
+      "path": "/guilds/{guild_id}/announces/{message_id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_guilds_guild_id_api_permission",
+      "method": "GET",
+      "path": "/guilds/{guild_id}/api_permission",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "requires_resource",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "post_guilds_guild_id_api_permission_demand",
+      "method": "POST",
+      "path": "/guilds/{guild_id}/api_permission/demand",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_guilds_guild_id_channels",
+      "method": "GET",
+      "path": "/guilds/{guild_id}/channels",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "requires_resource",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "post_guilds_guild_id_channels",
+      "method": "POST",
+      "path": "/guilds/{guild_id}/channels",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_guilds_guild_id_members",
+      "method": "GET",
+      "path": "/guilds/{guild_id}/members",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "requires_resource",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "delete_guilds_guild_id_members_user_id",
+      "method": "DELETE",
+      "path": "/guilds/{guild_id}/members/{user_id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_guilds_guild_id_members_user_id",
+      "method": "GET",
+      "path": "/guilds/{guild_id}/members/{user_id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "requires_resource",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "patch_guilds_guild_id_members_user_id_mute",
+      "method": "PATCH",
+      "path": "/guilds/{guild_id}/members/{user_id}/mute",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "delete_guilds_guild_id_members_user_id_roles_role_id",
+      "method": "DELETE",
+      "path": "/guilds/{guild_id}/members/{user_id}/roles/{role_id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "put_guilds_guild_id_members_user_id_roles_role_id",
+      "method": "PUT",
+      "path": "/guilds/{guild_id}/members/{user_id}/roles/{role_id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_guilds_guild_id_message_setting",
+      "method": "GET",
+      "path": "/guilds/{guild_id}/message/setting",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "requires_resource",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "patch_guilds_guild_id_mute",
+      "method": "PATCH",
+      "path": "/guilds/{guild_id}/mute",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_guilds_guild_id_roles",
+      "method": "GET",
+      "path": "/guilds/{guild_id}/roles",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "requires_resource",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "post_guilds_guild_id_roles",
+      "method": "POST",
+      "path": "/guilds/{guild_id}/roles",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "delete_guilds_guild_id_roles_role_id",
+      "method": "DELETE",
+      "path": "/guilds/{guild_id}/roles/{role_id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "patch_guilds_guild_id_roles_role_id",
+      "method": "PATCH",
+      "path": "/guilds/{guild_id}/roles/{role_id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_guilds_guild_id_roles_role_id_members",
+      "method": "GET",
+      "path": "/guilds/{guild_id}/roles/{role_id}/members",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "requires_resource",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "put_interactions_interaction_id",
+      "method": "PUT",
+      "path": "/interactions/{interaction_id}",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "post_users_me_dms",
+      "method": "POST",
+      "path": "/users/@me/dms",
+      "platform_accepted": false,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_users_me_guilds",
+      "method": "GET",
+      "path": "/users/@me/guilds",
+      "platform_accepted": true,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_gateway",
+      "method": "GET",
+      "path": "/gateway",
+      "platform_accepted": true,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_gateway_bot",
+      "method": "GET",
+      "path": "/gateway/bot",
+      "platform_accepted": true,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "get_v2_media_images",
+      "method": "GET",
+      "path": "/v2/media-images",
+      "platform_accepted": true,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        },
+        {
+          "report": "qq-resource-387652c-r3.json",
+          "script_commit": "c86ddef2d837899bd2322bd642d37664ec04eea6",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        },
+        {
+          "report": "qq-resource-387652c-r3.json",
+          "script_commit": "c86ddef2d837899bd2322bd642d37664ec04eea6",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        },
+        {
+          "report": "qq-resource-387652c-r3.json",
+          "script_commit": "c86ddef2d837899bd2322bd642d37664ec04eea6",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "post_v2_media_images_complete",
+      "method": "POST",
+      "path": "/v2/media-images/complete",
+      "platform_accepted": true,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        },
+        {
+          "report": "qq-resource-387652c-r3.json",
+          "script_commit": "c86ddef2d837899bd2322bd642d37664ec04eea6",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "post_v2_media_images_prepare",
+      "method": "POST",
+      "path": "/v2/media-images/prepare",
+      "platform_accepted": true,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        },
+        {
+          "report": "qq-resource-387652c-r3.json",
+          "script_commit": "c86ddef2d837899bd2322bd642d37664ec04eea6",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        }
+      ]
+    },
+    {
+      "operation": "delete_v2_media_images_image_id_delete",
+      "method": "DELETE",
+      "path": "/v2/media-images/{image_id}/delete",
+      "platform_accepted": true,
+      "evidence": [
+        {
+          "report": "qq-api-387652c.json",
+          "script_commit": "ad77bc3014a1695abaf8e91e5915fcde9820c2aa",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "not_executed_write",
+          "http_status": null,
+          "business_code": null
+        },
+        {
+          "report": "qq-resource-387652c-r3.json",
+          "script_commit": "c86ddef2d837899bd2322bd642d37664ec04eea6",
+          "binary_commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+          "outcome": "platform_accepted",
+          "http_status": 200,
+          "business_code": null
+        }
+      ]
+    }
+  ],
+  "complete_live_coverage": false,
+  "controls_first_write_source_age_seconds_estimate": 862,
+  "controls_stream_retraction": {
+    "outcome": "platform_rejected",
+    "http_status": 400,
+    "business_code": 40061001,
+    "normal_message_retraction_passed": true,
+    "returned_stream_uuid_only": true,
+    "automatic_retries": false,
+    "stream_message_left_visible": true
+  },
+  "derived_from": "qq-api-coverage-after-controls.json",
+  "native_multipart_pipeline_verified": false,
+  "latest_status_counts": {
+    "platform_accepted": 20,
+    "not_executed_write": 39,
+    "requires_resource": 18
+  }
+}

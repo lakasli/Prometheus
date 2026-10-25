@@ -1,0 +1,61 @@
+{
+  "kind": "explicit QQ C2C synthetic controls acceptance",
+  "started_at": "2026-10-25T12:59:28.844122+00:00",
+  "commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+  "binary_sha256": "9689c150320436b3f01f0b7a9508097e97492627baf2633ed81712640aca2d9e",
+  "source_run_sha256": "e78f0f29af4a1d94030f29b73aeaaa9798543189b147162ea7d2bbe6c47d265c",
+  "passive_sequences": {
+    "native": 1,
+    "typing": 2,
+    "markdown": 3,
+    "stream": 4
+  },
+  "native_reply_retracted": false,
+  "existing_messages_modified": false,
+  "production_database_modified": false,
+  "automatic_retries": false,
+  "client_verified": false,
+  "operations": [
+    {
+      "kind": "typing_seq2",
+      "operation": "post_v2_users_user_openid_messages",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null,
+      "platform_accepted": true
+    },
+    {
+      "kind": "markdown_seq3",
+      "operation": "post_v2_users_user_openid_messages",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null,
+      "platform_accepted": true
+    },
+    {
+      "kind": "markdown_retract",
+      "operation": "delete_v2_users_user_openid_messages_message_id",
+      "intent_recorded": true,
+      "outcome": "result_unknown"
+    }
+  ],
+  "checks": [
+    "fixed interface marker owner account window and exactly native seq1 verified",
+    "isolated webhook-only test account configuration validates",
+    "explicit source remains unchanged before typing_seq2",
+    "explicit source remains unchanged before markdown_seq3",
+    "retraction targets only this invocation fresh markdown",
+    "explicit source remains unchanged before markdown_retract"
+  ],
+  "status": "blocked_by_unknown",
+  "deployment_sha": "387652c94ac4abc887506abe5ea74112e604ce42",
+  "failure": {
+    "stage": "markdown_retract",
+    "exception_type": "RuntimeError"
+  },
+  "unknown_blocked_remaining_operations": true,
+  "owned_message_cleanup_pending": true,
+  "finished_at": "2026-10-25T12:59:45.784074+00:00"
+}

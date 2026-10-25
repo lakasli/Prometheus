@@ -37,6 +37,8 @@ C2C 单 PNG 入站使用持久短期接收队列，验签 / 接收事务完成�
 
 该次测试使用 `c81c62858b746102af8af79bb28c49c01890ebf7` 的独立脚本，生产库只读；真实 Rust 媒体校验、固定账号与目标、最小发送间隔检查均通过。私有 daemon 已确认退出，临时凭据副本已清理。源消息的持久一次性 claim 保留，不重放或换报告文件名重试。现有小文件 PNG / MP4 / WAV 成功证据仍分别有效，不能替代这次分片验收。当前程序未保留内部失败阶段，下一次诊断应使用新测试消息并单次核对预上传的实际回执，不猜测失败原因。
 
+2026-10-26 00:21 / 00:24（+08:00）分别使用新的专属测试消息，执行单次 prepare-only 诊断：[HTTP 回执](validation/qq-multipart-prepare-c75b868-aarch64.json)和[有界序号形状](validation/qq-multipart-indices-c75b868-aarch64.json)均为 HTTP200，与私有调用表相符，零 Outbox、无发送意图，临时进程和凭据均已清理。运行仍为 `c75b868…`，脚本分别为 `2473bd9…` / `c977092…`。真实响应 `parts[0].index` 是整数 **1**，全局与该片 block_size 均为 6,302,964 字节；当前官方表和示例从 0 编号，两者差异已记录，不能把 COS 地址的 partNumber 参数与 API index 混同。诊断没有上传分片、调用 finish 或发送视频，不能据此宣称大文件链路已通过。
+
 ## 当前文档与历史资料的差异
 
 ### 单聊媒体输入
@@ -133,7 +135,7 @@ python3 tools/qq-resource-live.py --binary <fixed-release>/bin/dshd --web-dir <f
 | `c86ddef2d837899bd2322bd642d37664ec04eea6` / `387652c94ac4abc887506abe5ea74112e604ce42` | 仅创建本次合成指令面板，绑定本人专属验收 Run 的目标；创建、详情、内容修改、解除/恢复该目标、删除全部 HTTP200。合成 PNG 素材预上传、签名 PUT、完成、列表和删除通过，既有面板/素材最终快照未改变，`cleanup_pending=false`。[专属资源报告](validation/qq-resource-387652c-r3.json)。 |
 | `45995830c108a563c3ca6b1d1982a4935d9ae235` / `25d973820568d72c7ace88bd8239b15c8ee29f56` | 新验收上下文的输入状态 seq2、Markdown seq3、该 Markdown 撤回、流式 seq4 的首片及结束片均 HTTP200。首个平台操作时源上下文约 862 秒，支持本账号本样本超过旧文档五分钟仍可被动回复，不能据此声称已测完整 60 分钟边界。[C2C 控制报告](validation/qq-controls-25d9738.json)。 |
 
-本轮累计 **19/77 个不同 HTTP 操作有真实平台接受证据**，逐项来源见[累计平台证据](validation/qq-api-coverage-after-controls.json)；媒体类型和流式分片不重复计算接口数量，COS 签名 PUT 不计入 77 项。其余操作中缺资源、未执行和废弃状态分别保留，不能称为全部非群 API 实机验收通过。
+控制接口阶段累计为 [19/77 项](validation/qq-api-coverage-after-controls.json)；后续两个新的单次诊断为同一个预上传操作取得 HTTP200，因此当前累计 **20/77 个不同 HTTP 操作有真实平台接受证据**，其余 18 项缺资源、39 项写入未执行，逐项来源见[预上传后的累计证据](validation/qq-api-coverage-after-prepare.json)。重复调用、媒体类型和流式分片不重复计算接口数量，COS 签名 PUT 不计入 77 项。分片完成仍缺独立回执，不能称为全部非群 API 实机验收通过。
 
 上述四份仓库报告为本地验收原报告的逐字节副本，检查未包含凭据、file_info、预签名 URL、目标 ID 或聊天正文，无字段需脱敏；私有 ownership journal 未提交。机器报告保留 `client_verified=false` 或 `client_verification_included=false`，只表明其中记录的是平台结果；后续桌面观察须另记时间、画面与实际动作，不能改写原始报告或把 HTTP200 当作客户端输入状态、流式内容或撤回动画已被看见。
 
