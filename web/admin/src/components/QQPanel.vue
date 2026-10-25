@@ -16,6 +16,8 @@ interface Operation {
   path: string;
   parameters: string[];
   query_fields: string[];
+  required_query_fields?: string[];
+  query_defaults?: Record<string, string>;
   body_fields: string[];
   required_body_fields: string[];
   category: string;
@@ -62,7 +64,7 @@ const permissions = computed(() => operations.value.filter((o) => o.last_call?.o
 const tested = computed(() => operations.value.filter((o) => !!o.last_call).length);
 watch(selectedId, () => {
   parameters.value = {};
-  query.value = {};
+  query.value = { ...selected.value?.query_defaults };
   body.value = "{}";
   acknowledge.value = false;
   result.value = null;
@@ -146,7 +148,7 @@ onMounted(load);
         <p v-if="selected.deprecated" class="error">官方已废弃此接口，保持禁用。</p>
         <p>最近状态：{{ selected.last_call ? outcomes[selected.last_call.outcome] || selected.last_call.outcome : "尚未真实测试" }}</p>
         <div class="qq-platform-fields"><label v-for="parameter in selected.parameters" :key="parameter">{{ parameter }}<input v-model="parameters[parameter]" autocomplete="off" /></label></div>
-        <div class="qq-platform-fields"><label v-for="field in selected.query_fields" :key="field">{{ field }}（可选）<input v-model="query[field]" autocomplete="off" /></label></div>
+        <div class="qq-platform-fields"><label v-for="field in selected.query_fields" :key="field">{{ field }}（{{ selected.required_query_fields?.includes(field) ? "必填" : "可选" }}）<input v-model="query[field]" autocomplete="off" /></label></div>
         <template v-if="!selected.read_only && selected.body_fields.length">
           <label>JSON 请求内容<textarea v-model="body" rows="7" spellcheck="false" /></label>
           <p class="muted">允许字段：{{ selected.body_fields.join("、") }}<span v-if="selected.required_body_fields.length">；必填：{{ selected.required_body_fields.join("、") }}</span></p>

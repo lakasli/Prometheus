@@ -578,6 +578,7 @@ mod tests {
             };
             let input = crate::qq_api::ExecuteBody {
                 parameters,
+                query: op.query_defaults.clone(),
                 body: body.clone(),
                 ..Default::default()
             };
@@ -595,7 +596,15 @@ mod tests {
             .await
             .unwrap();
             assert!(reply.accepted(), "{}", op.id);
-            expected.push((op.method.clone(), path, body));
+            let encoded = url::form_urlencoded::Serializer::new(String::new())
+                .extend_pairs(query.iter())
+                .finish();
+            let expected_path = if encoded.is_empty() {
+                path
+            } else {
+                format!("{path}?{encoded}")
+            };
+            expected.push((op.method.clone(), expected_path, body));
         }
         let recorded = receipts.lock().unwrap().clone();
         assert_eq!(

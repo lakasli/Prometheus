@@ -19,7 +19,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "post_v2_generate_url_link",
@@ -40,7 +42,9 @@
       "required_body_fields": [],
       "body_types": {
         "callback_data": "string"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_v2_menu",
@@ -57,7 +61,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "put_v2_menu",
@@ -78,7 +84,9 @@
       "required_body_fields": [],
       "body_types": {
         "menu": "object"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_v2_panels",
@@ -87,6 +95,7 @@
       "path": "/v2/panels",
       "parameters": [],
       "query_fields": [
+        "scope",
         "cursor",
         "limit"
       ],
@@ -98,7 +107,14 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [
+        "scope"
+      ],
+      "query_defaults": {
+        "scope": "c2c",
+        "limit": "10"
+      }
     },
     {
       "id": "post_v2_panels",
@@ -130,7 +146,9 @@
         "user_openids": "array",
         "group_openids": "array",
         "panel": "object"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "delete_v2_panels_panel_id",
@@ -149,7 +167,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_v2_panels_panel_id",
@@ -168,7 +188,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "put_v2_panels_panel_id",
@@ -193,7 +215,9 @@
       ],
       "body_types": {
         "panel": "object"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "put_v2_panels_panel_id_target",
@@ -222,7 +246,9 @@
         "op": "string",
         "user_openids": "array",
         "group_openids": "array"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "post_v2_users_user_id_upload_part_finish",
@@ -251,7 +277,9 @@
         "part_index": "integer",
         "block_size": "string",
         "md5": "string"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "post_v2_users_user_id_upload_prepare",
@@ -291,7 +319,9 @@
         "md5": "string",
         "sha1": "string",
         "md5_10m": "string"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "post_v2_users_user_openid_files",
@@ -324,7 +354,9 @@
         "upload_id": "string",
         "file_name": "string",
         "file_data": "string"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "post_v2_users_user_openid_messages",
@@ -367,7 +399,9 @@
         "message_reference": "object",
         "is_wakeup": "boolean",
         "input_notify": "object"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "delete_v2_users_user_openid_messages_message_id",
@@ -389,7 +423,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "post_v2_users_user_openid_stream_messages",
@@ -430,7 +466,9 @@
         "stream_msg_id": "string",
         "msg_seq": "integer",
         "is_wakeup": "boolean"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "delete_channels_channel_id",
@@ -449,7 +487,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_channels_channel_id",
@@ -468,7 +508,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "patch_channels_channel_id",
@@ -499,7 +541,9 @@
         "parent_id": "string",
         "private_type": "integer",
         "speak_permission": "integer"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "post_channels_channel_id_announces",
@@ -522,7 +566,9 @@
       "required_body_fields": [],
       "body_types": {
         "message_id": "string"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "delete_channels_channel_id_announces_message_id",
@@ -542,7 +588,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "post_channels_channel_id_audio",
@@ -569,7 +617,9 @@
         "audio_url": "string",
         "text": "string",
         "status": "integer"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_channels_channel_id_members_user_id_permissions",
@@ -589,7 +639,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "put_channels_channel_id_members_user_id_permissions",
@@ -615,7 +667,9 @@
       "body_types": {
         "add": "string",
         "remove": "string"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "post_channels_channel_id_messages",
@@ -654,7 +708,9 @@
         "event_id": "string",
         "markdown": "object",
         "keyboard": "object"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "delete_channels_channel_id_messages_message_id",
@@ -676,7 +732,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "delete_channels_channel_id_messages_message_id_reactions_type_id",
@@ -700,7 +758,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_channels_channel_id_messages_message_id_reactions_type_id",
@@ -725,7 +785,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "put_channels_channel_id_messages_message_id_reactions_type_id",
@@ -747,7 +809,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "delete_channels_channel_id_mic",
@@ -766,7 +830,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "put_channels_channel_id_mic",
@@ -785,7 +851,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_channels_channel_id_online_nums",
@@ -804,7 +872,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_channels_channel_id_pins",
@@ -823,7 +893,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "delete_channels_channel_id_pins_message_id",
@@ -843,7 +915,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "put_channels_channel_id_pins_message_id",
@@ -863,7 +937,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_channels_channel_id_roles_role_id_permissions",
@@ -883,7 +959,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "put_channels_channel_id_roles_role_id_permissions",
@@ -909,7 +987,9 @@
       "body_types": {
         "add": "string",
         "remove": "string"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_channels_channel_id_schedules",
@@ -930,7 +1010,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "post_channels_channel_id_schedules",
@@ -953,7 +1035,9 @@
       "required_body_fields": [],
       "body_types": {
         "schedule": "object"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "delete_channels_channel_id_schedules_schedule_id",
@@ -973,7 +1057,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_channels_channel_id_schedules_schedule_id",
@@ -993,7 +1079,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "patch_channels_channel_id_schedules_schedule_id",
@@ -1017,7 +1105,9 @@
       "required_body_fields": [],
       "body_types": {
         "schedule": "object"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_channels_channel_id_threads",
@@ -1027,10 +1117,7 @@
       "parameters": [
         "channel_id"
       ],
-      "query_fields": [
-        "before",
-        "limit"
-      ],
+      "query_fields": [],
       "category": "channel",
       "read_only": true,
       "deprecated": false,
@@ -1039,7 +1126,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "put_channels_channel_id_threads",
@@ -1066,7 +1155,9 @@
         "title": "string",
         "content": "string",
         "format": "integer"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "delete_channels_channel_id_threads_thread_id",
@@ -1086,7 +1177,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_channels_channel_id_threads_thread_id",
@@ -1106,7 +1199,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "post_dms_guild_id_messages",
@@ -1145,7 +1240,9 @@
         "message_reference": "object",
         "markdown": "object",
         "keyboard": "object"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "delete_dms_guild_id_messages_message_id",
@@ -1167,7 +1264,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_guilds_guild_id",
@@ -1186,7 +1285,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "post_guilds_guild_id_announces",
@@ -1215,7 +1316,9 @@
         "channel_id": "string",
         "announces_type": "integer",
         "recommend_channels": "array"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "delete_guilds_guild_id_announces_message_id",
@@ -1235,7 +1338,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_guilds_guild_id_api_permission",
@@ -1254,7 +1359,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "post_guilds_guild_id_api_permission_demand",
@@ -1281,7 +1388,9 @@
         "channel_id": "string",
         "api_identify": "object",
         "desc": "string"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_guilds_guild_id_channels",
@@ -1300,7 +1409,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "post_guilds_guild_id_channels",
@@ -1339,7 +1450,9 @@
         "private_user_ids": "array",
         "speak_permission": "integer",
         "application_id": "string"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_guilds_guild_id_members",
@@ -1361,7 +1474,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "delete_guilds_guild_id_members_user_id",
@@ -1387,7 +1502,9 @@
       "body_types": {
         "add_blacklist": "boolean",
         "delete_history_msg_days": "integer"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_guilds_guild_id_members_user_id",
@@ -1407,7 +1524,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "patch_guilds_guild_id_members_user_id_mute",
@@ -1433,7 +1552,9 @@
       "body_types": {
         "mute_end_timestamp": "string",
         "mute_seconds": "string"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "delete_guilds_guild_id_members_user_id_roles_role_id",
@@ -1458,7 +1579,9 @@
       "required_body_fields": [],
       "body_types": {
         "channel": "object"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "put_guilds_guild_id_members_user_id_roles_role_id",
@@ -1483,7 +1606,9 @@
       "required_body_fields": [],
       "body_types": {
         "channel": "object"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_guilds_guild_id_message_setting",
@@ -1502,7 +1627,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "patch_guilds_guild_id_mute",
@@ -1529,7 +1656,9 @@
         "mute_end_timestamp": "string",
         "mute_seconds": "string",
         "user_ids": "object"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_guilds_guild_id_roles",
@@ -1548,7 +1677,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "post_guilds_guild_id_roles",
@@ -1575,7 +1706,9 @@
         "name": "string",
         "color": "integer",
         "hoist": "integer"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "delete_guilds_guild_id_roles_role_id",
@@ -1595,7 +1728,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "patch_guilds_guild_id_roles_role_id",
@@ -1623,7 +1758,9 @@
         "name": "string",
         "color": "integer",
         "hoist": "integer"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_guilds_guild_id_roles_role_id_members",
@@ -1635,7 +1772,7 @@
         "role_id"
       ],
       "query_fields": [
-        "after",
+        "start_index",
         "limit"
       ],
       "category": "channel",
@@ -1646,7 +1783,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "put_interactions_interaction_id",
@@ -1669,7 +1808,9 @@
       "required_body_fields": [],
       "body_types": {
         "code": "integer"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "post_users_me_dms",
@@ -1695,7 +1836,9 @@
       "body_types": {
         "recipient_id": "string",
         "source_guild_id": "string"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_users_me_guilds",
@@ -1716,7 +1859,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_gateway",
@@ -1733,7 +1878,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_gateway_bot",
@@ -1750,7 +1897,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "get_v2_media_images",
@@ -1769,7 +1918,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "post_v2_media_images_complete",
@@ -1795,7 +1946,9 @@
       "body_types": {
         "upload_id": "string",
         "md5": "string"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "post_v2_media_images_prepare",
@@ -1830,7 +1983,9 @@
         "content_type": "string",
         "md5": "string",
         "sha1": "string"
-      }
+      },
+      "required_query_fields": [],
+      "query_defaults": {}
     },
     {
       "id": "delete_v2_media_images_image_id_delete",
@@ -1849,7 +2004,9 @@
       "live_status": "not_tested",
       "body_fields": [],
       "required_body_fields": [],
-      "body_types": {}
+      "body_types": {},
+      "required_query_fields": [],
+      "query_defaults": {}
     }
   ]
 }

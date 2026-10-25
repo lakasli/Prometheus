@@ -29,6 +29,10 @@ pub struct Operation {
     pub path: String,
     pub parameters: Vec<String>,
     pub query_fields: Vec<String>,
+    #[serde(default)]
+    pub required_query_fields: Vec<String>,
+    #[serde(default)]
+    pub query_defaults: BTreeMap<String, String>,
     pub body_fields: Vec<String>,
     pub required_body_fields: Vec<String>,
     pub category: String,
@@ -133,14 +137,45 @@ pub fn build_request(
         {
             return Err(ApiError::bad("qq_query", "查询参数不被该接口允许或超限"));
         }
+        let maximum = if op.id == "get_v2_panels" || op.path.contains("/reactions/") {
+            50
+        } else {
+            400
+        };
         if key == "limit"
             && value
                 .parse::<u32>()
-                .map(|n| n == 0 || n > 400)
+                .map(|n| n == 0 || n > maximum)
                 .unwrap_or(true)
         {
-            return Err(ApiError::bad("qq_query", "分页数量须在1到400之间"));
+            return Err(ApiError::bad(
+                "qq_query",
+                format!("该接口分页数量须在1到{maximum}之间"),
+            ));
         }
+    }
+    for required in &op.required_query_fields {
+        if input
+            .query
+            .get(required)
+            .is_none_or(|value| value.is_empty())
+        {
+            return Err(ApiError::bad(
+                "qq_required_query",
+                format!("缺少查询参数{required}"),
+            ));
+        }
+    }
+    if op.id == "get_v2_panels"
+        && !input
+            .query
+            .get("scope")
+            .is_some_and(|value| matches!(value.as_str(), "c2c" | "group" | "channel" | "dm"))
+    {
+        return Err(ApiError::bad(
+            "qq_panel_scope",
+            "指令面板scope须为c2c/group/channel/dm",
+        ));
     }
     if input.body.as_ref().map(|b| !b.is_object()).unwrap_or(false) {
         return Err(ApiError::bad("qq_body", "请求体必须为JSON对象"));
@@ -495,6 +530,7 @@ async fn read_probe(
             .collect();
         let input = ExecuteBody {
             parameters,
+            query: op.query_defaults.clone(),
             ..Default::default()
         };
         results.push(execute_operation(&state, &admin, op, &input).await?);
@@ -622,6 +658,25 @@ mod tests {
             .query
             .insert("url".into(), "https://attacker.invalid".into());
         assert!(build_request(op, &input).is_err());
+    }
+
+    #[test]
+    fn panel_listing_requires_an_official_scope_and_its_documented_page_limit() {
+        let op = operations()
+            .iter()
+            .find(|o| o.id == "get_v2_panels")
+            .unwrap();
+        let mut input = ExecuteBody::default();
+        assert!(build_request(op, &input).is_err());
+        input.query = op.query_defaults.clone();
+        assert_eq!(build_request(op, &input).unwrap().1["scope"], "c2c");
+        input.query.insert("scope".into(), "private".into());
+        assert!(build_request(op, &input).is_err());
+        input.query.insert("scope".into(), "c2c".into());
+        input.query.insert("limit".into(), "51".into());
+        assert!(build_request(op, &input).is_err());
+        input.query.insert("limit".into(), "50".into());
+        assert!(build_request(op, &input).is_ok());
     }
     #[test]
     fn opaque_media_credentials_are_redacted_recursively() {

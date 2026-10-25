@@ -29,6 +29,77 @@ from contextlib import closing
 PREFIX = '/api/admin/v1'
 
 
+def ordered_operations(operations):
+    priorities = {'get_guilds_guild_id': 10, 'get_guilds_guild_id_channels': 11,
+                  'get_guilds_guild_id_roles': 12}
+    def order(operation):
+        if not operation['read_only']:
+            return 1000, operation['id']
+        if not operation['parameters']:
+            return 0, operation['id']
+        if operation['id'] in priorities:
+            return priorities[operation['id']], operation['id']
+        if 'thread_id' in operation['parameters'] or 'schedule_id' in operation['parameters']:
+            return 40, operation['id']
+        return 20, operation['id']
+    return sorted(operations, key=order)
+
+
+def discover_resources(operation_id, data, resources, counts):
+    if operation_id == 'get_users_me' and isinstance(data, dict) and isinstance(data.get('id'), str):
+        resources.setdefault('user_id', data['id'])
+    if operation_id == 'get_users_me_guilds' and isinstance(data, list):
+        counts['guilds_returned_on_first_page'] = len(data)
+        if data and isinstance(data[0].get('id'), str):
+            resources.setdefault('guild_id', data[0]['id'])
+    if operation_id == 'get_guilds_guild_id_channels' and isinstance(data, list):
+        counts['channels_returned'] = len(data)
+        for channel in data:
+            if not isinstance(channel, dict) or not isinstance(channel.get('id'), str):
+                continue
+            resources.setdefault('channel_id', channel['id'])
+            kind = channel.get('type')
+            alias = '_text_channel_id' if kind == 0 else '_audio_channel_id' if kind in (2, 10005) else '_forum_channel_id' if kind == 10007 else '_schedule_channel_id' if kind == 10006 and str(channel.get('application_id')) == '1000050' else None
+            if alias:
+                resources.setdefault(alias, channel['id'])
+                counts[alias[1:].replace('_id', '_count')] = counts.get(alias[1:].replace('_id', '_count'), 0) + 1
+    if operation_id == 'get_guilds_guild_id_roles' and isinstance(data, dict):
+        roles = data.get('roles')
+        if isinstance(roles, list):
+            counts['roles_returned'] = len(roles)
+            if roles and isinstance(roles[0].get('id'), str):
+                resources.setdefault('role_id', roles[0]['id'])
+    if operation_id == 'get_v2_panels' and isinstance(data, dict) and isinstance(data.get('records'), list):
+        counts['c2c_panels_returned_on_first_page'] = len(data['records'])
+        if data['records'] and isinstance(data['records'][0].get('panel_id'), str):
+            resources.setdefault('panel_id', data['records'][0]['panel_id'])
+    if operation_id == 'get_channels_channel_id_schedules' and isinstance(data, list):
+        counts['schedules_returned'] = len(data)
+        if data and isinstance(data[0].get('id'), str):
+            resources.setdefault('schedule_id', data[0]['id'])
+    if operation_id == 'get_channels_channel_id_threads' and isinstance(data, dict) and isinstance(data.get('threads'), list):
+        counts['threads_returned'] = len(data['threads'])
+        if data['threads']:
+            info = data['threads'][0].get('thread_info', {})
+            if isinstance(info.get('thread_id'), str):
+                resources.setdefault('thread_id', info['thread_id'])
+
+
+def parameters_for(operation, resources, explicitly_supplied):
+    missing = [name for name in operation['parameters'] if name not in resources]
+    if missing:
+        return None, missing
+    parameters = {name: resources[name] for name in operation['parameters']}
+    if 'channel_id' in parameters and 'channel_id' not in explicitly_supplied:
+        path = operation['path']
+        alias = '_audio_channel_id' if path.endswith('/online_nums') else '_forum_channel_id' if '/threads' in path else '_schedule_channel_id' if '/schedules' in path else '_text_channel_id' if '/pins' in path else None
+        if alias:
+            if alias not in resources:
+                return None, [alias.lstrip('_')]
+            parameters['channel_id'] = resources[alias]
+    return parameters, []
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True)
@@ -91,6 +162,8 @@ def main():
             resources = json.loads(pathlib.Path(args.parameters_file).read_text())
             if not isinstance(resources, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in resources.items()):
                 raise ValueError('authorized resource map must contain strings')
+        explicitly_supplied = set(resources)
+        report['resource_discovery'] = {}
 
         temporary = tempfile.TemporaryDirectory(prefix='dsh-qq-api-live-')
         temp = temporary.name
@@ -117,7 +190,7 @@ def main():
         catalog = harness.request('GET', route)[0]
         check('fixed QQ API catalog excludes group endpoints and model tool access', catalog['operation_count'] >= 77 and not catalog['group_apis'] and not catalog['model_tool_access'])
         check('C2C reply contract uses current four-reply bound', catalog['c2c_reply_limit'] == 4)
-        operations = catalog['operations']
+        operations = ordered_operations(catalog['operations'])
         # Header-only metadata reports are deliberately built separately from
         # actual platform response bodies, which may contain personal data.
         for operation in operations:
@@ -127,27 +200,25 @@ def main():
                 item['outcome'] = 'not_executed_write'
                 report['operations'].append(item)
                 continue
-            missing = [p for p in operation['parameters'] if p not in resources]
+            parameters, missing = parameters_for(operation, resources, explicitly_supplied)
             if missing:
                 item['outcome'] = 'requires_resource'
                 item['missing_parameters'] = missing
                 report['operations'].append(item)
                 continue
-            parameters = {name: resources[name] for name in operation['parameters']}
             # Use a longer HTTP timeout than the daemon's bounded QQ request.
             headers = {'Origin': harness.base, 'Content-Type': 'application/json', 'X-CSRF-Token': harness.csrf}
             request = urllib.request.Request(harness.base + PREFIX + '/qq/api/operations/' + op_id,
-                json.dumps({'parameters': parameters}).encode(), headers, method='POST')
+                json.dumps({'parameters': parameters, 'query': operation.get('query_defaults', {})}).encode(), headers, method='POST')
             with harness.client.open(request, timeout=55) as response:
                 result = json.load(response)
             item.update({name: result.get(name) for name in ['outcome', 'http_status', 'business_code', 'trace_id']})
             report['operations'].append(item)
             data = result.get('response')
-            if result.get('platform_accepted') and op_id == 'get_users_me' and isinstance(data, dict) and isinstance(data.get('id'), str):
-                resources.setdefault('user_id', data['id'])
-            if result.get('platform_accepted') and op_id == 'get_users_me_guilds' and isinstance(data, list) and data:
-                if isinstance(data[0].get('id'), str):
-                    resources.setdefault('guild_id', data[0]['id'])
+            if result.get('platform_accepted'):
+                discover_resources(op_id, data, resources, report['resource_discovery'])
+                if (op_id == 'get_channels_channel_id_threads' and isinstance(data, dict) and data.get('threads')) or (op_id == 'get_channels_channel_id_schedules' and isinstance(data, list) and data):
+                    report['real_user_content_accessed'] = True
             print('QQ ' + op_id + ': ' + str(item['outcome']) + ' HTTP=' + str(item.get('http_status')) + ' code=' + str(item.get('business_code')), flush=True)
             time.sleep(.4)
         report['summary'] = {name: sum(item['outcome'] == name for item in report['operations']) for name in sorted({item['outcome'] for item in report['operations']})}
