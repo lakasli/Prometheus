@@ -1,6 +1,6 @@
 {
   "kind": "task triggers actual-process isolated acceptance",
-  "started_at": "2026-10-25T10:49:42.458237+00:00",
+  "started_at": "2026-10-25T11:00:50.738357+00:00",
   "commit": "development",
   "binary_sha256": "21e485581b0cdbaf3503475763bf252f03c4440135e4a3333d83958effcf0420",
   "platform": "Windows",
@@ -35,9 +35,12 @@
     "ordinary Run cancellation cannot bypass the automatic task state machine",
     "stop cancels current work and suppresses delivery rather than reporting a generated result",
     "automatic task Runs do not create implicit memory candidates or summaries",
-    "setup Skill migration does not resurrect an explicitly deleted default"
+    "setup Skill migration does not resurrect an explicitly deleted default",
+    "owned failed interaction produces one fixed event reminder without another model request",
+    "approved automatic native drawing uses exactly one image request without chat fallback or inline bytes",
+    "automatic task PNG bytes require authentication and occurrence ownership"
   ],
-  "finished_at": "2026-10-25T10:49:57.126807+00:00",
-  "passed": 24,
-  "mock_requests": 5
+  "finished_at": "2026-10-25T11:01:05.901932+00:00",
+  "passed": 27,
+  "mock_requests": 7
 }

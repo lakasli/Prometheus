@@ -1,0 +1,58 @@
+{
+  "kind": "task triggers remote browser acceptance",
+  "status": "passed",
+  "application_commit": "04fb8277e26dfa81c6e62599535c9e1aa704759c",
+  "binary_sha256": "409446048d1b5e9fe978136c54b9039ad8ffde55c5b6d10b2d017deae5206656",
+  "browser": "Chromium via Playwright",
+  "origin": "http://127.0.0.1:18421",
+  "remote_instance": "isolated Raspberry Pi daemon with exact release binary and static assets",
+  "production_data_accessed": false,
+  "provider": "synthetic loopback HTTP",
+  "specs": [
+    "characters.spec.ts",
+    "skills.spec.ts",
+    "task-triggers.spec.ts"
+  ],
+  "passed": 3,
+  "duration_seconds": 23.6,
+  "viewports": [
+    1440,
+    390,
+    320
+  ],
+  "screenshots": [
+    {
+      "path": ".local/trigger-e2e/screenshots/reminder-result-desktop.png",
+      "sha256": "afe0f1a8f60e4d60c49087b77acffd4a76239747039530ad595807b87604480b",
+      "reviewed": true
+    },
+    {
+      "path": ".local/trigger-e2e/screenshots/task-trigger-320.png",
+      "sha256": "efa55d2b2f92912cea89ef2b1a80f66563e58755d015c0276e4d77d13dfa9ffa",
+      "reviewed": true
+    },
+    {
+      "path": ".local/trigger-e2e/screenshots/task-trigger-390.png",
+      "sha256": "b4f84acaa7dd5e45e6906491de4a35d841c3d5a820853b73f25082ef3ad8019c",
+      "reviewed": true
+    },
+    {
+      "path": ".local/trigger-e2e/screenshots/workday-preview-desktop.png",
+      "sha256": "f7877231685221c63d8301dd412b2fbb35aadcdc0b5654c5425fa30cdc8264f5",
+      "reviewed": true
+    }
+  ],
+  "covered": [
+    "task saved disabled and reviewed activation",
+    "actual scheduled reminder and private result",
+    "setup model proposal review without auto-enabling",
+    "calendar source review and apply",
+    "workday preview with explicit IANA timezone",
+    "completed task state synchronized between list and detail",
+    "character layout and edited description regression",
+    "Skill creator HTML iframe and authenticated PNG regression",
+    "no horizontal overflow at mobile widths"
+  ],
+  "fixture_shutdown": true,
+  "temporary_tunnel_closed": true
+}

@@ -78,6 +78,8 @@ M2显式助手记忆切片已按稳定assistant identity实现并部署，覆盖
 
 图片理解按原架构接入普通对话：本轮仅Web单PNG，经VisionProvider生成带来源的视觉描述，再由现有Native角色与会话上下文回答；本轮已完成部署、浏览器及真实模型验收，见 [本轮记录](docs/conversation-images-validation.md) 与 [图片对话契约](docs/image-analysis.md)。此前独立PNG诊断接口的验收见 [历史图片记录](docs/image-analysis-validation.md)，不能据此宣称本轮已通过或QQ / 微信媒体、ASR / TTS已交付；不保留“图片分析”产品主导航。普通Run、候选与图片统一按实际持有的请求lease核算并发，取消逻辑状态不提前释放网络占用；纯调度租约重启清理，不将它当用户历史删除。
 
+任务触发正式 tab、持久调度及默认「设置触发任务」Skill 已实现并部署，运行 SHA、规则与中国 2026 年日历、隔离上下文、预算、事件范围和真实模型边界见 [任务触发验收](docs/task-triggers-validation.md)。模型只生成待审核草稿；结果仅入认证 Web 页面，未知日历年份阻断，不等同于 QQ / 微信主动推送、外部 webhook、完整 Cron 或通用工具执行。
+
 ## 8. 角色卡与参考源码
 
 - 角色卡遵循 [独立设计](docs/character-cards.md)：借鉴AIRI的CCv3角色内容及模块偏好方案，在Rust/Cordis与SQLite中重新实现，不直接复制、引用或依赖AIRI项目、默认人格与资源。

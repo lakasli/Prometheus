@@ -1,0 +1,145 @@
+{
+  "kind": "task triggers production deployment and preserved metadata",
+  "status": "passed",
+  "application_commit": "04fb8277e26dfa81c6e62599535c9e1aa704759c",
+  "extended_acceptance_source_commit": "47b967753149d90bffde48bf79ac07be5a1a7f21",
+  "frontend_archive_sha256": "2ee90540dd213f3efb52e3881025e2fb433ec4e35de5312e2fe1a4d0088eeb1a",
+  "target": "campanus@192.168.189.191",
+  "before": {
+    "verified_at": "2026-10-25T10:49:11.323151+00:00",
+    "release": "/home/campanus/apps/dsh/releases/1920ac9a17175406958282de844a254be01b8677",
+    "health": {
+      "commit": "1920ac9a17175406958282de844a254be01b8677",
+      "status": "ready"
+    },
+    "counts": {
+      "admins": 1,
+      "conversations": 4,
+      "messages": 20,
+      "runs": 10,
+      "memory_records": 0,
+      "memory_candidate_jobs": 0,
+      "summary_jobs": 0,
+      "skills": 2,
+      "character_cards": 2,
+      "secrets": 3
+    },
+    "configuration_revision": "4",
+    "production_data_modified": false
+  },
+  "after": {
+    "verified_at": "2026-10-25T11:03:37.957285+00:00",
+    "release": "/home/campanus/apps/dsh/releases/04fb8277e26dfa81c6e62599535c9e1aa704759c",
+    "source_commit": "04fb8277e26dfa81c6e62599535c9e1aa704759c",
+    "source_clean": true,
+    "health": {
+      "commit": "04fb8277e26dfa81c6e62599535c9e1aa704759c",
+      "status": "ready"
+    },
+    "web_manifest": {
+      "commit": "04fb8277e26dfa81c6e62599535c9e1aa704759c",
+      "api_version": 1
+    },
+    "binary_sha256": "409446048d1b5e9fe978136c54b9039ad8ffde55c5b6d10b2d017deae5206656",
+    "counts": {
+      "admins": 1,
+      "conversations": 4,
+      "messages": 20,
+      "runs": 10,
+      "memory_records": 0,
+      "memory_candidate_jobs": 0,
+      "summary_jobs": 0,
+      "secrets": 3,
+      "skills": 3,
+      "character_cards": 2,
+      "trigger_jobs": 0,
+      "trigger_occurrences": 0,
+      "trigger_execution_grants": 0
+    },
+    "configuration_revision": "4",
+    "production_native_image_enabled": false,
+    "setup_skill": {
+      "enabled": true,
+      "revision": 1,
+      "builtin": true
+    },
+    "service_active": "active",
+    "service_started_at": "Sun 2026-10-25 18:58:43 CST",
+    "service_rss_kib": 16712,
+    "ntp_synchronized": "yes",
+    "architecture": "aarch64",
+    "model": "Raspberry Pi 5 Model B Rev 1.1",
+    "os_release": "PRETTY_NAME=\"Ubuntu 24.04.4 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nVERSION=\"24.04.4 LTS (Noble Numbat)\"\nVERSION_CODENAME=noble\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=noble\nLOGO=ubuntu-logo\n",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)",
+    "cargo": "cargo 1.88.0 (873a06493 2025-05-10)",
+    "data_free_bytes": 34313469952,
+    "backup": {
+      "path": "/home/campanus/apps/dsh/shared/backups/pre-04fb8277e26dfa81c6e62599535c9e1aa704759c-20261025T105842991497355.sqlite",
+      "size": 667648,
+      "mode": "0o600"
+    },
+    "deployment": {
+      "commit": "04fb8277e26dfa81c6e62599535c9e1aa704759c",
+      "previous_release": "/home/campanus/apps/dsh/releases/1920ac9a17175406958282de844a254be01b8677",
+      "deployed_at": "2026-10-25T10:58:44.361601+00:00",
+      "os": "PRETTY_NAME=\"Ubuntu 24.04.4 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nVERSION=\"24.04.4 LTS (Noble Numbat)\"\nVERSION_CODENAME=noble\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=noble\nLOGO=ubuntu-logo\n",
+      "web_manifest": {
+        "commit": "04fb8277e26dfa81c6e62599535c9e1aa704759c",
+        "api_version": 1
+      }
+    },
+    "test_summary": [
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "test result: ok. 212 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 89.39s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+    ],
+    "release_build_summary": [
+      "    Finished `release` profile [optimized] target(s) in 3m 27s"
+    ],
+    "browser_fixture_shutdown": true
+  },
+  "existing_table_counts_and_configuration_revision_preserved": true,
+  "production_tasks_created": false,
+  "production_model_setting_modified": false,
+  "local_management_tunnel_18419_preserved": true,
+  "isolated_test_tunnel_18421_closed": true,
+  "rollback_executed": false,
+  "data_restore_executed": false,
+  "commands_exit_status": {
+    "local_rust": 0,
+    "frontend_test_build": 0,
+    "local_python_tests": 0,
+    "deploy_fixed_sha": 0,
+    "remote_rust": 0,
+    "remote_release_build": 0,
+    "remote_python_tests": 0,
+    "remote_management_character_skill_smoke": 0,
+    "remote_task_trigger_smoke": 0,
+    "remote_real_model": 0,
+    "remote_playwright": 0
+  },
+  "remote_results": {
+    "rust_kernel_tests": 4,
+    "rust_daemon_tests": 212,
+    "python_tests": 26,
+    "task_trigger_checks": 27,
+    "management_checks": 19,
+    "character_checks": 55,
+    "skill_checks": 20,
+    "real_model_checks": 9,
+    "real_model_requests": 3,
+    "browser_specs": 3,
+    "browser_duration_seconds": 23.6
+  },
+  "logs_root": "/home/campanus/apps/dsh/shared/logs",
+  "notes": [
+    "All test jobs and administrators were created in isolated temporary daemons, not production.",
+    "Extended acceptance commit changes only its Python test script; application behavior and deployed artifacts remain at the application commit.",
+    "Source, web manifest, health and Linux binary SHA256 were verified after all acceptance.",
+    "Real scheduled HTML output was statically checked; browser HTML rendering uses synthetic output.",
+    "Native PNG dispatch and decoding use a simulated provider; no external native image request was attempted."
+  ]
+}
