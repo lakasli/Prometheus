@@ -9,6 +9,9 @@ SPEC.loader.exec_module(MODULE)
 
 
 class StreamAndOwnershipTests(unittest.TestCase):
+    def test_source_age_is_estimated_from_frozen_c2c_deadline(self):
+        self.assertEqual(MODULE.source_age_estimate(4600, 1000), 0)
+        self.assertEqual(MODULE.source_age_estimate(4600, 1601), 601)
     def test_local_validation_rejection_is_distinct_from_uncertain_network_result(self):
         self.assertTrue(MODULE.is_known_local_rejection(MODULE.ControlsApiFailure(400, 'qq_parameters')))
         self.assertFalse(MODULE.is_known_local_rejection(MODULE.ControlsApiFailure(500, 'internal_error')))

@@ -67,6 +67,10 @@ def is_known_local_rejection(error):
     return isinstance(error, ControlsApiFailure) and 400 <= error.http_status < 500
 
 
+def source_age_estimate(deadline, at):
+    return max(0, 3600 - (int(deadline) - int(at)))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True)
@@ -141,7 +145,11 @@ def main():
         latest_qq, latest_target = media_helpers.source_context(source, source_run, required_marker=MARKER)
         check('explicit source remains unchanged before ' + kind, latest_qq == qq and latest_target == target)
         stage = kind
-        entry = {'kind': kind, 'operation': identifier, 'intent_recorded': True, 'outcome': 'request_pending'}
+        age = source_age_estimate(target['deadline'], time.time())
+        if 'first_platform_write_source_age_seconds_estimate' not in report:
+            report['first_platform_write_source_age_seconds_estimate'] = age
+            report['source_age_estimate_basis'] = '3600 - (frozen C2C reply deadline - current Unix seconds), recorded immediately before first platform operation; approximate event age'
+        entry = {'kind': kind, 'operation': identifier, 'intent_recorded': True, 'outcome': 'request_pending', 'source_age_seconds_estimate': age}
         report['operations'].append(entry)
         save()
         try:
