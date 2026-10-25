@@ -132,19 +132,31 @@ pub fn parse(raw: &str, config: &ReplyConfig) -> Result<ReplyPlan, String> {
     let trimmed = raw.trim();
     let fenced = trimmed
         .strip_prefix("```json\n")
+        .or_else(|| trimmed.strip_prefix("```json\r\n"))
         .or_else(|| trimmed.strip_prefix("```\n"))
+        .or_else(|| trimmed.strip_prefix("```\r\n"))
         .and_then(|s| s.strip_suffix("```"));
-    let (mut items, mut normalized) = if trimmed.starts_with('[') || fenced.is_some() {
+    let candidate = fenced.unwrap_or(trimmed).trim();
+    let (mut items, mut normalized) = if candidate.starts_with('[') {
         (
-            serde_json::from_str::<Vec<ReplyItem>>(fenced.unwrap_or(trimmed).trim())
+            serde_json::from_str::<Vec<ReplyItem>>(candidate)
                 .map_err(|_| "模型回复未符合逐句JSON列表契约".to_owned())?,
             fenced.is_some(),
+        )
+    } else if candidate.starts_with('{') {
+        // Some compatible providers omit the outer array for one item. Only
+        // the exact presentation schema can be normalized: tool envelopes,
+        // URLs, recipients and arbitrary object fields remain rejected.
+        (
+            vec![serde_json::from_str::<ReplyItem>(candidate)
+                .map_err(|_| "模型单项回复未符合受限呈现契约".to_owned())?],
+            true,
         )
     } else {
         // Older compatible providers may ignore the protocol. Normalize their
         // text; never forward a multi-sentence block as a single channel item.
-        if trimmed.starts_with('{') {
-            return Err("模型应返回JSON列表，不能返回对象或工具指令".into());
+        if fenced.is_some() || trimmed.starts_with("```") {
+            return Err("模型回复围栏内须为逐句JSON列表".into());
         }
         (
             sentences(trimmed)
@@ -413,5 +425,32 @@ mod tests {
         .is_err());
         assert!(parse("一。二。三。四。五。", &c).is_err());
         assert_eq!(parse("一句。两句。", &c).unwrap().items.len(), 2);
+    }
+    #[test]
+    fn a_single_exact_reply_can_be_normalized_but_tool_objects_remain_rejected() {
+        let c = ReplyConfig::default();
+        let p = parse(r#"{"type":"image","text":"原图。","asset_id":"60fcd0a4-aa5c-4edc-a519-7d9bca09c197","delay_ms":0}"#, &c).unwrap();
+        assert!(p.normalized);
+        assert_eq!(p.items.len(), 1);
+        assert_eq!(p.items[0].kind, "image");
+        assert!(parse(r#"{"type":"text","text":"一句。两句。"}"#, &c).is_err());
+        for raw in [
+            r#"{"tool":"send_image","url":"https://example.invalid/a.png"}"#,
+            r#"{"type":"image","text":"图片。","url":"https://example.invalid/a.png"}"#,
+            r#"{"type":"voice","text":"你好。","recipient":"other"}"#,
+            r#"{"items":[{"type":"text","text":"你好。"}]}"#,
+            r#"{"type":"shell","text":"运行。"}"#,
+        ] {
+            assert!(parse(raw, &c).is_err());
+        }
+        assert!(
+            parse(
+                "```json\r\n[{\"type\":\"text\",\"text\":\"你好。\"}]\r\n```",
+                &c
+            )
+            .unwrap()
+            .normalized
+        );
+        assert!(parse("```json\nnot JSON\n```", &c).is_err());
     }
 }
