@@ -60,3 +60,5 @@ QQ 本条图片回传修复发布 `c75b868e33fea4a3c6065d2d593acaeb19847fc7` 后
 同版工厂 [19 项正式回归](validation/plugin-factory-c75b868-aarch64.json)通过，包含原 18 项及新增显式 Web `/plugin` 调用的受控模型回归。Linux 全量 262 个 daemon、4 个 kernel 测试通过。隔离策略、Component 工具链与权限范围维持不变；真实模型生成仍只使用前述 `615c758…` 的一次预算，没有为后续回归重复消耗或自动批准生产插件。当前整体语音 / 媒体状态见 [本轮验收](voice-plugins-validation.md)。
 
 2026-10-26 00:16（+08:00）在真实认证 Edge 页面再次刷新，确认页脚 `Web c75b868e33` 及生产版本列表为空。单次“检查构建环境”显示 v3 策略、8 项拒绝 / 允许探针以及 clone / ioctl / FD / rlimit 检查全真；随后 SSH 查询该精确临时 unit，`MainPID=0`、`ActiveState=inactive`、`LoadState=not-found`、ControlGroup 为空。[页面观察记录](validation/plugin-factory-ui-c75b868.json)与正式回归分开，未保存截图文件、创建插件版本或执行生产批准。
+
+后续应用 `ad9c13082f511a309db0124ddfffefad540b8ecc` 仅修复 QQ 大文件分片编号及降级原因，已正式部署；工厂源码、Wasmtime / WIT、隔离策略与授权范围未变。本次 Linux 全量 265 + 4 通过，新增工厂真实生成请求为 0，不把已有 `615c758…` 的单次真实模型报告改写为新 SHA 的报告。当前制品、QQ 平台与客户端证据见 [本轮验收](voice-plugins-validation.md)。

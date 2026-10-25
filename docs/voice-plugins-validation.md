@@ -1,6 +1,6 @@
 # 本地语音、逐句富媒体、QQ 非群 API 与插件工厂验收
 
-日期：2026-10-25，Asia/Shanghai。本文记录本轮实际结果；原架构的完整 M3 / M4 / M5 退出条件维持不变。协议模拟、真实模型、真实 QQ 平台和客户端观察分别列示。
+日期：2026-10-25 至 2026-10-26，Asia/Shanghai。本文记录本轮实际结果；原架构的完整 M3 / M4 / M5 退出条件维持不变。协议模拟、真实模型、真实 QQ 平台和客户端观察分别列示。
 
 ## 发布与环境
 
@@ -16,12 +16,15 @@
 | QQ 媒体和工厂工具链修复 | `25d973820568d72c7ace88bd8239b15c8ee29f56` | 已部署健康；32 个独立沙箱探针通过，Rust 编译管道操作被拒，后续继续最小修复 |
 | 完成 Component 实例化与 clone 参数边界 | `615c7587c1c4b8cee5af69b4d13e572ed5534f49` | 正式部署 ready；工厂 release 18 项、32 个新工作器及单次真实模型 7 项全部通过；普通 QQ 原图回发仍暴露下述模型动作缺失 |
 | 明确本条附图回传与最终回归 | `c75b868e33fea4a3c6065d2d593acaeb19847fc7` | 正式部署 ready；Linux 262 + 4、工厂 19、逐句 13、Piper 16 通过；普通 QQ 新消息 text＋image 及桌面实际回图通过 |
+| 大文件分片序号兼容与降级原因 | `ad9c13082f511a309db0124ddfffefad540b8ecc` | 当前正式 ready；Linux 265 + 4、逐句 13 通过；6.3MB 合成 MP4 的预上传 / PUT / 完成 / 发送路径及 QQ 播放通过，独立 HTTP 与流程推论分开记录 |
 
 初次失败的日志保留在 `shared/logs/test-6f196e8f8d2513c124e1fbdd59c8ae4eac9af95b.log` 与 `plugin-factory-6f196e8.json`，不将失败写成通过。ABI 修复在本地改为 `std::ffi::c_char`，提交 `4e1b76c`，按同一完整流程重新部署。
 
 `2c709999…` 的二进制 SHA-256 为 `f5bfff3186d6f955f79f71ed932cddfe7565de621347cdc6802b47a3c3c338b1`，前端压缩包为 `2e87592e1d2b44e409f407d7de75d545066a89bb87281c6776a1c260f1bf21ad`。`387652c…` 前端包为 `db93c9455287b68835dfa30cf8126c4d3258931a2681a7fac9c711b77f4ca5b6`。部署日志使用 `shared/logs/test-<完整SHA>.log`、`build-<完整SHA>.log`；切换前保存独立 SQLite 备份。前一可用版本最初为 `04fb8277e26dfa81c6e62599535c9e1aa704759c`。
 
-当前正式 `c75b868…` 的二进制 SHA-256 为 `9a148978909efb2d6825faa1b4ff17f2a291b88c9d3ee81dc733a159155ebf0a`，前端包为 `5dbcde267f844a1245a9292999452fba533899fb85475a779d497ca3ac3f3275`。2026-10-25 23:27（+08:00）核对 `current`、源码 HEAD、`/health/ready.commit` 和前端 `release.json` 一致，服务 ready；release 编译 8 分 18 秒。上一版本 `615c758…` 保留，切换前备份为 `shared/backups/pre-c75b868e33fea4a3c6065d2d593acaeb19847fc7-20261025T152319130526256.sqlite`；没有执行生产回滚演练。
+上一正式 `c75b868…` 的二进制 SHA-256 为 `9a148978909efb2d6825faa1b4ff17f2a291b88c9d3ee81dc733a159155ebf0a`，前端包为 `5dbcde267f844a1245a9292999452fba533899fb85475a779d497ca3ac3f3275`。2026-10-25 23:27（+08:00）核对 `current`、源码 HEAD、`/health/ready.commit` 和前端 `release.json` 一致，服务 ready；release 编译 8 分 18 秒。此前版本 `615c758…` 保留，切换前备份为 `shared/backups/pre-c75b868e33fea4a3c6065d2d593acaeb19847fc7-20261025T152319130526256.sqlite`；没有执行生产回滚演练。
+
+当前正式为 `ad9c13082f511a309db0124ddfffefad540b8ecc`，2026-10-26 00:49（+08:00）四方版本核对一致、服务 active / ready。二进制 SHA-256 `c768a38c4196cca3383a06d24d52fb3e15094ed64e1a13cf2991b3ea90af3e7a`，前端包 `a0840ce78c5239e802a0b4b0e7dfd9f61e6b28907d1dbc37a5596af646164e03`；Linux 测试 265 + 4 全通过，release 构建 8 分 14 秒。本次保持单并发并沿用 `DSH_CARGO_MIRROR=rsproxy`；首次默认索引获取已在核实精确 Cargo PID 后停止，没有停止生产服务或切换版本，其日志另存 `test-ad9c13082f511a309db0124ddfffefad540b8ecc.index-attempt.log`。切换前备份为 `shared/backups/pre-ad9c13082f511a309db0124ddfffefad540b8ecc-20261025T164855381237361.sqlite`，上一可用 `c75b868…` 保留。
 
 ## 本地 Piper 与语音闭环
 
@@ -67,7 +70,11 @@
 
 `c75b868…` 上另用 6,302,964 字节的合成填充 MP4 验证大文件路径，[首次分片测试失败](validation/qq-multipart-c75b868-aarch64.json)：Rust 文件校验通过，但实际发送降级成文字，无法定位内部失败阶段，预上传和分片完成没有独立 HTTP 证据。该次 `sent` 不能算视频成功；未改变上面的 19 项直接回执统计，原测试源不重试。小 MP4 成功不扩展为大文件已可用。
 
-之后两个新的测试上下文只做单次预上传，均得到 HTTP200 和匹配的调用表记录，未上传分片或发送消息；有界形状确认平台返回整数 index=1，与官方零起始示例有差异。它们只新增同一个操作的直接证据，因此当前累计为 [20/77 项](validation/qq-api-coverage-after-prepare.json)，18 项缺资源、39 项写入未执行；分片完成和大文件视频送达仍未通过。
+之后两个新的测试上下文只做单次预上传，均得到 HTTP200 和匹配的调用表记录，未上传分片或发送消息；有界形状确认平台返回整数 index=1，与官方零起始示例有差异。它们只新增同一个操作的直接证据，因此该阶段累计为 [20/77 项](validation/qq-api-coverage-after-prepare.json)，18 项缺资源、39 项写入未执行；当时分片完成和大文件视频送达仍未通过。
+
+后续 `ad9c130…` 接受从 0 或 1 开始的严格连续整数序列，在任一 PUT 前验证全组，切片始终按数组位置计算，finish 原样回传服务端序号；没有增加重试或放宽 URL / 目标权限。新的独立测试源完成 [6.3MB 大文件流程](validation/qq-multipart-ad9c130-aarch64.json)：Outbox 和 part 均 sent、有消息 ID、error 为空，退出 0，未文字降级；精确私有进程和凭据副本均已清理。`upload_part_finish` 的成功来自固定 Rust 流程必经步骤，未单独捕获其 HTTP 码，因此仍为 **20 个独立 HTTP 接受＋1 个额外必经流程通过**，其余 18 项缺资源、38 项写入未执行，见 [最终分类](validation/qq-api-coverage-after-multipart.json)。
+
+00:52 的 [QQ 客户端观察](validation/qq-multipart-client-ad9c130.json)确认新视频气泡、下载完成和独立播放器；AX 与画面均观察到 00:01／00:02，随后关闭播放器。机器报告保留原 `client_verified=false`，不改写为人工观察；该填充视频不代表高码率、全部编码或多个实际分片已测试。新版本另有 [逐句 13 项回归](validation/structured-replies-ad9c130-aarch64.json)全部通过。发生媒体降级时，现在保留受控阶段 / HTTP / 业务码原因，继续标记媒体失败；文字降级本身的未知状态仍阻断，不会降成可重试的已知失败。
 
 ## 正式插件工厂
 

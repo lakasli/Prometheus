@@ -130,6 +130,12 @@ journalctl --user -u dsh.service --no-pager -n 30
 
 官方 crates.io 连接不稳定时，可在部署命令前设置 `DSH_CARGO_MIRROR=rsproxy` 使用 HTTPS 镜像；仍以 `Cargo.lock` 和下载校验锁定依赖，不修改全局 Cargo 配置或源代码。默认不启用镜像。
 
+当前 Wasmtime 发布缓存沿用 rsproxy 来源，2026-10-26 的正式 `ad9c13082f511a309db0124ddfffefad540b8ecc` 实际使用下面的单并发命令。继续部署该主机时保持来源一致，可避免重新获取另一注册表的大型依赖；不要把首次索引下载或 SSH 连通记作构建成功。
+
+```sh
+DSH_BUILD_JOBS=1 DSH_CARGO_MIRROR=rsproxy bash /home/campanus/.cache/dsh/deploy.sh <SHA> /home/campanus/.cache/dsh/admin-<SHA>.tar.gz <SHA256>
+```
+
 在私有临时数据库执行黑盒验证：
 
 ```sh

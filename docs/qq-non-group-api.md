@@ -35,9 +35,15 @@ C2C 单 PNG 入站使用持久短期接收队列，验签 / 接收事务完成�
 
 2026-10-25 23:45 的首次大文件实测**未通过**。固定 `c75b868e33fea4a3c6065d2d593acaeb19847fc7` 程序接受了 6,302,964 字节的合成 MP4（2 秒视频加合法 `free` 填充，不是高码率视频），但真实 Outbox 最终走了“视频发送暂不可用”的文字降级。`sent` 和平台消息 ID 只证明这条降级文字已发送，不能证明视频、预上传或分片完成已获接受；两级 error 均非空。[原始失败报告](validation/qq-multipart-c75b868-aarch64.json)保留 `not_independently_verified`、HTTP / 业务码 null 和 `failed_or_unknown_no_replay`。其中 `operations[].evidence` 是成功判据的旧固定描述，本次实际未满足，应以 outcome、error 和终态为准。
 
-该次测试使用 `c81c62858b746102af8af79bb28c49c01890ebf7` 的独立脚本，生产库只读；真实 Rust 媒体校验、固定账号与目标、最小发送间隔检查均通过。私有 daemon 已确认退出，临时凭据副本已清理。源消息的持久一次性 claim 保留，不重放或换报告文件名重试。现有小文件 PNG / MP4 / WAV 成功证据仍分别有效，不能替代这次分片验收。当前程序未保留内部失败阶段，下一次诊断应使用新测试消息并单次核对预上传的实际回执，不猜测失败原因。
+该次测试使用 `c81c62858b746102af8af79bb28c49c01890ebf7` 的独立脚本，生产库只读；真实 Rust 媒体校验、固定账号与目标、最小发送间隔检查均通过。私有 daemon 已确认退出，临时凭据副本已清理。源消息的持久一次性 claim 保留，不重放或换报告文件名重试。现有小文件 PNG / MP4 / WAV 成功证据仍分别有效，不能替代这次分片验收。该次 c75 运行未保存内部失败阶段；随后诊断使用新测试消息并单次核对预上传的实际回执，没有猜测失败原因。
 
 2026-10-26 00:21 / 00:24（+08:00）分别使用新的专属测试消息，执行单次 prepare-only 诊断：[HTTP 回执](validation/qq-multipart-prepare-c75b868-aarch64.json)和[有界序号形状](validation/qq-multipart-indices-c75b868-aarch64.json)均为 HTTP200，与私有调用表相符，零 Outbox、无发送意图，临时进程和凭据均已清理。运行仍为 `c75b868…`，脚本分别为 `2473bd9…` / `c977092…`。真实响应 `parts[0].index` 是整数 **1**，全局与该片 block_size 均为 6,302,964 字节；当前官方表和示例从 0 编号，两者差异已记录，不能把 COS 地址的 partNumber 参数与 API index 混同。诊断没有上传分片、调用 finish 或发送视频，不能据此宣称大文件链路已通过。
+
+修复版 `ad9c13082f511a309db0124ddfffefad540b8ecc` 已于 00:49 正式部署 ready。序号仅兼容从 0 或 1 开始的严格连续整数，先验证整组再上传；字节偏移按数组位置，完成接口原样回传服务端 index，不猜测或自动重试另一个编号。媒体降级同时保留受控失败原因，文字若发送成功仍有非空 error 表示媒体未完成；文字发送结果未知时仍保持 unknown。
+
+00:50 新验收源的 [真实大文件流程报告](validation/qq-multipart-ad9c130-aarch64.json)退出 0：6,302,964 字节合成 MP4 经 Rust 的大文件 prepare → PUT → finish → files → message 固定路径，最终父回执和 part 均 sent、有平台 ID、error 为空，没有文字降级。私有 daemon 退出及目录 / 凭据副本清理均确认。内部请求未逐项保存 HTTP，因此 prepare 和 finish 的本轮状态为 `required_pipeline_passed`，不虚填 HTTP200 或实际分片数。[QQ 桌面观察](validation/qq-multipart-client-ad9c130.json)另证新视频下载并在独立播放器播放到 00:01／00:02；关闭播放器后回到会话。它不代表全部编码、20MiB 边界、多个实际分片或高码率视频均已验证。
+
+该大文件验收只在私有临时数据库构造已完成的合成 Run 和单个视频 Outbox，再由实际 `reply_delivery` 消费；生产数据库只读，不复制原会话历史。它验证真实视频发送后半段，不等同于普通模型自行选择 video 动作的验收，也不重发或修改生产中的旧 Run。
 
 ## 当前文档与历史资料的差异
 
@@ -135,9 +141,9 @@ python3 tools/qq-resource-live.py --binary <fixed-release>/bin/dshd --web-dir <f
 | `c86ddef2d837899bd2322bd642d37664ec04eea6` / `387652c94ac4abc887506abe5ea74112e604ce42` | 仅创建本次合成指令面板，绑定本人专属验收 Run 的目标；创建、详情、内容修改、解除/恢复该目标、删除全部 HTTP200。合成 PNG 素材预上传、签名 PUT、完成、列表和删除通过，既有面板/素材最终快照未改变，`cleanup_pending=false`。[专属资源报告](validation/qq-resource-387652c-r3.json)。 |
 | `45995830c108a563c3ca6b1d1982a4935d9ae235` / `25d973820568d72c7ace88bd8239b15c8ee29f56` | 新验收上下文的输入状态 seq2、Markdown seq3、该 Markdown 撤回、流式 seq4 的首片及结束片均 HTTP200。首个平台操作时源上下文约 862 秒，支持本账号本样本超过旧文档五分钟仍可被动回复，不能据此声称已测完整 60 分钟边界。[C2C 控制报告](validation/qq-controls-25d9738.json)。 |
 
-控制接口阶段累计为 [19/77 项](validation/qq-api-coverage-after-controls.json)；后续两个新的单次诊断为同一个预上传操作取得 HTTP200，因此当前累计 **20/77 个不同 HTTP 操作有真实平台接受证据**，其余 18 项缺资源、39 项写入未执行，逐项来源见[预上传后的累计证据](validation/qq-api-coverage-after-prepare.json)。重复调用、媒体类型和流式分片不重复计算接口数量，COS 签名 PUT 不计入 77 项。分片完成仍缺独立回执，不能称为全部非群 API 实机验收通过。
+控制接口阶段累计为 [19/77 项](validation/qq-api-coverage-after-controls.json)；后续两个新的单次诊断为同一个预上传操作取得 HTTP200，形成 [20 项独立 HTTP 接受](validation/qq-api-coverage-after-prepare.json)。大文件发送成功后，分片完成另有固定必经流程通过，但没有独立 HTTP 回执；[最终累计分类](validation/qq-api-coverage-after-multipart.json)为 **20 项直接接受＋1 项额外必经流程通过＋18 项缺资源＋38 项写入未执行＝77**。重复调用、媒体类型和流式分片不重复计算接口数量，COS 签名 PUT 不计入 77 项。不能称为全部非群 API 实机验收通过。
 
-上述四份仓库报告为本地验收原报告的逐字节副本，检查未包含凭据、file_info、预签名 URL、目标 ID 或聊天正文，无字段需脱敏；私有 ownership journal 未提交。机器报告保留 `client_verified=false` 或 `client_verification_included=false`，只表明其中记录的是平台结果；后续桌面观察须另记时间、画面与实际动作，不能改写原始报告或把 HTTP200 当作客户端输入状态、流式内容或撤回动画已被看见。
+上述原始机器报告副本均与本地验收原件逐字节一致，检查未包含凭据、file_info、预签名 URL、目标 ID 或聊天正文，无字段需脱敏；私有 ownership journal 未提交。机器报告保留 `client_verified=false` 或 `client_verification_included=false`，只表明其中记录的是平台结果；后续桌面观察须另记时间、画面与实际动作，不能改写原始报告或把 HTTP200 当作客户端输入状态、流式内容或撤回动画已被看见。
 
 最后一轮流式响应返回 36 字符 UUID 形式的 `stream_msg_id`，使用它调用普通消息撤回端点返回 HTTP400 / `40061001`（官方含义为请求参数无效）；同轮普通 Markdown 返回的 opaque 消息 ID 撤回已通过。流式首片与终片均被平台接受，流式撤回未通过，脚本没有猜测 ID 转换、改用其他字段或自动重试。该报告 `owned_message_cleanup_pending=true` 仅指本次合成流式消息未撤回，ownership journal 留在私有日志目录；不表示素材/面板清理失败，也不表示结果未知。官方已公开文档未说明 `stream_msg_id` 到普通撤回 `message_id` 的转换，待平台补充契约或提供可验证能力后继续单独验收。
 

@@ -1,0 +1,21 @@
+{
+  "kind": "manual QQ desktop observation of one new synthetic multipart-path video",
+  "observed_at": "2026-10-25T16:52:44Z",
+  "deployment_commit": "ad9c13082f511a309db0124ddfffefad540b8ecc",
+  "platform_report": "qq-multipart-ad9c130-aarch64.json",
+  "source_run_sha256": "f003a0d6844b59dabc256917291054baaaa7e2f04391b428dae241378c8703ae",
+  "fixture_sha256": "27c9497d696165a9cd044ac786929a3a2dab1fe87c44645a54b7f4bc0bd9fe82",
+  "fixture_bytes": 6302964,
+  "new_assistant_video_bubble_observed": true,
+  "download_completed": true,
+  "native_QQ_video_player_opened": true,
+  "synthetic_colour_test_frame_observed": true,
+  "playback_position_observed": "00:01",
+  "duration_observed": "00:02",
+  "playback_position_and_duration_confirmed_in_accessibility_tree": true,
+  "client_verified": true,
+  "player_closed_after_observation": true,
+  "messages_retracted_or_replayed": false,
+  "screenshot_file_saved": false,
+  "boundary": "Only this new owned two-second synthetic clip was observed. The trailing MP4 free-box padding is not high video bitrate. This does not establish arbitrary codecs, long videos, multiple actual upload parts, or the 20MiB boundary; the machine report retains client_verified=false and its original HTTP evidence limits."
+}
