@@ -17,6 +17,18 @@ RESOURCE = module('qq_resource_scope_tests', 'qq-resource-live.py')
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_platform_omitted_empty_panel_records_require_terminal_page_evidence(self):
+        self.assertEqual(PROBE.panel_records({'is_end': True}), [])
+        self.assertEqual(PROBE.panel_records({'is_end': True, 'records': None}), [])
+        for malformed in [{}, {'is_end': False}, {'is_end': True, 'next_cursor': 'next'}, {'is_end': True, 'records': 'not-a-list'}]:
+            with self.assertRaises(ValueError):
+                PROBE.panel_records(malformed)
+
+    def test_actual_empty_panel_response_records_a_count_of_zero(self):
+        resources, counts = {}, {}
+        PROBE.discover_resources('get_v2_panels', {'is_end': True}, resources, counts)
+        self.assertEqual(counts['c2c_panels_returned_on_first_page'], 0)
+        self.assertNotIn('panel_id', resources)
     def test_resource_discovery_precedes_dependent_reads(self):
         items = [
             {'id': 'get_channels_channel_id_threads_thread_id', 'read_only': True, 'parameters': ['channel_id', 'thread_id']},

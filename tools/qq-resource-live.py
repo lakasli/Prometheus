@@ -185,6 +185,7 @@ def main():
     try:
         helpers = load_module('qq_resource_helpers', 'memory-smoke.py')
         media_helpers = load_module('qq_synthetic_media_helpers', 'qq-media-live.py')
+        discovery_helpers = load_module('qq_resource_discovery_helpers', 'qq-api-live.py')
         with closing(sqlite3.connect((source / 'dsh.db').as_uri() + '?mode=ro', uri=True)) as database:
             database.execute('PRAGMA query_only=ON')
             raw = database.execute("SELECT c.config_json FROM config_revisions c JOIN settings s ON s.key='active_revision' AND c.revision=CAST(s.value AS INTEGER)").fetchone()
@@ -225,8 +226,9 @@ def main():
         check('initial panel and material snapshots are accepted', panels.get('platform_accepted') and materials.get('platform_accepted'))
         panel_data = panels.get('response', {})
         material_data = materials.get('response', {})
-        check('initial snapshot response contracts are recognized', isinstance(panel_data.get('records'), list) and isinstance(material_data.get('images'), list))
-        initial_panels = {entry['panel_id'] for entry in panel_data['records']}
+        records = discovery_helpers.panel_records(panel_data)
+        check('initial snapshot response contracts are recognized', isinstance(records, list) and isinstance(material_data.get('images'), list))
+        initial_panels = {entry['panel_id'] for entry in records}
         initial_materials = {entry['image_id'] for entry in material_data['images']}
         check('initial snapshots cover all existing resource IDs', not panel_data.get('next_cursor') and not material_data.get('next_cursor'))
         report['initial_panel_count'] = len(initial_panels)
@@ -272,7 +274,7 @@ def main():
                 cleanup('material', initial_materials, 'delete_v2_media_images_image_id_delete', 'image_id')
         final_panels = operation('get_v2_panels', query={'scope': 'c2c', 'limit': '50'})
         final_materials = operation('get_v2_media_images')
-        panel_ids = {item.get('panel_id') for item in final_panels.get('response', {}).get('records', [])}
+        panel_ids = {item.get('panel_id') for item in discovery_helpers.panel_records(final_panels.get('response', {}))}
         image_ids = {item.get('image_id') for item in final_materials.get('response', {}).get('images', [])}
         check('all prior panels and materials remain and owned probes are gone', final_panels.get('platform_accepted') and final_materials.get('platform_accepted') and initial_panels <= panel_ids and initial_materials <= image_ids and journal.get('panel', {}).get('id') not in panel_ids and journal.get('material', {}).get('id') not in image_ids and not journal.get('panel_create_unresolved') and not journal.get('material_create_unresolved'))
         report['status'] = 'failed_with_explicit_platform_results' if failed else 'passed_owned_resource_crud'

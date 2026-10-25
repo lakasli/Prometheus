@@ -29,6 +29,19 @@ from contextlib import closing
 PREFIX = '/api/admin/v1'
 
 
+def panel_records(data):
+    if not isinstance(data, dict):
+        raise ValueError('panel listing must be an object')
+    records = data.get('records')
+    if isinstance(records, list):
+        return records
+    # The live platform omits an empty repeated field. Accept the omission only
+    # when it explicitly declares the terminal page without a further cursor.
+    if records is None and data.get('is_end') is True and not data.get('next_cursor'):
+        return []
+    raise ValueError('panel record list cannot be established')
+
+
 def ordered_operations(operations):
     priorities = {'get_guilds_guild_id': 10, 'get_guilds_guild_id_channels': 11,
                   'get_guilds_guild_id_roles': 12}
@@ -69,10 +82,15 @@ def discover_resources(operation_id, data, resources, counts):
             counts['roles_returned'] = len(roles)
             if roles and isinstance(roles[0].get('id'), str):
                 resources.setdefault('role_id', roles[0]['id'])
-    if operation_id == 'get_v2_panels' and isinstance(data, dict) and isinstance(data.get('records'), list):
-        counts['c2c_panels_returned_on_first_page'] = len(data['records'])
-        if data['records'] and isinstance(data['records'][0].get('panel_id'), str):
-            resources.setdefault('panel_id', data['records'][0]['panel_id'])
+    if operation_id == 'get_v2_panels':
+        try:
+            records = panel_records(data)
+        except ValueError:
+            records = None
+        if records is not None:
+            counts['c2c_panels_returned_on_first_page'] = len(records)
+            if records and isinstance(records[0].get('panel_id'), str):
+                resources.setdefault('panel_id', records[0]['panel_id'])
     if operation_id == 'get_channels_channel_id_schedules' and isinstance(data, list):
         counts['schedules_returned'] = len(data)
         if data and isinstance(data[0].get('id'), str):
