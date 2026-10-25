@@ -5,6 +5,7 @@ No production data or credentials are read. All task bodies, model outputs and
 accounts are synthetic; the report contains only hashes, check names and counts.
 """
 import argparse
+import base64
 import copy
 import hashlib
 import http.server
@@ -17,6 +18,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.request
 import uuid
 
 sys.dont_write_bytecode = True
@@ -58,6 +60,7 @@ class Mock:
     def __init__(self):
         self.lock = threading.Lock()
         self.requests = []
+        self.image_requests = 0
         self.hold_release = threading.Event()
         self.hold_received = threading.Event()
         self.setup_proposal = model_definition()
@@ -70,9 +73,17 @@ class Mock:
         with self.lock:
             return copy.deepcopy(self.requests)
 
+    def image_count(self):
+        with self.lock:
+            return self.image_requests
+
     def respond(self, path, payload):
+        image = path.rstrip('/').endswith('/images/generations')
         with self.lock:
             self.requests.append(payload)
+            self.image_requests += int(image)
+        if image:
+            return 200, {'data': [{'b64_json': base64.b64encode(skills.images.png()).decode()}]}
         question = skills.Mock.question(payload)
         if 'TRIGGER_SETUP_PROBE' in question:
             content = '```json\n' + json.dumps({'task_trigger_draft': self.setup_proposal}) + '\n```'
@@ -325,6 +336,46 @@ def main():
                 harness.stop(); harness.start(); harness.login(); acknowledge_clock(harness)
                 check('setup Skill migration does not resurrect an explicitly deleted default',
                       all(item['id'] != 'task-trigger-setup' for item in harness.call('GET', PREFIX + '/skills')[0]['items']))
+                failed_event = definition('event')
+                failed_event['trigger']['cooldown_seconds'] = 0
+                failed_notice = activate(harness, create(harness, failed_event), failed_event)
+                producer = harness.conversation('Synthetic failed event producer')
+                failure_requests_before = mock.count()
+                failed_run = harness.wait_run(harness.submit(producer, 'force-error-event'))
+                failure_result = wait_occurrence(harness, failed_notice)
+                time.sleep(0.2)
+                check('owned failed interaction produces one fixed event reminder without another model request',
+                      failed_run['status'] == 'failed' and failure_result['status'] == 'completed'
+                      and failure_result['response'] == failed_event['action']['content']
+                      and len(occurrences(harness, failed_notice)) == 1
+                      and failure_result.get('run_id') is None and mock.count() == failure_requests_before + 1)
+                manage(harness, failed_notice, 'pause')
+                skills.configure(harness, True)
+                drawing = next(item for item in harness.call('GET', PREFIX + '/skills')[0]['items']
+                               if item['id'] == 'drawing')
+                native = model_definition('TASK_NATIVE_DRAWING_PROBE',
+                                          skill={'id': drawing['id'], 'revision': drawing['revision']})
+                native['action']['output_mode'] = 'native_image'
+                requests_before, images_before = mock.count(), mock.image_count()
+                image_job = activate(harness, create(harness, native), native)
+                image_result = wait_occurrence(harness, image_job)
+                image_url = image_result.get('generated_image_url')
+                check('approved automatic native drawing uses exactly one image request without chat fallback or inline bytes',
+                      image_result['status'] == 'completed' and image_result['delivery_status'] == 'stored'
+                      and image_url == ROOT + '/occurrences/' + image_result['id'] + '/image'
+                      and 'base64' not in json.dumps(image_result)
+                      and mock.count() == requests_before + 1 and mock.image_count() == images_before + 1)
+                image_request = urllib.request.Request(harness.base + image_url, headers={'Origin': harness.base})
+                with harness.client.open(image_request, timeout=15) as image_response:
+                    image_bytes = image_response.read(4 * 1024 * 1024 + 1)
+                    image_headers = image_response.headers
+                harness.call('GET', image_url, authenticated=False, expected=401)
+                with helpers.other_admin(harness):
+                    harness.call('GET', image_url, expected=404)
+                check('automatic task PNG bytes require authentication and occurrence ownership',
+                      image_bytes.startswith(b'\x89PNG\r\n\x1a\n') and len(image_bytes) <= 4 * 1024 * 1024
+                      and image_headers.get('Content-Type', '').startswith('image/png')
+                      and 'no-store' in image_headers.get('Cache-Control', ''))
                 report['status'] = 'passed'
             finally:
                 mock.hold_release.set()
