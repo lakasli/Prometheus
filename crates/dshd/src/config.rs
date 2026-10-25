@@ -8,6 +8,8 @@ pub struct RuntimeConfig {
     pub assistant: AssistantConfig,
     pub model: ModelConfig,
     pub qq: QqConfig,
+    pub reply: crate::chat_reply::ReplyConfig,
+    pub speech: crate::speech::SpeechConfig,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -114,6 +116,8 @@ impl RuntimeConfig {
         if !["websocket", "webhook"].contains(&self.qq.transport.as_str()) {
             add("qq.transport", "QQ传输方式必须为websocket或webhook");
         }
+        errors.extend(self.reply.validate());
+        errors.extend(self.speech.validate());
         errors
     }
 }

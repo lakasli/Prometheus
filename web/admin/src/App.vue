@@ -21,6 +21,9 @@ import ConversationComposer from "./components/ConversationComposer.vue";
 import SkillsPanel from "./components/SkillsPanel.vue";
 import SkillOutput from "./components/SkillOutput.vue";
 import TaskTriggers from "./components/TaskTriggers.vue";
+import SpeechPanel from "./components/SpeechPanel.vue";
+import ReplyMedia from "./components/ReplyMedia.vue";
+import QQPanel from "./components/QQPanel.vue";
 import type { TriggerDefinition } from "./task-triggers";
 import {
   api,
@@ -59,6 +62,7 @@ type Page =
   | "skills"
   | "triggers"
   | "qq"
+  | "speech"
   | "weixin"
   | "diagnostics"
   | "chat"
@@ -119,6 +123,13 @@ const navigation: {
     title: "微信连接",
     eyebrow: "WEIXIN PRIVATE CHAT",
     description: "扫码连接授权账号的微信私聊。",
+  },
+  {
+    id: "speech",
+    icon: "channel",
+    title: "语音与媒体",
+    eyebrow: "VOICE & MEDIA",
+    description: "管理本地 Piper 中文语音和富媒体回复。",
   },
   {
     id: "chat",
@@ -1210,13 +1221,13 @@ onUnmounted(() => {
         <details ref="sidebarExtras" class="sidebar-extras">
           <summary>
             <Icon name="sparkles" :size="18" />
-            <span>语音 · 插件工厂<small>后续能力</small></span>
+            <span>插件工厂<small>开发中</small></span>
             <Icon class="extras-chevron" name="chevron" :size="14" />
           </summary>
           <div class="sidebar-extras-content">
             <span class="eyebrow">COMING NEXT</span>
             <strong>下一段旅程</strong>
-            <p>语音与完整插件工厂将在后续阶段逐步开放。</p>
+            <p>正式插件工厂正在按架构实现，测试与批准分开进行。</p>
             <div class="companion-note">
               <Icon name="whale" :size="24" />
               <span>让每一次对话，<br />都有温柔的回响。</span>
@@ -1516,7 +1527,7 @@ onUnmounted(() => {
                 </div>
               </dl>
               <p class="runtime-note">
-                已提供文本对话、长期记忆和Web单PNG图片理解。语音与完整插件工厂将在后续阶段开放。
+                支持逐句回复、长期记忆、图片理解和本地 Piper 语音；渠道实际收发结果以联调记录为准。
               </p>
             </section>
           </div>
@@ -1551,6 +1562,11 @@ onUnmounted(() => {
                   ></textarea
                   ><small>提示词不会授予额外权限。</small></label
                 >
+                <div v-if="config.reply" class="field-row">
+                  <label class="field"><span>回复最小间隔（毫秒）</span><input v-model.number="config.reply.min_interval_ms" type="number" min="1000" max="10000" /><small>逐句发送，从上一条实际发送完成时开始计时。</small></label>
+                  <label class="field"><span>回复最大间隔（毫秒）</span><input v-model.number="config.reply.max_interval_ms" type="number" :min="config.reply.min_interval_ms" max="30000" /></label>
+                  <label class="field"><span>每轮最多消息</span><input v-model.number="config.reply.max_items" type="number" min="1" max="4" /><small>QQ C2C 被动回复最多 4 条。</small></label>
+                </div>
                 <div class="field-row">
                   <label class="field"
                     ><span>最大活跃任务数</span
@@ -1876,6 +1892,7 @@ onUnmounted(() => {
           </div>
         </template>
 
+        <section v-if="page === 'qq'" class="panel"><QQPanel /></section>
         <template v-if="page === 'history'">
           <section class="panel history-panel">
             <div class="panel-heading">
@@ -2098,12 +2115,13 @@ onUnmounted(() => {
                     }}
                   </div>
                   <SkillOutput
-                    v-if="message.role === 'assistant'"
+                    v-if="message.role === 'assistant' && !message.reply_plan"
                     :content="message.content"
                     :generated-image-url="message.generated_image_url"
                     @review="reviewSkill"
                     @review-task="reviewTask"
                   />
+                  <ReplyMedia v-else-if="message.role === 'assistant' && message.reply_plan && selectedConversation" :items="message.reply_plan.items" :conversation-id="selectedConversation" />
                   <div v-else class="message-content">
                     {{ message.content }}
                   </div>
@@ -2177,6 +2195,7 @@ onUnmounted(() => {
           <ConversationSummary />
         </div>
         <WeixinChannel v-if="page === 'weixin'" />
+        <section v-if="page === 'speech'" class="panel"><SpeechPanel /></section>
         <div v-if="page === 'diagnostics'" class="diagnostics-page">
           <section class="panel" aria-label="任务与诊断概览">
             <div class="panel-heading">

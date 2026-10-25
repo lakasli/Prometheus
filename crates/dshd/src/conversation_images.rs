@@ -613,7 +613,7 @@ mod tests {
         );
         assert_eq!(
             scalar(&state, "SELECT max(version) FROM dsh_schema_migrations"),
-            8
+            9
         );
         {
             let requests = model.requests.lock().unwrap();

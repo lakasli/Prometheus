@@ -465,16 +465,45 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
         }
         Err(_) => Err("准备或持久化会话上下文失败；未发送模型请求".into()),
     };
+    let result = match result {
+        Ok(content) if trigger_context.is_none() && matches!(&selected, Ok(None)) => {
+            let prepared = async {
+                let mut plan = crate::chat_reply::parse(&content, &item.config.reply)?;
+                let owner = state
+                    .db(|db| {
+                        Ok(db.query_row(
+                            "SELECT owner_id FROM runs WHERE id=?1",
+                            [&item.id],
+                            |r| r.get::<_, String>(0),
+                        )?)
+                    })
+                    .map_err(|_| "回复来源不可用".to_owned())?;
+                crate::chat_reply::materialize(
+                    state,
+                    &item.config,
+                    &owner,
+                    &item.conversation,
+                    &mut plan,
+                )
+                .await?;
+                Ok((plan.readable(), Some(plan)))
+            };
+            tokio::select! {result=prepared=>result,_=cancel.cancelled()=>Err("服务正在停止，媒体结果未确认".into())}
+        }
+        Ok(content) => Ok((content, None)),
+        Err(error) => Err(error),
+    };
     let saved=state.db(|db| {
         let tx=db.transaction()?;
         let status:String=tx.query_row("SELECT status FROM runs WHERE id=?1",[&item.id],|r|r.get(0))?;
         if status!="running" {return Ok(());}
         match result {
-            Ok(content)=> {
+            Ok((content,plan))=> {
                 tx.execute("INSERT INTO messages(id,conversation_id,run_id,role,content,created_at) VALUES(?1,?2,?3,'assistant',?4,?5)",params![uuid::Uuid::new_v4().to_string(),item.conversation,item.id,content,now()])?;
                 tx.execute("UPDATE runs SET status='completed',response=?1,updated_at=?2 WHERE id=?3",params![content,now(),item.id])?;
+                if let Some(plan)=&plan {crate::chat_reply::store_in(&tx,&item.id,plan)?;}
                 if trigger_context.is_none() {crate::weixin_store::queue_reply_in(&tx,&item.id,&content)?;}
-                if let Some(target)=item.reply {tx.execute("INSERT INTO outbox(id,run_id,account_id,credential_ref,target_json,content,status,deadline,created_at) VALUES(?1,?2,?3,?4,?5,?6,'queued',?7,?8)",params![uuid::Uuid::new_v4().to_string(),item.id,target.account_id,target.credential_ref,serde_json::to_string(&target)?,content,target.deadline,now()])?;}
+                if let Some(target)=item.reply {let outbox=uuid::Uuid::new_v4().to_string();tx.execute("INSERT INTO outbox(id,run_id,account_id,credential_ref,target_json,content,status,deadline,created_at) VALUES(?1,?2,?3,?4,?5,?6,'queued',?7,?8)",params![outbox,item.id,target.account_id,target.credential_ref,serde_json::to_string(&target)?,content,target.deadline,now()])?;if let Some(plan)=&plan{crate::chat_reply::queue_parts_in(&tx,&outbox,plan)?;}}
             },
             Err(error)=> {tx.execute("UPDATE runs SET status=?1,error=?2,updated_at=?3 WHERE id=?4",params![if cancel.is_cancelled(){"interrupted"}else{"failed"},error,now(),item.id])?;}
         }
@@ -550,6 +579,11 @@ fn prepare_messages(state: &AppState, item: &RunInput) -> ApiResult<Vec<Value>> 
             let has_vision=groups.iter().any(|(run,_,_)|vision_runs.contains(run));
             let mut system=if has_vision {format!("{persona}{}",crate::conversation_images::PROMPT_GUARD)}else{persona.to_owned()};
             if let Some(s)=&selected {system.push_str(&crate::skills::prompt(s));}
+            if selected.is_none(){
+                let assets=crate::media_assets::list_in(&tx,&owner,&item.conversation)?;
+                let speech=crate::speech::status(state,&item.config.speech);
+                system.push_str(&crate::chat_reply::prompt(&item.config,&json!({"speech_available":speech["available"],"image_generation_available":item.config.model.image_generation,"assets":assets})));
+            }
             if selected.as_ref().is_some_and(|s|s.skill.id=="task-trigger-setup") {
                 let mut capabilities=crate::trigger_store::capabilities_in(&tx,&owner,now())?;
                 capabilities["schema"]=serde_json::from_str(include_str!("../../../docs/schemas/dsh-task-trigger-v1.schema.json"))?;

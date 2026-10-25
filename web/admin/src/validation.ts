@@ -2,6 +2,14 @@ import type { FieldError, RuntimeConfig, Timestamp } from "./types";
 
 export function validateConfig(value: RuntimeConfig): FieldError[] {
   const errors: FieldError[] = [];
+  if (value.reply) {
+    if (!Number.isInteger(value.reply.min_interval_ms) || value.reply.min_interval_ms < 1000 || value.reply.min_interval_ms > 10000)
+      errors.push({field:"reply.min_interval_ms",message:"最小发送间隔应为1000到10000毫秒。"});
+    if (!Number.isInteger(value.reply.max_interval_ms) || value.reply.max_interval_ms < value.reply.min_interval_ms || value.reply.max_interval_ms > 30000)
+      errors.push({field:"reply.max_interval_ms",message:"最大发送间隔不能小于最小间隔，且不超过30000毫秒。"});
+    if (!Number.isInteger(value.reply.max_items) || value.reply.max_items < 1 || value.reply.max_items > 4)
+      errors.push({field:"reply.max_items",message:"每轮回复应为1到4条。"});
+  }
   if (!value.assistant.name.trim())
     errors.push({ field: "assistant.name", message: "请为助手填写一个名称。" });
   if (new TextEncoder().encode(value.assistant.name).length > 128)

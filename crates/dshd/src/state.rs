@@ -132,6 +132,10 @@ impl AppState {
         crate::conversation_images::initialize(&db)?;
         crate::wasm_workbench::initialize(&db)?;
         crate::worker::initialize(&db)?;
+        crate::chat_reply::initialize(&db)?;
+        crate::media_assets::initialize(&db)?;
+        crate::speech::initialize(&db)?;
+        crate::qq_api::initialize(&db)?;
         crate::skills::initialize(&db)?;
         // Queued items survive restart. An interrupted external request is not blindly replayed.
         db.execute("UPDATE runs SET status='interrupted',error='服务重启时任务仍在执行；结果未确认，请人工重试',updated_at=?1 WHERE status='running'",[now()])?;

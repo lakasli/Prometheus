@@ -1,6 +1,8 @@
 export type Timestamp = string | number;
 
 export interface RuntimeConfig {
+  reply?: { min_interval_ms: number; max_interval_ms: number; max_items: number };
+  speech?: { enabled: boolean; voice: string; timeout_seconds: number; max_text_chars: number };
   assistant: {
     name: string;
     system_prompt: string;
@@ -78,6 +80,7 @@ export interface Conversation {
   greeting?: string | null;
 }
 export interface ChatMessage {
+  reply_plan?: { version: number; normalized: boolean; items: ReplyItem[] } | null;
   generated_image_url?: string | null;
   id: string;
   role: string;
@@ -98,6 +101,12 @@ export interface ChatMessage {
     original_retained: false;
   } | null;
   basis?: "vision_description" | null;
+}
+export interface ReplyItem {
+  type: "text" | "voice" | "image" | "video";
+  text: string;
+  delay_ms: number;
+  asset_id?: string;
 }
 export interface ConversationImageCapabilities {
   available: boolean;

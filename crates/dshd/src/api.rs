@@ -26,6 +26,9 @@ pub fn router(state: AppState) -> Router {
         .merge(crate::conversation_images_api::router())
         .merge(crate::skills_api::router())
         .merge(crate::trigger_api::router())
+        .merge(crate::media_assets::router())
+        .merge(crate::speech_api::router())
+        .merge(crate::qq_api::router())
         .route("/health/live",get(||async{Json(json!({"status":"ok","version":env!("CARGO_PKG_VERSION"),"commit":crate::build_sha()}))}))
         .route("/health/ready",get(ready))
         .route("/api/admin/v1/auth/status",get(auth::auth_status))
@@ -489,6 +492,7 @@ async fn messages(
         for(message,role,content,created,run,native_image)in rows {
             let mut item=json!({"id":message,"role":role,"content":content,"created_at":created});
             if let Some(run)=run {
+                if role=="assistant" {item["reply_plan"]=json!(crate::chat_reply::get_in(db,&run)?);}
                 if native_image {item["generated_image_url"]=json!(crate::skills_api::image_url(&run));}
                 if role=="user" {if let Some(image)=crate::conversation_images::metadata(db,&run)? {item["image"]=image;}}
                 else if role=="assistant" && crate::conversation_images::used_vision(db,&run)? {item["basis"]=json!("vision_description");}
@@ -539,6 +543,8 @@ async fn run(
 ) -> ApiResult<Json<Value>> {
     let record=state.db(|db|Ok(db.query_row("SELECT id,status,CASE WHEN run_kind IN ('skill_image','trigger_image') AND response IS NOT NULL THEN '[原生生图结果]' ELSE response END,error,conversation_id,created_at,run_kind FROM runs WHERE id=?1 AND owner_id=?2",params![id,admin.id],|r|{let mut item=json!({"id":r.get::<_,String>(0)?,"status":r.get::<_,String>(1)?,"response":r.get::<_,Option<String>>(2)?,"error":r.get::<_,Option<String>>(3)?,"conversation_id":r.get::<_,String>(4)?,"created_at":r.get::<_,i64>(5)?});if matches!(r.get::<_,String>(6)?.as_str(),"skill_image"|"trigger_image") && item["status"]=="completed" && !item["response"].is_null() {item["generated_image_url"]=json!(crate::skills_api::image_url(&id));}Ok(item)}).optional()?))?.ok_or_else(ApiError::not_found)?;
     let mut record = record;
+    record["reply_plan"] = state.db(|db| Ok(json!(crate::chat_reply::get_in(db, &id)?)))?;
+    record["deliveries"] = state.db(|db| crate::reply_delivery::status_in(db, &id))?;
     record["character"] = run_character(&state, &id)?;
     record["legacy"] = json!(record["character"].is_null());
     if record["status"] == "completed"

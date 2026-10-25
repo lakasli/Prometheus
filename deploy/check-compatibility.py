@@ -18,6 +18,9 @@ def check(data_dir, release_source):
         # Version 1 is additive for legacy work. A future schema requires its reader.
         if version > max(1, int(capabilities.get("schema_reader", 0))):
             raise RuntimeError("Target release cannot read this database schema")
+        for table, capability in (("run_reply_plans", "structured_replies"), ("outbox_reply_parts", "structured_replies"), ("speech_assets", "local_piper_speech"), ("conversation_media_assets", "conversation_media")):
+            if table in tables and db.execute(f"SELECT EXISTS(SELECT 1 FROM {table})").fetchone()[0] and int(capabilities.get(capability, 0)) < 1:
+                raise RuntimeError(f"Target release lacks {capability} authorization or delivery semantics")
         uses_persona = False
         if "conversation_character_bindings" in tables:
             uses_persona = db.execute("SELECT EXISTS(SELECT 1 FROM conversation_character_bindings)").fetchone()[0]
@@ -88,6 +91,11 @@ def check(data_dir, release_source):
                 continue
             for (text,) in db.execute(f"SELECT config_json FROM {table} WHERE config_json IS NOT NULL"):
                 config = json.loads(text)
+                if isinstance(config, dict):
+                    if "reply" in config and int(capabilities.get("structured_replies", 0)) < 1:
+                        raise RuntimeError("Target release cannot read structured reply configuration")
+                    if "speech" in config and int(capabilities.get("local_piper_speech", 0)) < 1:
+                        raise RuntimeError("Target release cannot read local speech configuration")
                 model = config.get("model", {}) if isinstance(config, dict) else {}
                 if isinstance(model, dict) and model.get("image_generation") is True:
                     uses_skills = True

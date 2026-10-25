@@ -29,7 +29,7 @@ impl Write for BoundedPng {
 
 /// Decode and re-encode pixels so PNG metadata never reaches the browser.
 /// This path deliberately accepts PNG only, including for compatible providers.
-fn canonical_png(encoded: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn canonical_png(encoded: &str) -> Result<Vec<u8>, String> {
     if encoded.len() > MAX_PNG_BYTES.div_ceil(3) * 4 {
         return Err(INVALID_IMAGE.into());
     }

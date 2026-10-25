@@ -1,0 +1,135 @@
+# QQ 非群接口与富媒体接入
+
+资料核实：2026-10-25（Asia/Shanghai）。当前线上官方文档静态站版本为 `v1.42.0`，见[API 调用指南](https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/api-call-guide.html)。本文记录接口契约与验收边界；部署 SHA、真实客户端可见结果由本轮独立验收报告记录，不能从“代码已接入”推导为全部平台 API 已实测通过。
+
+## 范围与入口
+
+实现 77 个非群 HTTP 操作的固定清单，包括机器人信息、菜单与指令面板、QQ 单聊、频道与频道私信、成员、身份组、权限、禁言、公告、精华、音频、帖子、日程、表情表态、网关及 Markdown 素材。OAuth/token 由已有服务端 AppSecret 凭据链处理，不通过管理 API 回传。群相关 HTTP 操作不在本次清单；小程序 `qq.getGuildInfo` 属于客户端接口，不能冒充 Rust 服务器接口。
+
+管理页位于现有 QQ 配置区域，认证后可查询能力、执行只读探测、选择固定操作、先校验请求或显式执行本次操作。模型聊天无法使用这些管理操作。服务端固定官方基址 `https://api.bot.qq.com`，不接受客户端提供基址、任意 URL、HTTP 方法或认证头。路径参数、查询字段和顶层请求字段依照每项清单验证，未知字段和路径分隔符会被拒绝。每次写入须提交本次操作意图；不自动执行删除、禁言或批量管理。
+
+- `GET /api/admin/v1/qq/api/catalog`：官方操作、来源链接及当前账号最近调用结果。
+- `POST /api/admin/v1/qq/api/operations/{id}`：固定操作；`dry_run=true` 仅校验请求，`acknowledge_effects=true` 才允许执行写入。
+- `POST /api/admin/v1/qq/api/read-probe`：只执行只读操作；缺少资源、废弃项和写入分别标明。
+- `GET /api/admin/v1/qq/api/calls`：只含操作标识、HTTP/业务码、TraceID 和结果分类，不保存请求正文。
+- `POST /api/admin/v1/qq/api/presigned-put`：仅使用当前管理员、账号及凭据对应的平台响应引用，向经校验和 DNS 固定的公网 COS 上传；不接受任意上传 URL。
+
+平台返回的 `file_info`、预签名地址、上传 ID 与临时下载链接保留在服务端私有存储；前端只获得限时对象引用。后续请求使用 `{"$qq_ref":"object_ref","field":"file_info"}` 形式引用。对象引用会核对管理员、账号、凭据引用及有效期，账号或凭据变更后不可复用。
+
+## 逐句发送与富媒体
+
+普通对话由宿主校验 JSON 回复计划、逐项持久化及留出间隔，QQ 单聊最大 4 项，并使用不同的 `msg_seq`。富媒体仅接收宿主已授权的制品字节，模型不能指定文件路径、下载 URL 或 QQ 发送目标。语音由后端本地 Piper 合成后交给同一 QQ 出站链路。
+
+单聊媒体先调用 `/v2/users/{user_openid}/files`，固定 `srv_send_msg=false` 获取 `file_info`，再发送 `msg_type=7`。不把媒体上传成功当作消息已发送；平台接受也不等于桌面/手机已可见。
+
+- PNG/JPEG 图片、MP4 视频及 WAV/MP3/OGG/SILK 语音按文件签名核验。
+- 5MiB 以内使用 `file_name` 与 base64 `file_data` 直接上传；更大文件执行预上传、分片 PUT、分片完成和合并，项目总上限 20MiB。
+- 分片包含整文件 MD5、SHA1、前 10002432 字节 MD5 及各分片 MD5；由服务端指定分片配置，按序验证并有界执行。
+- 上传并发 1；预签名目标仅 HTTPS、限定腾讯域名、公网 DNS 固定、不附带机器人 Authorization、不跟随重定向。
+- 媒体上传失败可由宿主走文字降级。消息提交之后发生网络异常、缺消息 ID 或平台异步审核时，结果为待核对，不自动重发。
+- 其他渠道的富媒体能力需要各自契约与验收；本轮发送适配优先 QQ C2C。
+
+## 当前文档与历史资料的差异
+
+[消息概述](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/overview.html)和[发送单聊消息](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_messages.post.html)当前说明单聊每条入站最多回复 **4 次**，窗口 **60 分钟**。发送单聊消息页面的 `msg_id` 字段仍出现“5 分钟”的旧描述，执行层采用尽快回复、最多 4 次，实际超时仍以平台返回码为准。
+
+[富媒体概述](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/rich-media.html)列出 WAV/MP3/OGG/SILK 语音条；[单聊上传](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_files.post.html)部分字段表仍写 silk。必须以真实文件上传和客户端播放确认最终账号能力，不能仅依据其中一个表宣称语音格式全部可用。该上传页面于 2026-10-09 更新，明确支持 5M 以内 `file_data`，且二进制/分片上传要求 `file_name`。
+
+腾讯公开 GitHub `bot-docs` 的 `645787a45937e5d9c4f0f61afefdffde0f38696e` 版本仍写单聊最多 5 次、`file_data` 暂未支持、语音仅 SILK，与当前线上文档不同。实现依据当前线上文档，不把旧仓库资料覆盖到新契约。
+
+## 验证命令与结论边界
+
+本地 Rust 单测覆盖 77 项操作实际经过 HTTP mock 的方法、路径、JSON 正文和鉴权头序列化，并检查重定向不跟随、失败业务码、异步审核、204 空响应、无效 JSON 及不自动重试。另测全部操作拒绝额外请求字段、不透明引用跨主体/账号/凭据和过期拒绝。这些是离线协议验证，不等于 77 项真实 QQ 权限通过。
+
+```sh
+cargo test -p dshd qq_
+python3 tools/qq-api-live.py --binary <fixed-release>/bin/dshd --web-dir <fixed-release>/web --source-data-dir <shared-data> --report <private-log>/qq-api-live.json
+```
+
+真实探针读取生产 QQ 配置及其引用的凭据，只在私有临时实例中使用；临时实例启用 Webhook 模式，不建立第二条 Gateway 消费连接，不复制会话、消息或记忆，不向真实用户发送消息，不执行真实频道的删除或禁言。报告按每项区分 `platform_accepted`、权限拒绝、平台拒绝、网络结果未知、缺少可测资源和未执行写入。真实调用结果保留 HTTP 与业务码，不把 401/403、权限缺失、未知结果或缺少频道资源报告为通过。
+
+真实 QQ 文字、图片、视频、语音客户端联调由本轮授权的目标会话单独执行和记录。对缺少平台权限、频道、成员、可撤回消息或操作授权的接口，保留可调用入口和明确待验范围；不为凑齐成功率而修改用户频道、移除成员或撤回他人消息。
+
+## 固定操作清单
+
+下表是服务端适配清单，**不是全部真实平台成功清单**。废弃接口保留文档索引，实际执行拒绝并指向替代能力。每项最新状态在管理页或验收 JSON 中查看。
+
+| 方法 | 固定路径 | 功能 | 文档 |
+| --- | --- | --- | --- |
+| GET | `/users/@me` | 获取机器人详情 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/users_me.get.html) |
+| POST | `/v2/generate_url_link` | 生成分享链接 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_generate_url_link.post.html) |
+| GET | `/v2/menu` | 查询全局自定义菜单 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_menu.get.html) |
+| PUT | `/v2/menu` | 修改全局自定义菜单 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_menu.put.html) |
+| GET | `/v2/panels` | 查询指令面板列表 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_panels.get.html) |
+| POST | `/v2/panels` | 创建指令面板 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_panels.post.html) |
+| DELETE | `/v2/panels/{panel_id}` | 删除指令面板 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_panels_panel_id.delete.html) |
+| GET | `/v2/panels/{panel_id}` | 查询指令面板详情 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_panels_panel_id.get.html) |
+| PUT | `/v2/panels/{panel_id}` | 修改指令面板 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_panels_panel_id.put.html) |
+| PUT | `/v2/panels/{panel_id}/target` | 修改指令面板关联对象 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_panels_panel_id_target.put.html) |
+| POST | `/v2/users/{user_id}/upload_part_finish` | 单聊分片上传完成 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_id_upload_part_finish.post.html) |
+| POST | `/v2/users/{user_id}/upload_prepare` | 单聊富媒体预上传 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_id_upload_prepare.post.html) |
+| POST | `/v2/users/{user_openid}/files` | 单聊富媒体上传 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_files.post.html) |
+| POST | `/v2/users/{user_openid}/messages` | 发送单聊消息 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_messages.post.html) |
+| DELETE | `/v2/users/{user_openid}/messages/{message_id}` | 撤回单聊消息 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_messages_message_id.delete.html) |
+| POST | `/v2/users/{user_openid}/stream_messages` | 流式发送单聊消息 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_stream_messages.post.html) |
+| DELETE | `/channels/{channel_id}` | 删除子频道 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/channels_channel_id.delete.html) |
+| GET | `/channels/{channel_id}` | 获取子频道详情 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/channels_channel_id.get.html) |
+| PATCH | `/channels/{channel_id}` | 修改子频道 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/channels_channel_id.patch.html) |
+| POST | `/channels/{channel_id}/announces` | 创建子频道公告（2022年3月15日后废弃） | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/content/announces/post_channel_announces.html) |
+| DELETE | `/channels/{channel_id}/announces/{message_id}` | 删除子频道公告（2022年3月15日后废弃） | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/content/announces/delete_channel_announces.html) |
+| POST | `/channels/{channel_id}/audio` | 音频控制 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/content/audio/audio_control.html) |
+| GET | `/channels/{channel_id}/members/{user_id}/permissions` | 获取子频道用户权限 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/role-group/channel_permissions/get_channel_permissions.html) |
+| PUT | `/channels/{channel_id}/members/{user_id}/permissions` | 修改子频道用户权限 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/role-group/channel_permissions/put_channel_permissions.html) |
+| POST | `/channels/{channel_id}/messages` | 发送子频道消息 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/message/send.html) |
+| DELETE | `/channels/{channel_id}/messages/{message_id}` | 撤回子频道消息 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/message/recall.html) |
+| DELETE | `/channels/{channel_id}/messages/{message_id}/reactions/{type}/{id}` | 表情表态 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/emoji.html) |
+| GET | `/channels/{channel_id}/messages/{message_id}/reactions/{type}/{id}` | 表情表态 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/emoji.html) |
+| PUT | `/channels/{channel_id}/messages/{message_id}/reactions/{type}/{id}` | 表情表态 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/emoji.html) |
+| DELETE | `/channels/{channel_id}/mic` | 机器人下麦 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/content/audio/delete_mic.html) |
+| PUT | `/channels/{channel_id}/mic` | 机器人上麦 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/content/audio/put_mic.html) |
+| GET | `/channels/{channel_id}/online_nums` | 获取子频道在线成员数 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/role/get_online_nums.html) |
+| GET | `/channels/{channel_id}/pins` | 获取精华消息 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/content/pins/get_pins_message.html) |
+| DELETE | `/channels/{channel_id}/pins/{message_id}` | 删除精华消息 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/content/pins/delete_pins_message.html) |
+| PUT | `/channels/{channel_id}/pins/{message_id}` | 添加精华消息 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/content/pins/put_pins_message.html) |
+| GET | `/channels/{channel_id}/roles/{role_id}/permissions` | 获取子频道身份组权限 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/role-group/channel_permissions/get_channel_roles_permissions.html) |
+| PUT | `/channels/{channel_id}/roles/{role_id}/permissions` | 修改子频道身份组权限 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/role-group/channel_permissions/put_channel_roles_permissions.html) |
+| GET | `/channels/{channel_id}/schedules` | 获取频道日程列表 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/content/schedule/get_schedules.html) |
+| POST | `/channels/{channel_id}/schedules` | 创建日程 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/content/schedule/post_schedule.html) |
+| DELETE | `/channels/{channel_id}/schedules/{schedule_id}` | 删除日程 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/content/schedule/delete_schedule.html) |
+| GET | `/channels/{channel_id}/schedules/{schedule_id}` | 获取日程详情 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/content/schedule/get_schedule.html) |
+| PATCH | `/channels/{channel_id}/schedules/{schedule_id}` | 修改日程 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/content/schedule/patch_schedule.html) |
+| GET | `/channels/{channel_id}/threads` | 获取帖子列表 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/content/forum/get_threads_list.html) |
+| PUT | `/channels/{channel_id}/threads` | 发表帖子 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/content/forum/put_thread.html) |
+| DELETE | `/channels/{channel_id}/threads/{thread_id}` | 删除帖子 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/content/forum/delete_thread.html) |
+| GET | `/channels/{channel_id}/threads/{thread_id}` | 获取帖子详情 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/content/forum/get_thread.html) |
+| POST | `/dms/{guild_id}/messages` | 频道私信 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/message/dms.html) |
+| DELETE | `/dms/{guild_id}/messages/{message_id}` | 频道私信 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/message/dms.html) |
+| GET | `/guilds/{guild_id}` | 获取频道详情 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/guilds_guild_id.get.html) |
+| POST | `/guilds/{guild_id}/announces` | 创建频道公告 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/content/announces/post_guild_announces.html) |
+| DELETE | `/guilds/{guild_id}/announces/{message_id}` | 删除频道公告 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/content/announces/delete_guild_announces.html) |
+| GET | `/guilds/{guild_id}/api_permission` | 获取机器人在频道可用权限列表 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/api_permissions/get_guild_api_permission.html) |
+| POST | `/guilds/{guild_id}/api_permission/demand` | 发送机器人在频道接口权限的授权链接 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/api_permissions/post_api_permission_demand.html) |
+| GET | `/guilds/{guild_id}/channels` | 获取子频道列表 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/guilds_guild_id_channels.get.html) |
+| POST | `/guilds/{guild_id}/channels` | 创建子频道 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/guilds_guild_id_channels.post.html) |
+| GET | `/guilds/{guild_id}/members` | 获取频道成员列表 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/role/member/get_members.html) |
+| DELETE | `/guilds/{guild_id}/members/{user_id}` | 删除频道成员 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/role/member/delete_member.html) |
+| GET | `/guilds/{guild_id}/members/{user_id}` | 获取频道成员详情 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/role/member/get_member.html) |
+| PATCH | `/guilds/{guild_id}/members/{user_id}/mute` | 频道指定成员禁言 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/speak/patch_guild_member_mute.html) |
+| DELETE | `/guilds/{guild_id}/members/{user_id}/roles/{role_id}` | 删除频道身份组成员 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/role-group/delete_guild_member_role.html) |
+| PUT | `/guilds/{guild_id}/members/{user_id}/roles/{role_id}` | 创建频道身份组成员 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/role-group/put_guild_member_role.html) |
+| GET | `/guilds/{guild_id}/message/setting` | 获取频道消息频率的设置详情 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/speak/setting/message_setting.html) |
+| PATCH | `/guilds/{guild_id}/mute` | 频道批量成员禁言 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/speak/patch_guild_mute_multi_member.html) |
+| GET | `/guilds/{guild_id}/roles` | 获取频道身份组列表 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/role-group/get_guild_roles.html) |
+| POST | `/guilds/{guild_id}/roles` | 创建频道身份组 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/role-group/post_guild_role.html) |
+| DELETE | `/guilds/{guild_id}/roles/{role_id}` | 删除频道身份组 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/role-group/delete_guild_role.html) |
+| PATCH | `/guilds/{guild_id}/roles/{role_id}` | 修改频道身份组 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/role-group/patch_guild_role.html) |
+| GET | `/guilds/{guild_id}/roles/{role_id}/members` | 获取频道身份组成员列表 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/role/member/get_role_members.html) |
+| PUT | `/interactions/{interaction_id}` | 互动事件响应 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/interactions_interaction_id.put.html) |
+| POST | `/users/@me/dms` | 频道私信 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/message/dms.html) |
+| GET | `/users/@me/guilds` | 获取机器人频道列表 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/users_me_guilds.get.html) |
+| GET | `/gateway` | 获取通用 WSS 接入点 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/gateway.get.html) |
+| GET | `/gateway/bot` | 获取带分片 WSS 接入点 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/openapi/wss/shard_url_get.html) |
+| GET | `/v2/media-images` | 素材管理 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/material-management.html) |
+| POST | `/v2/media-images/complete` | 素材管理 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/material-management.html) |
+| POST | `/v2/media-images/prepare` | 素材管理 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/material-management.html) |
+| DELETE | `/v2/media-images/{image_id}/delete` | 素材管理 | [官方说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/material-management.html) |

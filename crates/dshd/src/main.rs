@@ -162,7 +162,7 @@ async fn run_app(cli: Cli) -> Result<()> {
             let outbox_state = state.clone();
             kernel
                 .mount_task("qq-outbox", &[], move |cancel| {
-                    qq::run_outbox(outbox_state.clone(), cancel)
+                    dshd::reply_delivery::run(outbox_state.clone(), cancel)
                 })
                 .await?;
             let gateway_state = state.clone();
@@ -197,6 +197,16 @@ async fn run_app(cli: Cli) -> Result<()> {
                         loop {
                             if dshd::character_api::cleanup_expired_imports(&state).is_err() {
                                 tracing::warn!("character import cleanup unavailable");
+                            }
+                            if state
+                                .db(|db| {
+                                    dshd::speech::prune_in(db)?;
+                                    dshd::media_assets::prune_in(db)?;
+                                    Ok(())
+                                })
+                                .is_err()
+                            {
+                                tracing::warn!("expired media cleanup unavailable");
                             }
                             tokio::select! {
                                 _ = cancel.cancelled() => break,

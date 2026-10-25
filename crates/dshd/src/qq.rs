@@ -23,8 +23,8 @@ use tokio_tungstenite::tungstenite::{
 };
 use tokio_util::sync::CancellationToken;
 
-const QQ_BASE: &str = "https://api.sgroup.qq.com";
-const QQ_TOKEN_BASE: &str = "https://bots.qq.com";
+const QQ_BASE: &str = "https://api.bot.qq.com";
+const QQ_TOKEN_BASE: &str = "https://api.bot.qq.com";
 const USER_AGENT: &str = "DSH/0.1 QQ-Gateway";
 const MAX_GATEWAY_MESSAGE: usize = 128 * 1024;
 
@@ -265,6 +265,7 @@ pub fn ingest(state: &AppState, config: &RuntimeConfig, payload: &Value) -> ApiR
         "C2C_MESSAGE_CREATE",
         "GROUP_AT_MESSAGE_CREATE",
         "AT_MESSAGE_CREATE",
+        "DIRECT_MESSAGE_CREATE",
     ]
     .contains(&event_type)
     {
@@ -291,6 +292,7 @@ pub fn ingest(state: &AppState, config: &RuntimeConfig, payload: &Value) -> ApiR
     let (kind, target) = match event_type {
         "C2C_MESSAGE_CREATE" => ("c2c", data["author"]["user_openid"].as_str().unwrap_or("")),
         "GROUP_AT_MESSAGE_CREATE" => ("group", data["group_openid"].as_str().unwrap_or("")),
+        "DIRECT_MESSAGE_CREATE" => ("dms", data["guild_id"].as_str().unwrap_or("")),
         _ => ("channel", data["channel_id"].as_str().unwrap_or("")),
     };
     if target.is_empty()
@@ -314,7 +316,9 @@ pub fn ingest(state: &AppState, config: &RuntimeConfig, payload: &Value) -> ApiR
             .credential_ref
             .clone()
             .ok_or_else(|| ApiError::bad("qq_unconfigured", "QQ凭证未设置"))?,
-        deadline: now() + 120,
+        // Current official C2C contract: 60 minutes and at most four replies.
+        // Channel/group/DMS reply windows remain five minutes.
+        deadline: now() + if kind == "c2c" { 3600 } else { 300 },
     };
     state.db(|db| {
         let tx=db.transaction()?;
@@ -858,59 +862,36 @@ fn finish_delivery(
     })
 }
 
-async fn send_qq(
+pub async fn send_qq(
     state: &AppState,
     target: &ReplyTarget,
     content: &str,
 ) -> Result<String, (bool, String)> {
-    if target.deadline < now() {
-        return Err((false, "回复截止时间已过".into()));
+    send_qq_payload(state, target, &json!({"type":"text","text":content}), 1).await
+}
+
+/// Only host-validated text enters this path. Media bytes are resolved by the host,
+/// never from a model-supplied path or URL.
+pub async fn send_qq_payload(
+    state: &AppState,
+    target: &ReplyTarget,
+    payload: &Value,
+    seq: u32,
+) -> Result<String, (bool, String)> {
+    if payload["type"] != "text" {
+        return Err((false, "QQ媒体回复需要宿主提供已授权的制品字节".into()));
     }
-    let (_, config) = state
-        .current_config()
-        .map_err(|_| (false, "无法核验QQ当前配置".into()))?;
-    if !config.qq.enabled
-        || config.qq.app_id != target.account_id
-        || config.qq.credential_ref.as_deref() != Some(target.credential_ref.as_str())
-    {
-        return Err((false, "QQ账号配置已变更，拒绝替换目标账号或凭证发送".into()));
+    let content = payload["text"].as_str().unwrap_or("");
+    if content.trim().is_empty() || content.chars().count() > 1500 {
+        return Err((false, "QQ文本回复须为1到1500字".into()));
     }
-    let token = access_token(state, &config).await.map_err(|e| (false, e))?;
-    let path = match target.kind.as_str() {
-        "c2c" => format!("/v2/users/{}/messages", target.target),
-        "group" => format!("/v2/groups/{}/messages", target.target),
-        "channel" => format!("/channels/{}/messages", target.target),
-        _ => return Err((false, "未知QQ目标类型".into())),
-    };
-    // The protocol has platform-specific size limits; keep M1 text bounded.
-    let content: String = content.chars().take(1500).collect();
-    let body = if target.kind == "channel" {
+    let config = crate::qq_media::validate_target(state, target, seq)?;
+    let body = if matches!(target.kind.as_str(), "channel" | "dms") {
         json!({"content":content,"msg_id":target.message_id})
     } else {
-        json!({"content":content,"msg_type":0,"msg_id":target.message_id,"msg_seq":1})
+        json!({"content":content,"msg_type":0,"msg_id":target.message_id,"msg_seq":seq})
     };
-    let response = client()
-        .map_err(|e| (false, e))?
-        .post(format!("{QQ_BASE}{path}"))
-        .header("Authorization", format!("QQBot {token}"))
-        .header("X-Union-Appid", &target.account_id)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|_| (true, "QQ发送网络中断，结果未知，未自动重发".into()))?;
-    if !response.status().is_success() {
-        return Err((
-            false,
-            format!("QQ发送返回HTTP {}", response.status().as_u16()),
-        ));
-    }
-    let value: Value = response
-        .json()
-        .await
-        .map_err(|_| (true, "QQ发送响应无效，结果未知".into()))?;
-    value["id"]
-        .as_str()
-        .or_else(|| value["message"]["id"].as_str())
-        .map(|s| s.to_string())
-        .ok_or((true, "QQ响应无消息ID，结果未知".into()))
+    crate::qq_media::send_message(state, &config, target, &body).await
 }
+
+pub use crate::qq_media::send_media_bytes;
