@@ -50,6 +50,8 @@ world plugin {
 
 `candidate_ready` 只表示内核和工具链可用于尝试校验。每次 daemon 初始化都清除旧 `verified` 状态；只有实际八项探针及精确退出确认通过，`available` 才为真。管理页面允许重新检查环境。构建 / 调用前要求本进程已验证，每次工作器仍重做隔离探针；任何退出无法确认都会关闭可用状态、保留执行名额和对应 ledger，不提前清除目录或开启下一任务。
 
+策略 `landlock4-seccomp-stateless-v3` 进一步只允许固定工具链实测的 pthread 与 `CLONE_VM | CLONE_VFORK | SIGCHLD` 两组 legacy clone flags；高 32 位和其他 flags 全部拒绝，`clone3` 继续 ENOSYS。每个工作器在读取输入前验证无副作用的非法 clone 组合被 seccomp 以 EPERM 拒绝，以及 `clone3(null, 0)` 为 ENOSYS；Linux 单测另覆盖两种允许组合的全部 64 位单比特变异拒绝。没有为编译放开 namespace、CLONE_PARENT、ptrace 或 pidfd。
+
 Component 运行采用空 `Linker`，没有 WASI、socket、环境、文件预打开或 host imports。Wasmtime 另设每调用 5,000,000 fuel、15 秒 epoch 截止、64 MiB guest memory、256 KiB guest stack、单实例 / 单 memory 和输出上限。实际测试覆盖燃料、内存、禁止导入、错误输出与契约拒绝；不能用“编译成功”代替这些检查。
 
 ## 管理 API 与聊天调用

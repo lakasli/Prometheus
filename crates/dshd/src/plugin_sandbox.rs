@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const POLICY: &str = "landlock4-seccomp-stateless-v2";
+pub const POLICY: &str = "landlock4-seccomp-stateless-v3";
 pub const MEMORY_BYTES: u64 = 1024 * 1024 * 1024;
 pub const TASKS: u64 = 32;
 pub const FILE_BYTES: u64 = 16 * 1024 * 1024;
@@ -20,6 +20,7 @@ pub struct Isolation {
     pub cgroup_tasks: u64,
     pub rlimits_enforced: bool,
     pub pipe_ioctls_verified: bool,
+    pub clone_flags_verified: bool,
     pub unit: String,
 }
 
@@ -103,6 +104,72 @@ mod linux {
         jf: u8,
         k: u32,
     }
+    // Only the two clone flag combinations observed in the fixed compiler,
+    // linker and glibc pthread/posix_spawn paths. CLONE_PARENT must not change
+    // reaping topology; namespace, ptrace and pidfd flags are unnecessary too.
+    const THREAD_FLAGS: u32 = 0x003d0f00;
+    const SPAWN_FLAGS: u32 = 0x00004111;
+    fn clone_rules(list: &mut Vec<Filter>, clone_nr: u32) {
+        let mut rules = vec![
+            Filter {
+                code: 0x20,
+                jt: 0,
+                jf: 0,
+                k: 20,
+            }, // flags high word
+            Filter {
+                code: 0x15,
+                jt: 1,
+                jf: 0,
+                k: 0,
+            },
+            Filter {
+                code: 0x06,
+                jt: 0,
+                jf: 0,
+                k: 0x00050001,
+            },
+            Filter {
+                code: 0x20,
+                jt: 0,
+                jf: 0,
+                k: 16,
+            }, // flags low word
+        ];
+        for flags in [THREAD_FLAGS, SPAWN_FLAGS] {
+            rules.push(Filter {
+                code: 0x15,
+                jt: 0,
+                jf: 1,
+                k: flags,
+            });
+            rules.push(Filter {
+                code: 0x06,
+                jt: 0,
+                jf: 0,
+                k: 0x7fff0000,
+            });
+        }
+        rules.push(Filter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: 0x00050001,
+        });
+        list.push(Filter {
+            code: 0x15,
+            jt: 0,
+            jf: rules.len() as u8,
+            k: clone_nr,
+        });
+        list.extend(rules);
+        list.push(Filter {
+            code: 0x20,
+            jt: 0,
+            jf: 0,
+            k: 0,
+        });
+    }
     #[repr(C)]
     struct Program {
         len: u16,
@@ -183,14 +250,14 @@ mod linux {
             59, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 78, 79, 80, 82, 83, 93, 94, 95,
             96, 98, 99, 101, 102, 103, 113, 114, 115, 120, 121, 123, 124, 125, 126, 132, 133, 134,
             135, 136, 137, 139, 153, 154, 155, 156, 157, 160, 163, 165, 166, 167, 169, 172, 173,
-            174, 175, 176, 177, 178, 179, 214, 215, 216, 220, 221, 222, 226, 227, 233, 260, 276,
-            278, 279, 281, 283, 286, 287, 291, 293, 437, 439, 441, 449,
+            174, 175, 176, 177, 178, 179, 214, 215, 216, 221, 222, 226, 227, 233, 260, 276, 278,
+            279, 281, 283, 286, 287, 291, 293, 437, 439, 441, 449,
         ];
         #[cfg(target_arch = "x86_64")]
         let allowed: &[u32] = &[
             0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24,
-            25, 26, 27, 28, 32, 33, 35, 36, 37, 38, 39, 56, 57, 58, 59, 60, 61, 63, 73, 74, 75, 76,
-            77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 89, 95, 96, 97, 98, 99, 100, 102, 104, 107,
+            25, 26, 27, 28, 32, 33, 35, 36, 37, 38, 39, 57, 58, 59, 60, 61, 63, 73, 74, 75, 76, 77,
+            78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 89, 95, 96, 97, 98, 99, 100, 102, 104, 107,
             108, 110, 111, 112, 115, 118, 119, 120, 121, 124, 125, 126, 127, 128, 130, 131, 133,
             134, 135, 137, 138, 158, 160, 186, 202, 204, 218, 219, 228, 229, 230, 231, 232, 233,
             257, 258, 262, 263, 264, 265, 267, 269, 270, 271, 273, 281, 285, 289, 290, 291, 292,
@@ -251,6 +318,11 @@ mod linux {
             jf: 0,
             k: 0x00050000 | 38,
         });
+        #[cfg(target_arch = "aarch64")]
+        let clone_nr = 220;
+        #[cfg(target_arch = "x86_64")]
+        let clone_nr = 56;
+        clone_rules(&mut list, clone_nr);
         // Rust's wait_with_output uses FIONBIO on its own stdout/stderr
         // pipes. No other device/TTY ioctl is needed or granted.
         #[cfg(target_arch = "aarch64")]
@@ -538,6 +610,9 @@ mod linux {
         if !pipe_ioctl_probe() {
             return Err("plugin_pipe_ioctls_unverified");
         }
+        if !clone_flags_probe() {
+            return Err("plugin_clone_flags_unverified");
+        }
         Ok(Isolation {
             policy: POLICY.into(),
             landlock_abi: abi,
@@ -548,8 +623,25 @@ mod linux {
             cgroup_tasks: tasks,
             rlimits_enforced: true,
             pipe_ioctls_verified: true,
+            clone_flags_verified: true,
             unit,
         })
+    }
+    fn clone_flags_probe() -> bool {
+        #[cfg(target_arch = "aarch64")]
+        const CLONE: isize = 220;
+        #[cfg(target_arch = "x86_64")]
+        const CLONE: isize = 56;
+        // Both variants omit CLONE_SIGHAND required by CLONE_THREAD, so even
+        // without our filter Linux returns EINVAL without creating a child.
+        // EPERM specifically demonstrates our earlier seccomp rejection.
+        [0x0001800ausize, 0x10010000usize]
+            .iter()
+            .all(|flags| unsafe {
+                syscall(CLONE, *flags, 0usize, 0usize, 0usize, 0usize) == -1
+                    && *__errno_location() == 1
+            })
+            && unsafe { syscall(435, 0usize, 0usize) == -1 && *__errno_location() == 38 }
     }
     pub fn process_probe(peer: u32) -> bool {
         // Signal 0 and an empty read verify EPERM on a controlled synthetic
@@ -573,6 +665,63 @@ mod linux {
         [1, 2, 10].iter().all(|family| unsafe {
             syscall(SOCKET, *family, 1, 0) == -1 && *__errno_location() == 1
         })
+    }
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        fn decision(program: &[Filter], nr: u32, flags: u64) -> u32 {
+            let (mut pc, mut a) = (0, nr);
+            loop {
+                let instruction = &program[pc];
+                match instruction.code {
+                    0x20 => {
+                        a = match instruction.k {
+                            0 => nr,
+                            16 => flags as u32,
+                            20 => (flags >> 32) as u32,
+                            _ => panic!("unexpected seccomp load"),
+                        }
+                    }
+                    0x15 => {
+                        pc += if a == instruction.k {
+                            instruction.jt
+                        } else {
+                            instruction.jf
+                        } as usize
+                    }
+                    0x06 => return instruction.k,
+                    _ => panic!("unexpected seccomp instruction"),
+                }
+                pc += 1;
+            }
+        }
+        #[test]
+        fn clone_policy_accepts_only_observed_thread_and_spawn_flags() {
+            for nr in [56, 220] {
+                let mut program = vec![];
+                clone_rules(&mut program, nr);
+                program.push(Filter {
+                    code: 0x06,
+                    jt: 0,
+                    jf: 0,
+                    k: 0x7fff0000,
+                });
+                for flags in [0x3d0f00u64, 0x4111] {
+                    assert_eq!(decision(&program, nr, flags), 0x7fff0000);
+                    for bit in 0..64 {
+                        assert_eq!(
+                            decision(&program, nr, flags ^ (1u64 << bit)),
+                            0x00050001,
+                            "unexpected allowance for flag mutation {bit}"
+                        );
+                    }
+                }
+                for flags in [0, 17, 0x1800a, 0x10010000, u64::MAX] {
+                    assert_eq!(decision(&program, nr, flags), 0x00050001);
+                }
+                assert_eq!(decision(&program, nr + 1, u64::MAX), 0x7fff0000);
+            }
+        }
     }
 }
 pub fn available() -> bool {
