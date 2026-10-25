@@ -1,0 +1,164 @@
+{
+  "kind": "QQ isolated synthetic-resource API acceptance",
+  "started_at": "2026-10-25T13:19:06.986218+00:00",
+  "commit": "387652c94ac4abc887506abe5ea74112e604ce42",
+  "binary_sha256": "9689c150320436b3f01f0b7a9508097e97492627baf2633ed81712640aca2d9e",
+  "existing_menu_modified": false,
+  "existing_panels_modified": false,
+  "existing_materials_modified": false,
+  "real_messages_sent": false,
+  "production_database_modified": false,
+  "operations": [
+    {
+      "operation": "get_v2_panels",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null
+    },
+    {
+      "operation": "get_v2_media_images",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null
+    },
+    {
+      "operation": "post_v2_panels",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null
+    },
+    {
+      "operation": "get_v2_panels_panel_id",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null
+    },
+    {
+      "operation": "put_v2_panels_panel_id",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null
+    },
+    {
+      "operation": "get_v2_panels_panel_id",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null
+    },
+    {
+      "operation": "put_v2_panels_panel_id_target",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null
+    },
+    {
+      "operation": "get_v2_panels_panel_id",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null
+    },
+    {
+      "operation": "put_v2_panels_panel_id_target",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null
+    },
+    {
+      "operation": "get_v2_panels_panel_id",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null
+    },
+    {
+      "operation": "delete_v2_panels_panel_id",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null
+    },
+    {
+      "operation": "post_v2_media_images_prepare",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null
+    },
+    {
+      "operation": "post_v2_media_images_complete",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null
+    },
+    {
+      "operation": "get_v2_media_images",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null
+    },
+    {
+      "operation": "delete_v2_media_images_image_id_delete",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null
+    },
+    {
+      "operation": "get_v2_panels",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null
+    },
+    {
+      "operation": "get_v2_media_images",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null
+    }
+  ],
+  "checks": [
+    "temporary panel target comes only from the explicitly authorized interface test Run",
+    "isolated webhook-only account configuration validates",
+    "deployed runtime implements mandatory panel scope",
+    "initial panel and material snapshots are accepted",
+    "initial snapshot response contracts are recognized",
+    "initial snapshots cover all existing resource IDs",
+    "new panel ID is not an existing resource",
+    "new panel is scoped specific with exactly the approved test targets and ownership marker",
+    "only the newly created panel revision changed",
+    "only this fresh panel test-user association was removed",
+    "fresh panel association is restored only for the approved test user",
+    "cleanup targets only this invocation owned panel",
+    "synthetic PNG PUT succeeded without exposing the presigned URL",
+    "new material ID is not an existing resource",
+    "only the newly uploaded synthetic material is selected",
+    "cleanup targets only this invocation owned material",
+    "all prior panels and materials remain and owned probes are gone"
+  ],
+  "status": "passed_owned_resource_crud",
+  "cleanup_pending": false,
+  "panel_targets_authorized_test_user_only": true,
+  "deployment_sha": "387652c94ac4abc887506abe5ea74112e604ce42",
+  "initial_panel_count": 0,
+  "initial_material_count": 0,
+  "panel_id_sha256": "f7b9de9f8f75f87c1ffa18aeb1790a7297e9d506aeff35d1ec167fd305b41abc",
+  "synthetic_image": {
+    "bytes": 712,
+    "sha256": "9b52a8ca7bc7aaf524a1441d829a1c273afa26509f9009cbb39910393f792711"
+  },
+  "material_id_sha256": "4014629fb030158c01eb47e52629a0555831f07a3d17ba2708ccb8988de17de8",
+  "finished_at": "2026-10-25T13:19:34.786905+00:00"
+}

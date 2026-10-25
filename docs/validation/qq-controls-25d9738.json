@@ -1,0 +1,101 @@
+{
+  "kind": "explicit QQ C2C synthetic controls acceptance",
+  "started_at": "2026-10-25T13:31:24.764450+00:00",
+  "commit": "25d973820568d72c7ace88bd8239b15c8ee29f56",
+  "binary_sha256": "ac662009bd3168231f989f982e9c2a568ba27e8abd0cc72d8dc6ea3a07781e10",
+  "source_run_sha256": "d808efe36fdd3118bc85e8a18048fc5bd810ceaaaee08bfcd58a897a182d8f05",
+  "passive_sequences": {
+    "native": 1,
+    "typing": 2,
+    "markdown": 3,
+    "stream": 4
+  },
+  "native_reply_retracted": false,
+  "existing_messages_modified": false,
+  "production_database_modified": false,
+  "automatic_retries": false,
+  "client_verified": false,
+  "operations": [
+    {
+      "kind": "typing_seq2",
+      "operation": "post_v2_users_user_openid_messages",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "source_age_seconds_estimate": 862,
+      "http_status": 200,
+      "business_code": null,
+      "platform_accepted": true
+    },
+    {
+      "kind": "markdown_seq3",
+      "operation": "post_v2_users_user_openid_messages",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "source_age_seconds_estimate": 866,
+      "http_status": 200,
+      "business_code": null,
+      "platform_accepted": true
+    },
+    {
+      "kind": "markdown_retract",
+      "operation": "delete_v2_users_user_openid_messages_message_id",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "source_age_seconds_estimate": 878,
+      "http_status": 200,
+      "business_code": null,
+      "platform_accepted": true
+    },
+    {
+      "kind": "stream_seq4_index0",
+      "operation": "post_v2_users_user_openid_stream_messages",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "source_age_seconds_estimate": 882,
+      "http_status": 200,
+      "business_code": null,
+      "platform_accepted": true
+    },
+    {
+      "kind": "stream_seq4_index1_end",
+      "operation": "post_v2_users_user_openid_stream_messages",
+      "intent_recorded": true,
+      "outcome": "platform_accepted",
+      "source_age_seconds_estimate": 886,
+      "http_status": 200,
+      "business_code": null,
+      "platform_accepted": true
+    },
+    {
+      "kind": "stream_retract",
+      "operation": "delete_v2_users_user_openid_messages_message_id",
+      "intent_recorded": true,
+      "outcome": "platform_rejected",
+      "source_age_seconds_estimate": 897,
+      "http_status": 400,
+      "business_code": 40061001,
+      "platform_accepted": false
+    }
+  ],
+  "checks": [
+    "fixed interface marker owner account window and exactly native seq1 verified",
+    "isolated webhook-only test account configuration validates",
+    "explicit source remains unchanged before typing_seq2",
+    "explicit source remains unchanged before markdown_seq3",
+    "retraction targets only this invocation fresh markdown",
+    "explicit source remains unchanged before markdown_retract",
+    "explicit source remains unchanged before stream_seq4_index0",
+    "stream replacement preserves the exact sent prefix",
+    "explicit source remains unchanged before stream_seq4_index1_end",
+    "stream finish uses the same newly returned stream ID",
+    "retraction targets only this invocation fresh stream",
+    "explicit source remains unchanged before stream_retract"
+  ],
+  "status": "failed_with_explicit_platform_results",
+  "deployment_sha": "25d973820568d72c7ace88bd8239b15c8ee29f56",
+  "first_platform_write_source_age_seconds_estimate": 862,
+  "source_age_estimate_basis": "3600 - (frozen C2C reply deadline - current Unix seconds), recorded immediately before first platform operation; approximate event age",
+  "unknown_blocked_remaining_operations": false,
+  "owned_message_cleanup_pending": true,
+  "finished_at": "2026-10-25T13:32:04.691914+00:00"
+}
