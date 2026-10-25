@@ -18,6 +18,28 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 pub const MAX_VIDEO: usize = 20 * 1024 * 1024;
+/// A bounded, self-contained H.264 MP4 container; compressed frames are not
+/// decoded by DSH and this type does not imply video understanding.
+pub struct ValidatedVideo {
+    bytes: Vec<u8>,
+    pub duration_ms: u64,
+    pub width: u32,
+    pub height: u32,
+}
+pub fn validate_video(bytes: Vec<u8>) -> ApiResult<ValidatedVideo> {
+    let (duration_ms, width, height) = validate_mp4(&bytes).map_err(|_| {
+        ApiError::bad(
+            "invalid_video",
+            "视频须为20MiB以内、最长60秒、自包含H.264轨道的标准MP4",
+        )
+    })?;
+    Ok(ValidatedVideo {
+        bytes,
+        duration_ms,
+        width,
+        height,
+    })
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Asset {
     pub id: String,
@@ -202,6 +224,22 @@ pub(crate) fn store_png_in(
         None,
     )
 }
+pub(crate) fn store_video_in(
+    db: &Connection,
+    owner: &str,
+    conversation: &str,
+    video: &ValidatedVideo,
+) -> anyhow::Result<Asset> {
+    store_verified_in(
+        db,
+        owner,
+        conversation,
+        "video",
+        "video/mp4",
+        &video.bytes,
+        None,
+    )
+}
 fn store_verified_in(
     db: &Connection,
     owner: &str,
@@ -289,48 +327,302 @@ fn boxes(bytes: &[u8]) -> Result<Vec<(&[u8], &[u8])>, ()> {
     }
     Ok(found)
 }
-fn validate_mp4(bytes: &[u8]) -> Result<(), ()> {
+fn one<'a>(items: &[(&[u8], &'a [u8])], kind: &[u8]) -> Result<&'a [u8], ()> {
+    let mut found = items.iter().filter(|(name, _)| *name == kind);
+    let value = found.next().ok_or(())?.1;
+    if found.next().is_some() {
+        return Err(());
+    }
+    Ok(value)
+}
+fn be32(bytes: &[u8], at: usize) -> Result<u32, ()> {
+    Ok(u32::from_be_bytes(
+        bytes
+            .get(at..at + 4)
+            .ok_or(())?
+            .try_into()
+            .map_err(|_| ())?,
+    ))
+}
+fn be64(bytes: &[u8], at: usize) -> Result<u64, ()> {
+    Ok(u64::from_be_bytes(
+        bytes
+            .get(at..at + 8)
+            .ok_or(())?
+            .try_into()
+            .map_err(|_| ())?,
+    ))
+}
+fn media_time(header: &[u8]) -> Result<(u64, u64), ()> {
+    let (scale, duration) = match header.first() {
+        Some(0) => (be32(header, 12)? as u64, be32(header, 16)? as u64),
+        Some(1) => (be32(header, 20)? as u64, be64(header, 24)?),
+        _ => return Err(()),
+    };
+    if scale == 0 || duration == 0 || duration > scale.saturating_mul(60) {
+        return Err(());
+    }
+    Ok((scale, duration))
+}
+fn avc_config(bytes: &[u8]) -> Result<(), ()> {
+    if bytes.len() < 7 || bytes[0] != 1 || bytes[4] & 3 == 2 {
+        return Err(());
+    }
+    let mut at = 6;
+    let sps = bytes[5] & 31;
+    if sps == 0 {
+        return Err(());
+    }
+    for _ in 0..sps {
+        let size = u16::from_be_bytes(
+            bytes
+                .get(at..at + 2)
+                .ok_or(())?
+                .try_into()
+                .map_err(|_| ())?,
+        ) as usize;
+        at = at.checked_add(2).ok_or(())?;
+        if size == 0 || bytes.get(at..at + size).is_none() || bytes[at] & 31 != 7 {
+            return Err(());
+        }
+        at += size;
+    }
+    let pps = *bytes.get(at).ok_or(())?;
+    at += 1;
+    if pps == 0 {
+        return Err(());
+    }
+    for _ in 0..pps {
+        let size = u16::from_be_bytes(
+            bytes
+                .get(at..at + 2)
+                .ok_or(())?
+                .try_into()
+                .map_err(|_| ())?,
+        ) as usize;
+        at += 2;
+        if size == 0 || bytes.get(at..at + size).is_none() || bytes[at] & 31 != 8 {
+            return Err(());
+        }
+        at += size;
+    }
+    Ok(())
+}
+fn sample_ranges(
+    table: &[(&[u8], &[u8])],
+    scale: u64,
+    mdat: &[(usize, usize)],
+) -> Result<Vec<(usize, usize)>, ()> {
+    let sizes = one(table, b"stsz")?;
+    let fixed = be32(sizes, 4)? as usize;
+    let count = be32(sizes, 8)? as usize;
+    if count == 0 || count > 60000 || sizes.len() != 12 + if fixed == 0 { count * 4 } else { 0 } {
+        return Err(());
+    }
+    let sizes = (0..count)
+        .map(|i| {
+            if fixed == 0 {
+                be32(sizes, 12 + i * 4).map(|v| v as usize)
+            } else {
+                Ok(fixed)
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if sizes.iter().any(|n| *n == 0 || *n > MAX_VIDEO) {
+        return Err(());
+    }
+    let timing = one(table, b"stts")?;
+    let entries = be32(timing, 4)? as usize;
+    if entries == 0 || entries > count || timing.len() != 8 + entries * 8 {
+        return Err(());
+    }
+    let mut samples = 0u64;
+    let mut duration = 0u64;
+    for i in 0..entries {
+        let n = be32(timing, 8 + i * 8)? as u64;
+        let delta = be32(timing, 12 + i * 8)? as u64;
+        if n == 0 || delta == 0 {
+            return Err(());
+        }
+        samples = samples.checked_add(n).ok_or(())?;
+        duration = duration
+            .checked_add(n.checked_mul(delta).ok_or(())?)
+            .ok_or(())?;
+    }
+    if samples != count as u64 || duration > scale.saturating_mul(60) {
+        return Err(());
+    }
+    let offsets = table
+        .iter()
+        .filter(|(k, _)| *k == b"stco" || *k == b"co64")
+        .collect::<Vec<_>>();
+    if offsets.len() != 1 {
+        return Err(());
+    }
+    let width = if offsets[0].0 == b"co64" { 8 } else { 4 };
+    let offsets = offsets[0].1;
+    let chunks = be32(offsets, 4)? as usize;
+    if chunks == 0 || chunks > 8192 || chunks > count || offsets.len() != 8 + chunks * width {
+        return Err(());
+    }
+    let mapping = one(table, b"stsc")?;
+    let entries = be32(mapping, 4)? as usize;
+    if entries == 0 || entries > chunks || mapping.len() != 8 + entries * 12 {
+        return Err(());
+    }
+    let mut map = Vec::with_capacity(entries);
+    for i in 0..entries {
+        let first = be32(mapping, 8 + i * 12)? as usize;
+        let n = be32(mapping, 12 + i * 12)? as usize;
+        if first == 0
+            || first > chunks
+            || (i == 0 && first != 1)
+            || map.last().is_some_and(|(previous, _)| *previous >= first)
+            || n == 0
+            || n > count
+            || be32(mapping, 16 + i * 12)? != 1
+        {
+            return Err(());
+        }
+        map.push((first, n));
+    }
+    let mut ranges = Vec::with_capacity(chunks);
+    let mut sample = 0usize;
+    let mut mapping_index = 0;
+    for chunk in 0..chunks {
+        while mapping_index + 1 < map.len() && map[mapping_index + 1].0 <= chunk + 1 {
+            mapping_index += 1;
+        }
+        let n = map[mapping_index].1;
+        let data = sizes
+            .get(sample..sample.checked_add(n).ok_or(())?)
+            .ok_or(())?;
+        sample += n;
+        let length = data
+            .iter()
+            .try_fold(0usize, |total, n| total.checked_add(*n).ok_or(()))?;
+        let offset = if width == 8 {
+            usize::try_from(be64(offsets, 8 + chunk * width)?).map_err(|_| ())?
+        } else {
+            be32(offsets, 8 + chunk * width)? as usize
+        };
+        let end = offset.checked_add(length).ok_or(())?;
+        if !mdat
+            .iter()
+            .any(|(start, limit)| offset >= *start && end <= *limit)
+        {
+            return Err(());
+        }
+        ranges.push((offset, end));
+    }
+    if sample != count {
+        return Err(());
+    }
+    Ok(ranges)
+}
+fn validate_mp4(bytes: &[u8]) -> Result<(u64, u32, u32), ()> {
     if bytes.len() > MAX_VIDEO || bytes.len() < 32 {
         return Err(());
     }
     let root = boxes(bytes)?;
-    if !root
-        .iter()
-        .any(|(kind, data)| *kind == b"ftyp" && data.len() >= 8)
-        || !root
-            .iter()
-            .any(|(kind, data)| *kind == b"mdat" && !data.is_empty())
+    if root.first().is_none_or(|(kind, _)| *kind != b"ftyp") {
+        return Err(());
+    }
+    let ftyp = one(&root, b"ftyp")?;
+    if ftyp.len() < 8
+        || ftyp.len() % 4 != 0
+        || !ftyp
+            .chunks_exact(4)
+            .enumerate()
+            .filter(|(i, _)| *i != 1)
+            .any(|(_, brand)| matches!(brand, b"isom" | b"iso2" | b"mp41" | b"mp42" | b"avc1"))
+        || root.iter().any(|(k, _)| *k == b"moof" || *k == b"sidx")
     {
         return Err(());
     }
-    let moovs = root
+    let mdat = root
         .iter()
-        .filter(|(kind, _)| *kind == b"moov")
+        .filter(|(k, d)| *k == b"mdat" && !d.is_empty())
+        .map(|(_, data)| {
+            let start = data.as_ptr() as usize - bytes.as_ptr() as usize;
+            (start, start + data.len())
+        })
         .collect::<Vec<_>>();
-    if moovs.len() != 1 {
+    if mdat.is_empty() {
         return Err(());
     }
-    let movie = boxes(moovs[0].1)?;
-    let header = movie.iter().find(|(kind, _)| *kind == b"mvhd").ok_or(())?.1;
-    let (timescale, duration) = match header.first() {
-        Some(0) if header.len() >= 20 => (
-            u32::from_be_bytes(header[12..16].try_into().map_err(|_| ())?) as u64,
-            u32::from_be_bytes(header[16..20].try_into().map_err(|_| ())?) as u64,
-        ),
-        Some(1) if header.len() >= 32 => (
-            u32::from_be_bytes(header[20..24].try_into().map_err(|_| ())?) as u64,
-            u64::from_be_bytes(header[24..32].try_into().map_err(|_| ())?),
-        ),
-        _ => return Err(()),
-    };
-    if timescale == 0
-        || duration == 0
-        || duration > timescale.saturating_mul(60)
-        || !movie.iter().any(|(kind, _)| *kind == b"trak")
-    {
+    let movie = boxes(one(&root, b"moov")?)?;
+    let (scale, duration) = media_time(one(&movie, b"mvhd")?)?;
+    let tracks = movie
+        .iter()
+        .filter(|(k, _)| *k == b"trak")
+        .collect::<Vec<_>>();
+    if tracks.is_empty() || tracks.len() > 4 {
         return Err(());
     }
-    Ok(())
+    let mut video = None;
+    let mut ranges = Vec::new();
+    for (_, track) in tracks {
+        let track = boxes(track)?;
+        let mdia = boxes(one(&track, b"mdia")?)?;
+        let (track_scale, _) = media_time(one(&mdia, b"mdhd")?)?;
+        let handler = one(&mdia, b"hdlr")?.get(8..12).ok_or(())?;
+        let minf = boxes(one(&mdia, b"minf")?)?;
+        let dinf = boxes(one(&minf, b"dinf")?)?;
+        let dref = one(&dinf, b"dref")?;
+        if be32(dref, 4)? != 1 {
+            return Err(());
+        }
+        let references = boxes(dref.get(8..).ok_or(())?)?;
+        let reference = one(&references, b"url ")?;
+        if references.len() != 1 || reference != [0, 0, 0, 1] {
+            return Err(());
+        }
+        let table = boxes(one(&minf, b"stbl")?)?;
+        let description = one(&table, b"stsd")?;
+        if be32(description, 4)? != 1 {
+            return Err(());
+        }
+        let descriptions = boxes(description.get(8..).ok_or(())?)?;
+        if descriptions.len() != 1 {
+            return Err(());
+        }
+        let (codec, data) = descriptions[0];
+        if data.get(6..8) != Some(&[0, 1]) {
+            return Err(());
+        }
+        if handler == b"vide" {
+            if video.is_some() || !matches!(codec, b"avc1" | b"avc3") || data.len() < 78 {
+                return Err(());
+            }
+            let width = u16::from_be_bytes(data[24..26].try_into().map_err(|_| ())?) as u32;
+            let height = u16::from_be_bytes(data[26..28].try_into().map_err(|_| ())?) as u32;
+            if width == 0
+                || height == 0
+                || width > 4096
+                || height > 4096
+                || width as u64 * height as u64 > 8_294_400
+            {
+                return Err(());
+            }
+            avc_config(one(&boxes(&data[78..])?, b"avcC")?)?;
+            video = Some((width, height));
+        } else if handler == b"soun" {
+            if codec != b"mp4a" || data.len() < 28 {
+                return Err(());
+            }
+            one(&boxes(&data[28..])?, b"esds")?;
+        } else {
+            return Err(());
+        }
+        ranges.extend(sample_ranges(&table, track_scale, &mdat)?);
+    }
+    ranges.sort_unstable();
+    if ranges.windows(2).any(|pair| pair[0].1 > pair[1].0) {
+        return Err(());
+    }
+    let (width, height) = video.ok_or(())?;
+    Ok((duration * 1000 / scale, width, height))
 }
 
 pub fn router() -> Router<AppState> {
@@ -526,34 +818,24 @@ mod tests {
     }
     #[test]
     fn validates_mp4_box_bounds_and_duration() {
-        fn boxed(kind: &[u8], data: &[u8]) -> Vec<u8> {
-            let mut out = ((data.len() + 8) as u32).to_be_bytes().to_vec();
-            out.extend_from_slice(kind);
-            out.extend_from_slice(data);
-            out
-        }
-        let mut header = vec![0; 20];
-        header[12..16].copy_from_slice(&1000u32.to_be_bytes());
-        header[16..20].copy_from_slice(&2000u32.to_be_bytes());
-        let moov = [boxed(b"mvhd", &header), boxed(b"trak", &[])].concat();
-        let good = [
-            boxed(b"ftyp", b"isom0000"),
-            boxed(b"moov", &moov),
-            boxed(b"mdat", b"frame"),
-        ]
-        .concat();
-        assert!(validate_mp4(&good).is_ok());
+        let good = include_bytes!("../testdata/synthetic-h264.mp4");
+        assert_eq!(validate_mp4(good).unwrap(), (2000, 320, 240));
         assert!(validate_mp4(&good[..good.len() - 1]).is_err());
-        header[16..20].copy_from_slice(&61000u32.to_be_bytes());
-        let bad = [
-            boxed(b"ftyp", b"isom0000"),
-            boxed(
-                b"moov",
-                &[boxed(b"mvhd", &header), boxed(b"trak", &[])].concat(),
-            ),
-            boxed(b"mdat", b"f"),
-        ]
-        .concat();
+        let at = good.windows(4).position(|b| b == b"mvhd").unwrap();
+        let mut bad = good.to_vec();
+        bad[at + 20..at + 24].copy_from_slice(&61000u32.to_be_bytes());
+        assert!(validate_mp4(&bad).is_err());
+        let at = good.windows(4).position(|b| b == b"stco").unwrap();
+        let mut bad = good.to_vec();
+        bad[at + 12..at + 16].copy_from_slice(&u32::MAX.to_be_bytes());
+        assert!(validate_mp4(&bad).is_err());
+        let at = good.windows(4).position(|b| b == b"url ").unwrap();
+        let mut bad = good.to_vec();
+        bad[at + 4..at + 8].fill(0);
+        assert!(validate_mp4(&bad).is_err());
+        let at = good.windows(4).position(|b| b == b"avcC").unwrap();
+        let mut bad = good.to_vec();
+        bad[at..at + 4].copy_from_slice(b"junk");
         assert!(validate_mp4(&bad).is_err());
     }
 }

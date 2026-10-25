@@ -313,12 +313,15 @@ pub fn ingest_prepared(
     let raw = data["content"].as_str().unwrap_or("");
     let mut content = strip_mentions(raw).trim().to_string();
     if content.is_empty() && has_media {
-        content = if matches!(&prepared, incoming_media::Prepared::Image(_)) {
-            "请客观描述这张图片。"
-        } else {
-            "[收到不支持或不可用的媒体消息]"
+        content = match &prepared {
+            incoming_media::Prepared::Image(_) => "请客观描述这张图片。",
+            incoming_media::Prepared::Video(_) => "我发送了一个视频附件。",
+            _ => "[收到不支持或不可用的媒体消息]",
         }
         .into();
+    }
+    if let incoming_media::Prepared::Video(video) = &prepared {
+        content.push_str(&format!("\n[宿主附件说明：已接收一个MP4视频，时长{}毫秒，容器尺寸{}×{}，可按当前会话白名单原样回发；本阶段不读取视频帧或音轨，只能依据用户文字说明回答，不得声称看到了画面或听到了声音。]",video.duration_ms,video.width,video.height));
     }
     if content.is_empty() {
         return Ok(());
@@ -393,13 +396,17 @@ pub fn ingest_prepared(
         let run_kind=if command_response.is_some(){if has_media{"media_notice"}else{"character_command"}}else if memory_command{"memory_command"}else if selected.is_some(){"skill_text"}else{"model"};
         tx.execute("INSERT INTO runs(id,conversation_id,owner_id,client_message_id,input,config_json,reply_json,status,response,created_at,updated_at,character_snapshot_json,character_digest,compiler_version,run_kind) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10,?11,?12,?13,?14)",params![run,id,owner,message_id,content,serde_json::to_string(&active_config)?,serde_json::to_string(&reply)?,status,command_response,now(),snapshot.as_ref().map(serde_json::to_string).transpose()?,snapshot.as_ref().map(|s|&s.projection_digest),snapshot.as_ref().map(|s|&s.compiler_version),run_kind])?;
         tx.execute("INSERT INTO messages(id,conversation_id,run_id,role,content,created_at) VALUES(?1,?2,?3,'user',?4,?5)",params![uuid::Uuid::new_v4().to_string(),id,run,content,now()])?;
-        if let incoming_media::Prepared::Image(image)=prepared {
+        match prepared {
+        incoming_media::Prepared::Image(image)=>{
             let pending:i64=tx.query_row("SELECT count(*) FROM conversation_images WHERE image IS NOT NULL",[],|r|r.get(0))?;
             anyhow::ensure!(pending<20,"conversation image queue full");
             crate::media_assets::store_png_in(&tx,&owner,&id,&image)?;
             let source:String=tx.query_row("SELECT id FROM messages WHERE run_id=?1 AND role='user'",[&run],|r|r.get(0))?;
             tx.execute("INSERT INTO conversation_images(run_id,conversation_id,owner_id,source_message_id,width,height,image_sha256,image,status,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'queued',?9)",params![run,id,owner,source,image.width,image.height,image.sha256,image.bytes,received_at])?;
             tx.execute("INSERT OR IGNORE INTO dsh_schema_migrations(version,created_at) VALUES(8,?1)",[now()])?;
+        },
+        incoming_media::Prepared::Video(video)=>{crate::media_assets::store_video_in(&tx,&owner,&id,&video)?;},
+        _=>{},
         }
         if let Some(selected)=selected {crate::skills::store(&tx,&run,&selected)?;}
         if let Some(response)=command_response {

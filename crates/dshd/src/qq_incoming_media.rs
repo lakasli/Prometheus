@@ -26,6 +26,7 @@ const TYPES: [&str; 4] = [
 pub enum Prepared {
     Text,
     Image(CanonicalImage),
+    Video(crate::media_assets::ValidatedVideo),
     Unavailable {
         code: &'static str,
         message: &'static str,
@@ -191,17 +192,26 @@ async fn process(state: &AppState, receipt: &Receipt) -> ApiResult<()> {
     if duplicate {
         return state.db(|db| finish_in(db, &receipt.fence, "completed", None));
     }
-    let has_media = receipt.payload["d"]["attachments"]
-        .as_array()
-        .is_some_and(|a| !a.is_empty());
     let available = crate::conversation_images::capabilities(state)?.available;
-    let prepared = if has_media && !available {
+    let declared_image = receipt.payload["d"]["attachments"]
+        .as_array()
+        .filter(|items| items.len() == 1)
+        .is_some_and(|items| items[0]["content_type"] == "image/png");
+    let prepared = if declared_image && !available {
         Prepared::Unavailable {
             code: "vision_provider_unavailable",
             message: "图片理解暂未配置可用的视觉模型，尚未查看图片，请改用文字。",
         }
     } else {
         prepare(&receipt.payload).await
+    };
+    let prepared = if matches!(&prepared, Prepared::Image(_)) && !available {
+        Prepared::Unavailable {
+            code: "vision_provider_unavailable",
+            message: "图片理解暂未配置可用的视觉模型，尚未查看图片，请改用文字。",
+        }
+    } else {
+        prepared
     };
     if receipt.deadline < now() {
         return state.db(|db| {
@@ -271,13 +281,13 @@ pub async fn prepare(payload: &Value) -> Prepared {
     if payload["t"] != "C2C_MESSAGE_CREATE" {
         return unavailable(
             "media_channel_unsupported",
-            "目前仅支持QQ单聊的单张PNG图片理解，请使用文字描述。",
+            "目前媒体接收仅支持QQ单聊的一张PNG图片或一个MP4视频，请使用文字描述。",
         );
     }
     if attachments.len() != 1 {
         return unavailable(
             "media_count_unsupported",
-            "目前每条消息只支持一张PNG图片，请分别发送。",
+            "目前每条消息只支持一张PNG图片或一个MP4视频，请分别发送。",
         );
     }
     if payload["d"]["content"]
@@ -288,43 +298,59 @@ pub async fn prepare(payload: &Value) -> Prepared {
     {
         return unavailable(
             "media_control_command",
-            "图片消息暂不执行控制命令，请把命令单独作为文字发送。",
+            "媒体消息暂不执行控制命令，请把命令单独作为文字发送。",
         );
     }
     let attachment = &attachments[0];
-    if attachment["content_type"]
-        .as_str()
-        .is_some_and(|s| s != "image/png")
-    {
+    let declared = attachment["content_type"].as_str();
+    if declared.is_some_and(|s| !matches!(s, "image/png" | "video/mp4")) {
         return unavailable(
             "media_format_unsupported",
-            "目前图片理解只支持PNG，视频和语音暂不能作为输入理解，请发送PNG或文字。",
+            "仅接收PNG图片或20MiB/60秒以内的标准H.264 MP4；视频只保存用于回发，不读取帧或音轨，语音输入尚不支持。",
         );
     }
+    let limit = if declared == Some("image/png") {
+        image_analysis::MAX_IMAGE_BYTES
+    } else {
+        crate::media_assets::MAX_VIDEO
+    };
     if attachment["size"]
         .as_u64()
-        .is_some_and(|n| n > image_analysis::MAX_IMAGE_BYTES as u64)
+        .is_some_and(|n| n > limit as u64)
     {
         return unavailable(
             "media_size_limit",
-            "图片超过1MiB，请压缩为一张较小的PNG后重试。",
+            "媒体超过大小限制：PNG最多1MiB，MP4最多20MiB，请压缩后重试。",
         );
     }
     let Some(raw) = attachment["url"].as_str().filter(|s| s.len() <= 8192) else {
         return unavailable(
             "media_url_missing",
-            "QQ未提供可用的图片下载引用，请重新发送PNG图片。",
+            "QQ未提供可用的媒体下载引用，请重新发送PNG图片或MP4视频。",
         );
     };
-    let bytes = match download(raw).await {
+    let bytes = match download(raw, limit).await {
         Ok(bytes) => bytes,
         Err(code) => {
-            return unavailable(
-                code,
-                "图片下载未完成，尚未查看图片，请重新发送PNG或改用文字。",
-            )
+            return unavailable(code, "媒体下载未完成，尚未读取内容，请重新发送或改用文字。")
         }
     };
+    let is_png = bytes.starts_with(b"\x89PNG\r\n\x1a\n");
+    if declared == Some("video/mp4") || !is_png {
+        if declared == Some("image/png") {
+            return unavailable(
+                "media_type_mismatch",
+                "QQ媒体类型与实际文件不一致，请发送有效PNG或MP4。",
+            );
+        }
+        return match crate::media_assets::validate_video(bytes) {
+            Ok(video) => Prepared::Video(video),
+            Err(_) => unavailable(
+                "media_mp4_invalid",
+                "视频须为20MiB以内、最长60秒、自包含H.264轨道的标准MP4；未读取帧或音轨。",
+            ),
+        };
+    }
     let permit = match crate::image_analysis_api::DECODE_SLOTS.acquire().await {
         Ok(p) => p,
         Err(_) => {
@@ -371,7 +397,7 @@ pub fn checked_cdn_url(raw: &str) -> Result<url::Url, &'static str> {
     }
     Ok(url)
 }
-async fn download(raw: &str) -> Result<Vec<u8>, &'static str> {
+async fn download(raw: &str, limit: usize) -> Result<Vec<u8>, &'static str> {
     let url = checked_cdn_url(raw)?;
     let host = url.host_str().ok_or("media_url_invalid")?.to_string();
     let addresses: Vec<_> = tokio::time::timeout(
@@ -389,7 +415,7 @@ async fn download(raw: &str) -> Result<Vec<u8>, &'static str> {
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(3))
-        .timeout(Duration::from_secs(8))
+        .timeout(Duration::from_secs(12))
         .resolve_to_addrs(&host, &addresses)
         .build()
         .map_err(|_| "media_client_failed")?;
@@ -401,10 +427,7 @@ async fn download(raw: &str) -> Result<Vec<u8>, &'static str> {
     if !reply.status().is_success() {
         return Err("media_download_http");
     }
-    if reply
-        .content_length()
-        .is_some_and(|n| n > image_analysis::MAX_IMAGE_BYTES as u64)
-    {
+    if reply.content_length().is_some_and(|n| n > limit as u64) {
         return Err("media_size_limit");
     }
     let mut bytes = Vec::new();
@@ -413,7 +436,7 @@ async fn download(raw: &str) -> Result<Vec<u8>, &'static str> {
         .await
         .map_err(|_| "media_download_incomplete")?
     {
-        if bytes.len() + chunk.len() > image_analysis::MAX_IMAGE_BYTES {
+        if bytes.len().saturating_add(chunk.len()) > limit {
             return Err("media_size_limit");
         }
         bytes.extend_from_slice(&chunk);
@@ -641,5 +664,237 @@ mod tests {
                 .unwrap(),
             0
         );
+    }
+    #[tokio::test]
+    async fn video_policy_rejects_groups_multiple_files_commands_oversize_and_foreign_urls_before_download(
+    ) {
+        let base = json!({"t":"C2C_MESSAGE_CREATE","d":{"content":"收到视频。","attachments":[{"content_type":"video/mp4","url":"https://127.0.0.1/private"}]}});
+        let mut cases = vec![];
+        let mut group = base.clone();
+        group["t"] = json!("GROUP_AT_MESSAGE_CREATE");
+        cases.push((group, "media_channel_unsupported"));
+        let mut multiple = base.clone();
+        multiple["d"]["attachments"] = json!([{}, {}]);
+        cases.push((multiple, "media_count_unsupported"));
+        let mut command = base.clone();
+        command["d"]["content"] = json!("/记住 视频不是控制命令");
+        cases.push((command, "media_control_command"));
+        let mut large = base.clone();
+        large["d"]["attachments"][0]["size"] = json!(crate::media_assets::MAX_VIDEO + 1);
+        cases.push((large, "media_size_limit"));
+        cases.push((base, "media_url_not_allowed"));
+        for (payload, expected) in cases {
+            assert!(
+                matches!(prepare(&payload).await,Prepared::Unavailable {code,..} if code==expected)
+            );
+        }
+    }
+    #[tokio::test]
+    async fn uploaded_private_video_reaches_native_caption_reply_and_durable_video_outbox_without_vision(
+    ) {
+        use axum::{routing::post, Json, Router};
+        use std::sync::{Arc, Mutex};
+        let dir = tempfile::tempdir().unwrap();
+        let state = state(&dir);
+        let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let seen = requests.clone();
+        let provider_state = state.clone();
+        let app=Router::new().route("/chat/completions",post(move |Json(body):Json<Value>|{
+            let seen=seen.clone();let provider_state=provider_state.clone();
+            async move {
+                seen.lock().unwrap().push(body);
+                let id=provider_state.db(|db|Ok(db.query_row("SELECT id FROM conversation_media_assets WHERE kind='video'",[],|r|r.get::<_,String>(0))?)).unwrap();
+                Json(json!({"choices":[{"message":{"content":json!([{"type":"video","text":"这是你刚才上传的视频。","asset_id":id,"delay_ms":0}]).to_string()}}]}))
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let provider = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let key = uuid::Uuid::new_v4().to_string();
+        crate::state::private_write(
+            &dir.path().join("secrets").join(&key),
+            b"synthetic-video-model-key",
+        )
+        .unwrap();
+        let mut config = RuntimeConfig::default();
+        config.qq.enabled = true;
+        config.qq.app_id = "10001".into();
+        config.qq.credential_ref = Some("synthetic-qq-key".into());
+        config.model.base_url = format!("http://127.0.0.1:{port}");
+        config.model.model = "synthetic-video-caption".into();
+        config.model.credential_ref = Some(key.clone());
+        state
+            .db(|db| {
+                db.execute(
+                    "INSERT INTO secrets(id,kind,created_at) VALUES(?1,'model_api_key',0)",
+                    [key],
+                )?;
+                db.execute(
+                    "UPDATE config_revisions SET config_json=?1 WHERE revision=1",
+                    [serde_json::to_string(&config)?],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        let payload = json!({"t":"C2C_MESSAGE_CREATE","id":"video-event","d":{"id":"video-message","content":"请把这个视频原样发回给我。","author":{"user_openid":"target"},"attachments":[{"content_type":"video/mp4","url":"https://multimedia.nt.qq.com.cn/synthetic?rkey=private-video-reference"}]}});
+        receive(&state, &config, &payload).unwrap();
+        let receipt = claim(&state).unwrap().unwrap();
+        let bytes = include_bytes!("../testdata/synthetic-h264.mp4").to_vec();
+        crate::qq::ingest_prepared(
+            &state,
+            &config,
+            &payload,
+            receipt.received_at,
+            receipt.deadline,
+            Prepared::Video(crate::media_assets::validate_video(bytes.clone()).unwrap()),
+            Some(&receipt.fence),
+        )
+        .unwrap();
+        let (run,conversation,owner,asset)=state.db(|db|Ok(db.query_row("SELECT r.id,r.conversation_id,r.owner_id,a.id FROM runs r JOIN conversation_media_assets a ON a.conversation_id=r.conversation_id WHERE r.client_message_id='video-message'",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?)))?)).unwrap();
+        assert_eq!(owner, "qq:10001:c2c:target");
+        assert_eq!(
+            state
+                .db(|db| Ok(
+                    db.query_row("SELECT count(*) FROM conversation_images", [], |r| r
+                        .get::<_, i64>(0))?
+                ))
+                .unwrap(),
+            0
+        );
+        assert!(crate::media_assets::read(&state, "other-owner", &conversation, &asset).is_err());
+        let cancel = CancellationToken::new();
+        let worker_state = state.clone();
+        let worker_cancel = cancel.clone();
+        let worker = tokio::spawn(async move {
+            crate::worker::run_worker(worker_state, worker_cancel).await;
+        });
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let status = loop {
+            let status = state
+                .db(|db| {
+                    Ok(
+                        db.query_row("SELECT status FROM runs WHERE id=?1", [&run], |r| {
+                            r.get::<_, String>(0)
+                        })?,
+                    )
+                })
+                .unwrap();
+            if status != "queued" && status != "running" {
+                break status;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "synthetic caption run did not finish"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        };
+        cancel.cancel();
+        worker.await.unwrap();
+        provider.abort();
+        assert_eq!(status, "completed");
+        let observed = requests.lock().unwrap();
+        assert_eq!(observed.len(), 1);
+        let prompt = observed[0].to_string();
+        assert!(prompt.contains("不读取视频帧或音轨"));
+        assert!(prompt.contains("请把这个视频原样发回给我"));
+        assert!(prompt.contains(&asset));
+        assert!(!prompt.contains("private-video-reference"));
+        assert!(!prompt.contains(&STANDARD.encode(&bytes)));
+        drop(observed);
+        state.db(|db|{
+            let (part,target):(String,String)=db.query_row("SELECT p.payload_json,o.target_json FROM outbox_reply_parts p JOIN outbox o ON p.outbox_id=o.id WHERE o.run_id=?1",[&run],|r|Ok((r.get(0)?,r.get(1)?)))?;
+            let part:Value=serde_json::from_str(&part)?;assert_eq!(part["type"],"video");assert_eq!(part["asset_id"],asset);
+            let target:Value=serde_json::from_str(&target)?;assert_eq!(target["deadline"],receipt.deadline);
+            let cleared:bool=db.query_row("SELECT payload_json IS NULL AND config_json IS NULL FROM qq_received_events WHERE event_key=?1",[&receipt.fence.event_key],|r|r.get(0))?;assert!(cleared);
+            Ok(())
+        }).unwrap();
+        crate::qq::ingest_prepared(
+            &state,
+            &config,
+            &payload,
+            receipt.received_at,
+            receipt.deadline,
+            Prepared::Video(crate::media_assets::validate_video(bytes).unwrap()),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            state
+                .db(|db| Ok(db.query_row(
+                    "SELECT count(*) FROM conversation_media_assets",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )?))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            state
+                .db(|db| Ok(db.query_row("SELECT count(*) FROM runs", [], |r| r.get::<_, i64>(0))?))
+                .unwrap(),
+            1
+        );
+        state
+            .db(|db| {
+                db.execute(
+                    "INSERT INTO memory_context_watermarks VALUES(?1,'assistant',999,0)",
+                    [&conversation],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(crate::media_assets::read(&state, &owner, &conversation, &asset).is_err());
+        // A storage failure must roll back Inbox/Run/message and the media row
+        // together. The durable receive record remains available to its owner.
+        state.db(|db|{db.execute_batch("CREATE TRIGGER synthetic_video_write_failure BEFORE INSERT ON conversation_media_assets WHEN NEW.kind='video' BEGIN SELECT RAISE(ABORT,'synthetic fixture refusal');END;")?;Ok(())}).unwrap();
+        let mut refused = payload.clone();
+        refused["id"] = json!("refused-video-event");
+        refused["d"]["id"] = json!("refused-video-message");
+        receive(&state, &config, &refused).unwrap();
+        let receipt = claim(&state).unwrap().unwrap();
+        assert!(crate::qq::ingest_prepared(
+            &state,
+            &config,
+            &refused,
+            receipt.received_at,
+            receipt.deadline,
+            Prepared::Video(
+                crate::media_assets::validate_video(
+                    include_bytes!("../testdata/synthetic-h264.mp4").to_vec()
+                )
+                .unwrap()
+            ),
+            Some(&receipt.fence)
+        )
+        .is_err());
+        state
+            .db(|db| {
+                assert_eq!(
+                    db.query_row(
+                        "SELECT count(*) FROM runs WHERE client_message_id='refused-video-message'",
+                        [],
+                        |r| r.get::<_, i64>(0)
+                    )?,
+                    0
+                );
+                assert_eq!(
+                    db.query_row(
+                        "SELECT count(*) FROM inbox WHERE event_key=?1",
+                        [&receipt.fence.event_key],
+                        |r| r.get::<_, i64>(0)
+                    )?,
+                    0
+                );
+                assert_eq!(
+                    db.query_row("SELECT count(*) FROM conversation_media_assets", [], |r| {
+                        r.get::<_, i64>(0)
+                    })?,
+                    0
+                );
+                Ok(())
+            })
+            .unwrap();
     }
 }
