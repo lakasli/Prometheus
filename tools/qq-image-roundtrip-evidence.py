@@ -75,7 +75,7 @@ def collect(source, run_id, expected_input, expected_sha, expected_commit,
             db.execute('PRAGMA query_only=ON')
             db.execute('BEGIN')
             run = db.execute('''SELECT r.status,r.created_at,r.rowid,
-                r.input=?2 AS input_matches,r.owner_id=c.owner_id AS owner_matches,
+                r.input=:expected_input AS input_matches,r.owner_id=c.owner_id AS owner_matches,
                 r.run_kind='model' AS ordinary_model,
                 coalesce(w.through_run_rowid,0) AS floor,
                 json_extract(r.config_json,'$.reply.min_interval_ms') AS min_interval,
@@ -88,7 +88,7 @@ def collect(source, run_id, expected_input, expected_sha, expected_commit,
                       ||':c2c:'||json_extract(r.reply_json,'$.target') AS c2c_owner
                 FROM runs r JOIN conversations c ON c.id=r.conversation_id
                 LEFT JOIN memory_context_watermarks w ON w.conversation_id=r.conversation_id
-                WHERE r.id=?1''', (run_id, expected_input)).fetchone()
+                WHERE r.id=:run''', {'run': run_id, 'expected_input': expected_input}).fetchone()
             check(report, 'exact_run_exists', run is not None)
             check(report, 'exact_input_matches_without_export', run['input_matches'])
             check(report, 'frozen_qq_c2c_owner', run['c2c_owner'] and run['owner_matches'] and run['ordinary_model'])
@@ -139,9 +139,10 @@ def collect(source, run_id, expected_input, expected_sha, expected_commit,
                 a.source_run_id IS NULL OR EXISTS(SELECT 1 FROM runs s
                   WHERE s.id=a.source_run_id AND s.owner_id=a.owner_id
                   AND s.conversation_id=a.conversation_id AND s.status='completed') AS source_active
-                FROM conversation_media_assets a JOIN runs r ON r.id=?1
+                FROM conversation_media_assets a JOIN runs r ON r.id=:run
                 LEFT JOIN memory_context_watermarks w ON w.conversation_id=r.conversation_id
-                WHERE a.id=?2 AND length(a.bytes)<=4194304''', (run_id, image_item['asset_id'])).fetchone()
+                WHERE a.id=:asset_id AND length(a.bytes)<=4194304''',
+                {'run': run_id, 'asset_id': image_item['asset_id']}).fetchone()
             check(report, 'referenced_asset_exists_within_bound', asset is not None)
             check(report, 'asset_scope_floor_ttl_and_kind', asset['scoped'] and asset['current_floor'] and
                   asset['png'] and asset['source_active'] and asset['expires_at'] > at)
