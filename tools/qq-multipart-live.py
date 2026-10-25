@@ -24,6 +24,8 @@ import tempfile
 import threading
 import time
 import types
+import urllib.error
+import urllib.request
 import uuid
 from contextlib import closing
 
@@ -36,6 +38,8 @@ DIRECT_LIMIT = 5 * 1024 * 1024
 MEDIA_LIMIT = 20 * 1024 * 1024
 OPERATIONS = ['post_v2_users_user_id_upload_prepare',
               'post_v2_users_user_id_upload_part_finish']
+PREPARE_OUTCOMES = {'platform_accepted', 'platform_rejected', 'platform_permission_denied',
+                    'asynchronous_pending', 'result_unknown', 'transport_failed'}
 
 
 def load_module(name, filename):
@@ -192,6 +196,138 @@ def successful_multipart(observation):
             observation['payload_type'] == 'video')
 
 
+def prepare_body(video):
+    return {'file_type': 2, 'file_size': str(len(video)), 'file_name': 'dsh-video.mp4',
+            'md5': hashlib.md5(video).hexdigest(), 'sha1': hashlib.sha1(video).hexdigest(),
+            'md5_10m': hashlib.md5(video[:min(len(video), 10_002_432)]).hexdigest()}
+
+
+def bounded_integer(value, maximum=MEDIA_LIMIT):
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str) and 1 <= len(value) <= 12 and value.isascii() and value.isdigit():
+        value = int(value)
+    return value if isinstance(value, int) and 0 <= value <= maximum else None
+
+
+def response_shape(response):
+    """Only fixed field names, booleans and bounded numbers may escape."""
+    def fields(value):
+        if not isinstance(value, dict):
+            return None
+        upload = value.get('upload_id')
+        protected = (upload == '[server-held reference]' or
+                     isinstance(upload, dict) and '$qq_ref' in upload)
+        parts = value.get('parts')
+        parts_array = isinstance(parts, list)
+        bounded = parts_array and len(parts) <= 128
+        return {'upload_id_present': 'upload_id' in value,
+                'upload_id_protected_reference': protected,
+                'upload_id_raw_nonempty_string': isinstance(upload, str) and bool(upload) and not protected,
+                'block_size_present': 'block_size' in value,
+                'block_size': bounded_integer(value.get('block_size')),
+                'parts_is_array': parts_array,
+                'parts_count': len(parts) if bounded else None,
+                'parts_within_128_bound': bounded,
+                'part_indices_ordered': bounded and all(isinstance(part, dict) and
+                    type(part.get('index')) is int and part['index'] == index for index, part in enumerate(parts)),
+                'all_parts_have_presigned_url_field': bounded and bool(parts) and
+                    all(isinstance(part, dict) and 'presigned_url' in part for part in parts),
+                'all_part_urls_are_protected_references': bounded and bool(parts) and
+                    all(isinstance(part, dict) and (part.get('presigned_url') == '[server-held reference]' or
+                        isinstance(part.get('presigned_url'), dict) and '$qq_ref' in part['presigned_url'])
+                        for part in parts)}
+    root_object = isinstance(response, dict)
+    return {'root_is_object': root_object, 'data_wrapper_present': root_object and 'data' in response,
+            'data_wrapper_is_object': root_object and isinstance(response.get('data'), dict),
+            'root_fields': fields(response),
+            'data_fields': fields(response.get('data')) if root_object else None}
+
+
+def safe_prepare_result(result):
+    outcome = result.get('outcome')
+    trace = result.get('trace_id')
+    # Tencent trace IDs are opaque diagnostics, never arbitrary response text.
+    trace_safe = (isinstance(trace, str) and 16 <= len(trace) <= 128 and
+                  all(c in '0123456789abcdefABCDEF-' for c in trace))
+    return {'operation': OPERATIONS[0],
+            'outcome': outcome if isinstance(outcome, str) and outcome in PREPARE_OUTCOMES else 'unrecognized_result',
+            'platform_accepted': result.get('platform_accepted') is True and outcome == 'platform_accepted'
+                and type(result.get('http_status')) is int and result['http_status'] in (200, 204)
+                and (result.get('business_code') is None or
+                     type(result.get('business_code')) is int and result['business_code'] == 0),
+            'http_status': bounded_integer(result.get('http_status'), 599)
+                if type(result.get('http_status')) is int and result['http_status'] >= 100 else None,
+            'business_code': result.get('business_code') if type(result.get('business_code')) is int
+                and -(2 ** 63) <= result['business_code'] < 2 ** 63 else None,
+            'trace_id': trace if trace_safe else None,
+            'trace_id_present': trace is not None,
+            'trace_id_suppressed': trace is not None and not trace_safe,
+            'response_shape': response_shape(result.get('response'))}
+
+
+class LocalPrepareFailure(RuntimeError):
+    def __init__(self, status):
+        self.http_status = status
+        super().__init__('isolated prepare API did not return its expected envelope')
+
+
+def admin_prepare_request(harness, target, body):
+    payload = {'parameters': {'user_id': target['target']}, 'body': body, 'acknowledge_effects': True}
+    request = urllib.request.Request(harness.base + PREFIX + '/qq/api/operations/' + OPERATIONS[0],
+        json.dumps(payload).encode(), {'Origin': harness.base, 'Content-Type': 'application/json',
+                                       'X-CSRF-Token': harness.csrf}, method='POST')
+    try:
+        response = harness.client.open(request, timeout=60)
+    except urllib.error.HTTPError as error:
+        response = error
+    with response:
+        raw, status = response.read(1024 * 1024 + 1), response.code
+    if status != 200 or len(raw) > 1024 * 1024:
+        raise LocalPrepareFailure(status)
+    result = json.loads(raw)
+    if not isinstance(result, dict):
+        raise LocalPrepareFailure(status)
+    return result
+
+
+def prepare_probe(harness, target, video, invoke=admin_prepare_request):
+    """Exactly one prepare request; no PUT, finish, merge, send or queue."""
+    try:
+        result = invoke(harness, target, prepare_body(video))
+    except Exception as error:
+        record = {'operation': OPERATIONS[0], 'outcome': 'result_unknown',
+                  'platform_accepted': False, 'http_status': None, 'business_code': None,
+                  'trace_id': None, 'call_record_matches': False, 'exception_type': type(error).__name__}
+        if isinstance(error, LocalPrepareFailure):
+            record['local_http_status'] = error.http_status
+            if 400 <= error.http_status < 500:
+                record['outcome'] = 'local_request_rejected'
+                return record, 'prepare_local_request_rejected_no_message_sent', True
+        return record, 'prepare_unknown_or_unconfirmed_no_replay', True
+    record = safe_prepare_result(result)
+    try:
+        with harness.db() as db:
+            row = db.execute('SELECT outcome,http_status,business_code,trace_id FROM qq_api_calls '
+                             'WHERE id=? AND owner_id=? AND account_id=? AND operation_id=?',
+                             (result.get('call_id'), harness.owner, target['account_id'], OPERATIONS[0])).fetchone()
+            queue_count = db.execute('SELECT count(*) FROM outbox').fetchone()[0]
+    except Exception as error:
+        record['call_record_matches'] = False
+        record['observation_exception_type'] = type(error).__name__
+        return record, 'prepare_evidence_unconfirmed_no_replay', True
+    expected = tuple(result.get(key) for key in ['outcome', 'http_status', 'business_code', 'trace_id'])
+    record['call_record_matches'] = row is not None and tuple(row) == expected
+    record['private_outbox_count'] = queue_count
+    if not record['call_record_matches'] or queue_count != 0:
+        return record, 'prepare_evidence_unconfirmed_no_replay', True
+    if record['platform_accepted']:
+        return record, 'prepare_platform_accepted_no_message_sent', False
+    if record['outcome'] in {'platform_rejected', 'platform_permission_denied'}:
+        return record, 'prepare_platform_rejected_no_message_sent', True
+    return record, 'prepare_unknown_or_unconfirmed_no_replay', True
+
+
 def cleanup_private(harness, temporary, *, credential_copied=False, failed=False, diagnostic=None):
     """Never delete a private runtime until its exact child is confirmed dead."""
     result = {'daemon_exit_confirmed': harness is None, 'daemon_exit_code': None,
@@ -248,6 +384,8 @@ def main():
                  'expected-commit', 'video-fixture', 'report']:
         parser.add_argument('--' + flag, required=True)
     parser.add_argument('--marker', choices=['interface', 'media'], default='interface')
+    parser.add_argument('--prepare-only', action='store_true',
+                        help='call only upload_prepare once; never queue or send a message')
     args = parser.parse_args()
     source = pathlib.Path(args.source_data_dir).resolve(strict=True)
     binary = pathlib.Path(args.binary).resolve(strict=True)
@@ -262,6 +400,7 @@ def main():
         return 2
     report = {'kind': 'explicit QQ C2C real Rust multipart delivery acceptance',
               'started_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              'mode': 'prepare_only' if args.prepare_only else 'full_multipart_delivery',
               'commit': None, 'expected_commit': args.expected_commit,
               'script_commit': None, 'script_sha256': hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),
               'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
@@ -271,9 +410,11 @@ def main():
               'production_credential_read': False, 'second_gateway_started': False,
               'model_requests_executed': False, 'automatic_retries': False,
               'client_verified': False, 'real_qq_send_intent_recorded': False,
+              'prepare_intent_recorded': False,
               'checks': [], 'operations': [], 'status': 'running'}
     journal = {'kind': 'one-shot QQ multipart source claim', 'source_run_sha256':
-               report['source_run_sha256'], 'seq': 2, 'phase': 'claimed', 'automatic_retry': False}
+               report['source_run_sha256'], 'seq': None if args.prepare_only else 2,
+               'mode': report['mode'], 'phase': 'claimed', 'automatic_retry': False}
     try:
         exclusive_json(destination, report)
     except FileExistsError:
@@ -373,53 +514,68 @@ def main():
         check('actual Rust MP4 validator accepts the pinned padded video',
               asset['kind'] == 'video' and asset['sha256'] == FIXTURE_SHA256 and asset['bytes'] == len(video))
         report['fixture']['Rust_validator_accepted'] = True
-        harness.stop()
-        unchanged()
-        check('source native send interval has elapsed',
-              int(time.time() * 1000) >= native_finished_ms + scope[5])
-        private_target = dict(target, credential_ref=credential['id'])
-        journal['phase'] = 'video_seq2_send_intent_recorded'
-        report['real_qq_send_intent_recorded'] = True
-        save()
-        outbox = queued_fixture(harness, conversation, asset['id'], scope[0], private_target, applied['config'])
-        unchanged()
-        check('binary is unchanged before private queue execution',
-              hashlib.sha256(binary.read_bytes()).hexdigest() == report['binary_sha256'])
-        # This restart is the only point at which the armed fixture can send.
-        # The durable source claim and send intent already exist on disk.
-        harness.start()
-        stage = 'wait for exactly one real Rust multipart video delivery'
-        until = time.monotonic() + min(180, max(1, target['deadline'] - int(time.time()) - 5))
-        next_guard = time.monotonic()
-        observation = None
-        while time.monotonic() < until:
-            observation = observed_delivery(harness, outbox)
-            if observation['outbox_status'] in {'sent', 'failed', 'unknown', 'expired', 'cancelled'}:
-                break
-            if time.monotonic() >= next_guard:
-                unchanged()
-                next_guard = time.monotonic() + 2
-            time.sleep(0.2)
-        report['delivery'] = observation
-        success = observation is not None and successful_multipart(observation)
-        for operation in OPERATIONS:
-            report['operations'].append({'operation': operation,
-                'outcome': 'required_pipeline_passed' if success else 'not_independently_verified',
-                'evidence': 'over-5MiB Rust branch plus confirmed video delivery without text fallback',
-                'http_status': None, 'business_code': None, 'raw_HTTP_status_observed': False})
-        report['evidence_boundary'] = ('qq_media does not persist its internal platform requests in '
-            'qq_api_calls. A no-fallback sent video implies prepare, every PUT/finish and files merge '
-            'were accepted along the fixed over-5MiB branch; exact statuses, trace IDs and part count '
-            'were not observed. This does not replace direct per-operation HTTP evidence or QQ client playback.')
-        if success:
-            check('real Rust multipart video completed with message ID and no text fallback')
-            report['status'] = 'required_pipeline_passed_client_verification_pending'
-            journal['phase'] = 'completed_without_fallback'
+        if args.prepare_only:
+            unchanged()
+            stage = 'single prepare-only diagnostic with no Outbox or message'
+            journal['phase'] = 'prepare_only_upload_intent_recorded'
+            report['prepare_intent_recorded'] = True
+            save()
+            record, report['status'], failed = prepare_probe(harness, target, video)
+            report['operations'].append(record)
+            report['evidence_boundary'] = ('One authenticated Admin upload_prepare call only. '
+                'HTTP metadata is cross-checked against private qq_api_calls. Response shape contains '
+                'only booleans and bounded numbers; protected references are not raw upload IDs. '
+                'No presigned PUT, upload_part_finish, files merge, Outbox or message send was attempted.')
+            journal['phase'] = report['status']
+            save()
         else:
-            failed = True
-            report['status'] = 'failed_or_unknown_no_replay'
-            journal['phase'] = 'terminal_or_unknown_no_replay'
-        save()
+            harness.stop()
+            unchanged()
+            check('source native send interval has elapsed',
+                  int(time.time() * 1000) >= native_finished_ms + scope[5])
+            private_target = dict(target, credential_ref=credential['id'])
+            journal['phase'] = 'video_seq2_send_intent_recorded'
+            report['real_qq_send_intent_recorded'] = True
+            save()
+            outbox = queued_fixture(harness, conversation, asset['id'], scope[0], private_target, applied['config'])
+            unchanged()
+            check('binary is unchanged before private queue execution',
+                  hashlib.sha256(binary.read_bytes()).hexdigest() == report['binary_sha256'])
+            # This restart is the only point at which the armed fixture can send.
+            # The durable source claim and send intent already exist on disk.
+            harness.start()
+            stage = 'wait for exactly one real Rust multipart video delivery'
+            until = time.monotonic() + min(180, max(1, target['deadline'] - int(time.time()) - 5))
+            next_guard = time.monotonic()
+            observation = None
+            while time.monotonic() < until:
+                observation = observed_delivery(harness, outbox)
+                if observation['outbox_status'] in {'sent', 'failed', 'unknown', 'expired', 'cancelled'}:
+                    break
+                if time.monotonic() >= next_guard:
+                    unchanged()
+                    next_guard = time.monotonic() + 2
+                time.sleep(0.2)
+            report['delivery'] = observation
+            success = observation is not None and successful_multipart(observation)
+            for operation in OPERATIONS:
+                report['operations'].append({'operation': operation,
+                    'outcome': 'required_pipeline_passed' if success else 'not_independently_verified',
+                    'evidence': 'over-5MiB Rust branch plus confirmed video delivery without text fallback',
+                    'http_status': None, 'business_code': None, 'raw_HTTP_status_observed': False})
+            report['evidence_boundary'] = ('qq_media does not persist its internal platform requests in '
+                'qq_api_calls. A no-fallback sent video implies prepare, every PUT/finish and files merge '
+                'were accepted along the fixed over-5MiB branch; exact statuses, trace IDs and part count '
+                'were not observed. This does not replace direct per-operation HTTP evidence or QQ client playback.')
+            if success:
+                check('real Rust multipart video completed with message ID and no text fallback')
+                report['status'] = 'required_pipeline_passed_client_verification_pending'
+                journal['phase'] = 'completed_without_fallback'
+            else:
+                failed = True
+                report['status'] = 'failed_or_unknown_no_replay'
+                journal['phase'] = 'terminal_or_unknown_no_replay'
+            save()
     except Exception as error:
         failed = True
         report['status'] = 'failed_or_unknown_no_replay'
