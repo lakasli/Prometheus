@@ -1,0 +1,33 @@
+{
+  "kind": "manual authenticated browser observation and exact unit exit check",
+  "observed_at": "2026-10-25T16:16:46Z",
+  "deployment_commit": "c75b868e33fea4a3c6065d2d593acaeb19847fc7",
+  "browser": "Microsoft Edge",
+  "page": "SSH tunnel /admin/#plugins",
+  "footer_commit_observed": "c75b868e33",
+  "plugin_versions_empty": true,
+  "environment_check_clicked_once": true,
+  "probe_passed_rendered": true,
+  "engine_rendered": "wasmtime-36.0.19",
+  "policy_rendered": "landlock4-seccomp-stateless-v3",
+  "clone_flags_verified_rendered": true,
+  "pipe_ioctls_verified_rendered": true,
+  "inherited_fds_closed_rendered": true,
+  "rlimits_enforced_rendered": true,
+  "cgroup_memory_bytes_rendered": 1073741824,
+  "cgroup_tasks_rendered": 32,
+  "canary_checks_rendered_true": 8,
+  "exact_unit_exit_queried_over_ssh": true,
+  "unit_exit": {
+    "LoadState": "not-found",
+    "ActiveState": "inactive",
+    "SubState": "dead",
+    "MainPID": 0,
+    "ControlGroup": ""
+  },
+  "production_source_created": false,
+  "production_version_approved_or_activated": false,
+  "model_request_executed": false,
+  "screenshot_file_saved": false,
+  "boundary": "This records a visible authenticated environment-check result and subsequent exact unit exit. It is not an additional plugin build, model generation, human source review, production activation, or a worker peak-memory measurement."
+}

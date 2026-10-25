@@ -58,3 +58,5 @@
 QQ 本条图片回传修复发布 `c75b868e33fea4a3c6065d2d593acaeb19847fc7` 后，2026-10-25 23:27（+08:00）再次核对 current / health / 源码 / 前端版本一致，服务 ready。二进制 SHA-256 为 `9a148978909efb2d6825faa1b4ff17f2a291b88c9d3ee81dc733a159155ebf0a`；前端包为 `5dbcde267f844a1245a9292999452fba533899fb85475a779d497ca3ac3f3275`。
 
 同版工厂 [19 项正式回归](validation/plugin-factory-c75b868-aarch64.json)通过，包含原 18 项及新增显式 Web `/plugin` 调用的受控模型回归。Linux 全量 262 个 daemon、4 个 kernel 测试通过。隔离策略、Component 工具链与权限范围维持不变；真实模型生成仍只使用前述 `615c758…` 的一次预算，没有为后续回归重复消耗或自动批准生产插件。当前整体语音 / 媒体状态见 [本轮验收](voice-plugins-validation.md)。
+
+2026-10-26 00:16（+08:00）在真实认证 Edge 页面再次刷新，确认页脚 `Web c75b868e33` 及生产版本列表为空。单次“检查构建环境”显示 v3 策略、8 项拒绝 / 允许探针以及 clone / ioctl / FD / rlimit 检查全真；随后 SSH 查询该精确临时 unit，`MainPID=0`、`ActiveState=inactive`、`LoadState=not-found`、ControlGroup 为空。[页面观察记录](validation/plugin-factory-ui-c75b868.json)与正式回归分开，未保存截图文件、创建插件版本或执行生产批准。
