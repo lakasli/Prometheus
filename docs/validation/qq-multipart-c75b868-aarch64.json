@@ -1,0 +1,79 @@
+{
+  "kind": "explicit QQ C2C real Rust multipart delivery acceptance",
+  "started_at": "2026-10-25T15:45:44.694137+00:00",
+  "commit": "c75b868e33fea4a3c6065d2d593acaeb19847fc7",
+  "expected_commit": "c75b868e33fea4a3c6065d2d593acaeb19847fc7",
+  "script_commit": "c81c62858b746102af8af79bb28c49c01890ebf7",
+  "script_sha256": "541202b81f1949a34c25281aaf35283b932f9d6c68f9e51e1e27de3636768f2d",
+  "binary_sha256": "9a148978909efb2d6825faa1b4ff17f2a291b88c9d3ee81dc733a159155ebf0a",
+  "source_run_sha256": "ab0c312a51224badc6934d5f0bcf4b5ff2fe23b3ab8833ad48a740697b234205",
+  "platform": "Linux",
+  "architecture": "aarch64",
+  "production_database_modified": false,
+  "production_message_history_copied": false,
+  "production_credential_read": true,
+  "second_gateway_started": false,
+  "model_requests_executed": false,
+  "automatic_retries": false,
+  "client_verified": false,
+  "real_qq_send_intent_recorded": true,
+  "checks": [
+    "pinned synthetic padded MP4 exceeds direct-upload bound and stays below 20MiB",
+    "new fixed-marker C2C source has exactly native seq1 sent and at least 120 seconds",
+    "private daemon binary reports the required pushed commit",
+    "private QQ configuration validates without Gateway or model credentials",
+    "private webhook configuration is applied",
+    "actual Rust MP4 validator accepts the pinned padded video",
+    "frozen explicit source account credential target and floor remain unchanged",
+    "source native send interval has elapsed",
+    "binary is unchanged before private queue execution"
+  ],
+  "operations": [
+    {
+      "operation": "post_v2_users_user_id_upload_prepare",
+      "outcome": "not_independently_verified",
+      "evidence": "over-5MiB Rust branch plus confirmed video delivery without text fallback",
+      "http_status": null,
+      "business_code": null,
+      "raw_HTTP_status_observed": false
+    },
+    {
+      "operation": "post_v2_users_user_id_upload_part_finish",
+      "outcome": "not_independently_verified",
+      "evidence": "over-5MiB Rust branch plus confirmed video delivery without text fallback",
+      "http_status": null,
+      "business_code": null,
+      "raw_HTTP_status_observed": false
+    }
+  ],
+  "status": "failed_or_unknown_no_replay",
+  "fixture": {
+    "bytes": 6302964,
+    "sha256": "27c9497d696165a9cd044ac786929a3a2dab1fe87c44645a54b7f4bc0bd9fe82",
+    "duration_ms": 2000,
+    "padding_free_box_bytes": 6291456,
+    "padding_is_not_video_bitrate": true,
+    "Rust_validator_accepted": true
+  },
+  "deployment_sha": "c75b868e33fea4a3c6065d2d593acaeb19847fc7",
+  "delivery": {
+    "outbox_status": "sent",
+    "part_status": "sent",
+    "outbox_has_error": true,
+    "part_has_error": true,
+    "outbox_has_message_id": true,
+    "part_has_message_id": true,
+    "finished_ms": 1792943149275,
+    "payload_type": "video",
+    "direct_admin_call_records": 0
+  },
+  "evidence_boundary": "qq_media does not persist its internal platform requests in qq_api_calls. A no-fallback sent video implies prepare, every PUT/finish and files merge were accepted along the fixed over-5MiB branch; exact statuses, trace IDs and part count were not observed. This does not replace direct per-operation HTTP evidence or QQ client playback.",
+  "cleanup": {
+    "daemon_exit_confirmed": true,
+    "daemon_exit_code": 0,
+    "private_cleanup_complete": true,
+    "credentials_copy_retained": false,
+    "diagnostic_log_retained": true
+  },
+  "finished_at": "2026-10-25T15:45:49.523524+00:00"
+}
