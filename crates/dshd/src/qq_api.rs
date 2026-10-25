@@ -114,21 +114,28 @@ pub fn build_request(
             .parameters
             .get(key)
             .ok_or_else(|| ApiError::bad("qq_parameters", format!("缺少路径参数{key}")))?;
-        // QQ IDs can contain dots, underscores, hyphens and base64 padding.
-        // Delimiters, percent escapes and Unicode cannot alter the fixed route.
+        // Platform message IDs are opaque and may include ! and standard
+        // base64 +/=. Encode them as one path segment instead of interpreting
+        // a slash as a route delimiter. Pre-encoded paths and URLs are denied.
         if value.is_empty()
             || value.len() > 512
-            || value.contains("..")
+            || value.split('/').any(|part| matches!(part,"."|".."))
+            || value.starts_with("//")
             || !value
                 .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"_.-=".contains(&b))
+                .all(|b| b.is_ascii_alphanumeric() || b"_.-~!=+/".contains(&b))
         {
             return Err(ApiError::bad(
                 "qq_parameters",
                 format!("路径参数{key}格式无效"),
             ));
         }
-        path = path.replace(&format!("{{{key}}}"), value);
+        let mut segment=String::with_capacity(value.len());
+        const HEX:&[u8;16]=b"0123456789ABCDEF";
+        for byte in value.bytes(){
+            if byte.is_ascii_alphanumeric()||b"_.-~".contains(&byte){segment.push(byte as char);}else{segment.push('%');segment.push(HEX[(byte>>4)as usize]as char);segment.push(HEX[(byte&15)as usize]as char);}
+        }
+        path = path.replace(&format!("{{{key}}}"), &segment);
     }
     for (key, value) in &input.query {
         if !op.query_fields.contains(key)

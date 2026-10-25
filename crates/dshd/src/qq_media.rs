@@ -70,7 +70,7 @@ pub async fn request(
     if !path.starts_with('/')
         || path.starts_with("//")
         || path.contains(['?', '#', '\\'])
-        || path.contains("..")
+        || path.split('/').any(|part| matches!(part,"."|"..") || part.eq_ignore_ascii_case("%2e") || part.eq_ignore_ascii_case("%2e%2e") || part.eq_ignore_ascii_case(".%2e") || part.eq_ignore_ascii_case("%2e."))
     {
         return Err((false, "QQ接口路径无效".into()));
     }
@@ -659,6 +659,32 @@ mod tests {
             82,
             "unsafe requests must not redirect or retry"
         );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn opaque_message_id_is_encoded_as_one_http_path_segment(){
+        let receipts=Arc::new(Mutex::new(Vec::new()));
+        let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base=format!("http://{}",listener.local_addr().unwrap());
+        let app=Router::new().fallback(mock_platform).with_state(receipts.clone());
+        let server=tokio::spawn(async move{axum::serve(listener,app).await.unwrap()});
+        let op=crate::qq_api::operations().iter().find(|o|o.id=="delete_v2_users_user_openid_messages_message_id").unwrap();
+        let mut input=crate::qq_api::ExecuteBody{parameters:BTreeMap::from([("user_openid".into(),"Synthetic_User".into()),("message_id".into(),"ROBOT1.0_AB!CD+EF/GH==".into())]),acknowledge_effects:true,..Default::default()};
+        let(path,query)=crate::qq_api::build_request(op,&input).unwrap();
+        let expected="/v2/users/Synthetic_User/messages/ROBOT1.0_AB%21CD%2BEF%2FGH%3D%3D";
+        assert_eq!(path,expected);
+        let reply=request_http(&base,"synthetic-app","synthetic-test-token",reqwest::Method::DELETE,&path,&query,None).await.unwrap();
+        assert!(reply.accepted());
+        let recorded=receipts.lock().unwrap().clone();
+        assert_eq!(recorded.len(),1);assert_eq!(recorded[0].path,expected);assert_eq!(recorded[0].path.split('/').count(),6);
+        input.parameters.insert("message_id".into(),"a..b".into());
+        assert_eq!(crate::qq_api::build_request(op,&input).unwrap().0,"/v2/users/Synthetic_User/messages/a..b");
+        for invalid in ["../other","abc/../../users/@me","https://attacker.invalid/path","//attacker.invalid/path","encoded%2Fpath","bad\nheader","."]{
+            input.parameters.insert("message_id".into(),invalid.into());
+            assert!(crate::qq_api::build_request(op,&input).is_err(),"{invalid}");
+        }
+        assert_eq!(receipts.lock().unwrap().len(),1,"invalid input cannot create an additional HTTP request");
         server.abort();
     }
 }
