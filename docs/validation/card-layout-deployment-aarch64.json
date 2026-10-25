@@ -1,0 +1,109 @@
+{
+  "commit": "595288f9b181fb156056666a8e63a3e855e9f05c",
+  "deployed_at": "2026-10-25T08:33:57.941868+00:00",
+  "captured_at": "2026-10-25T08:36:58.111464+00:00",
+  "previous_release": "/home/campanus/apps/dsh/releases/df8933f89733e95dcacee8bcd9ee3ac8b6e6bc9c",
+  "current_release": "/home/campanus/apps/dsh/releases/595288f9b181fb156056666a8e63a3e855e9f05c",
+  "source_head": "595288f9b181fb156056666a8e63a3e855e9f05c",
+  "source_clean": true,
+  "source_origin_matches_project": true,
+  "binary_sha256": "2b9c4dd21a4080ad0d1357e213e0e5b0c9b3585ca7062b37fb6f6d142b3716d0",
+  "backup": "/home/campanus/apps/dsh/shared/backups/pre-595288f9b181fb156056666a8e63a3e855e9f05c-20261025T083356555360010.sqlite",
+  "frontend_sha_matches_backend": true,
+  "frontend_manifest_commit": "595288f9b181fb156056666a8e63a3e855e9f05c",
+  "health_ready_http_status": 200,
+  "health_commit": "595288f9b181fb156056666a8e63a3e855e9f05c",
+  "target": "campanus@192.168.189.191",
+  "system": "Ubuntu 24.04.4 LTS / aarch64",
+  "hardware": "Raspberry Pi 5 Model B Rev 1.1",
+  "archive_sha256": "579734ac1307781f79b5ef0a8f1b8d6e946dd13bb3b8ca4a9e65330691ee1137",
+  "service": {
+    "NRestarts": "0",
+    "ActiveState": "active",
+    "SubState": "running"
+  },
+  "data_retention": {
+    "method": "Read-only SQLite snapshots; aggregate row counts and active config revision only.",
+    "backup": {
+      "active_revision": 4,
+      "row_counts": {
+        "admins": 1,
+        "config_revisions": 4,
+        "conversations": 4,
+        "runs": 9,
+        "messages": 18,
+        "character_cards": 2,
+        "character_card_revisions": 1,
+        "character_card_drafts": 2,
+        "memory_records": 0,
+        "memory_versions": 0,
+        "conversation_summaries": 0,
+        "conversation_summary_versions": 0
+      }
+    },
+    "current": {
+      "active_revision": 4,
+      "row_counts": {
+        "admins": 1,
+        "config_revisions": 4,
+        "conversations": 4,
+        "runs": 9,
+        "messages": 18,
+        "character_cards": 2,
+        "character_card_revisions": 1,
+        "character_card_drafts": 2,
+        "memory_records": 0,
+        "memory_versions": 0,
+        "conversation_summaries": 0,
+        "conversation_summary_versions": 0
+      }
+    },
+    "active_revision_unchanged": true,
+    "all_selected_row_counts_equal": true,
+    "all_selected_row_counts_not_decreased": true,
+    "content_or_credentials_output": false,
+    "limitation": "Aggregate counts do not prove content equality; concurrent authorized user writes can change counts."
+  },
+  "rollback_executed": false,
+  "data_restore_executed": false,
+  "remote_black_box": {
+    "m1": {
+      "passed": 19,
+      "exit_code": 0,
+      "report": "card-layout-m1-595288f.json",
+      "log": "card-layout-m1-595288f.log"
+    },
+    "character": {
+      "passed": 55,
+      "exit_code": 0,
+      "report": "card-layout-character-595288f.json",
+      "log": "card-layout-character-595288f.log"
+    },
+    "directory": "/home/campanus/apps/dsh/shared/logs/",
+    "uses_isolated_data": true,
+    "real_external_model_tested": false,
+    "real_qq_tested": false
+  },
+  "remote_browser": {
+    "command": "DSH_E2E_BASE_URL=http://127.0.0.1:18421 DSH_CHARACTER_E2E_DATA_DIR=<isolated-local-directory> DSH_E2E_DATA_DIR=<same-directory> npx playwright test characters.spec.ts ui-design.spec.ts",
+    "passed": 4,
+    "exit_code": 0,
+    "duration_seconds": 19.7,
+    "uses_isolated_remote_data": true,
+    "uses_deployed_release_binary_and_web": true,
+    "screenshot_directory": ".local/card-layout-remote/",
+    "viewports_without_horizontal_overflow": [1912, 1366, 1024, 390, 320],
+    "short_page_footer": [
+      {
+        "viewport": [1912, 948],
+        "footer_bottom": 926
+      },
+      {
+        "viewport": [1366, 768],
+        "footer_bottom": 746
+      }
+    ],
+    "chat_height": 693,
+    "evidence_source": "Executing parent agent reported browser commands and visual inspection."
+  }
+}

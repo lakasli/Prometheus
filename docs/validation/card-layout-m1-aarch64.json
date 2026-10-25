@@ -1,0 +1,28 @@
+{
+  "kind": "M1 black-box smoke with isolated mock model",
+  "real_external_model_tested": false,
+  "real_qq_tested": false,
+  "checks": [
+    "unauthenticated management request denied",
+    "production frontend entry served",
+    "fresh database needs bootstrap",
+    "authenticated mutation requires CSRF token",
+    "secret metadata does not reveal stored key",
+    "draft validated by server",
+    "desired configuration actually applied",
+    "stale revision cannot overwrite configuration",
+    "native backend calls configured model",
+    "CLI uses authenticated native model pipeline",
+    "duplicate input maps to same durable run",
+    "assistant response persisted once",
+    "different conversation has no shared history",
+    "crash fixture has an actually running request",
+    "configuration survives process restart",
+    "interrupted external request is not blindly replayed",
+    "durable queued run recovers after restart",
+    "restart does not duplicate assistant delivery",
+    "logout revokes the session"
+  ],
+  "passed": 19,
+  "platform": "aarch64"
+}
