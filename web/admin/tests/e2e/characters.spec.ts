@@ -88,6 +88,19 @@ test("character cards use real local APIs for versioning, import and isolated co
   await expect(
     page.getByRole("heading", { name: "角色卡库", exact: true }),
   ).toBeVisible();
+  await expect(page.locator(".character-editor")).toHaveCount(0);
+  const initialFooter = await page
+    .locator(".page-footer")
+    .evaluate((footer) => ({
+      bottom: footer.getBoundingClientRect().bottom,
+      viewportHeight: window.innerHeight,
+    }));
+  expect(initialFooter.bottom).toBeGreaterThanOrEqual(
+    initialFooter.viewportHeight - 32,
+  );
+  expect(initialFooter.bottom).toBeLessThanOrEqual(
+    initialFooter.viewportHeight,
+  );
   await page.getByRole("button", { name: "新建卡片", exact: true }).click();
   const name = `浏览器角色_${crypto.randomBytes(4).toString("hex")}`;
   await page.getByLabel("角色名称", { exact: true }).fill(name);
@@ -104,6 +117,29 @@ test("character cards use real local APIs for versioning, import and isolated co
     .fill("这是角色卡开场白，不是模型生成的回复。");
   await page.getByRole("button", { name: "保存草稿", exact: true }).click();
   await expect(page.getByText("草稿已保存", { exact: true })).toBeVisible();
+  await expect(
+    page
+      .locator(".character-gallery .character-grid .character-card-button")
+      .filter({ has: page.getByText(name, { exact: true }) }),
+  ).toBeVisible();
+  const galleryBounds = await page.locator(".character-gallery").boundingBox();
+  const libraryBounds = await page.locator(".character-library").boundingBox();
+  expect(galleryBounds!.x).toBeGreaterThanOrEqual(
+    libraryBounds!.x + libraryBounds!.width,
+  );
+  const editorFooter = await page
+    .locator(".character-editor")
+    .evaluate((editor) => ({
+      editorBottom: editor.getBoundingClientRect().bottom + window.scrollY,
+      footerTop:
+        document.querySelector(".page-footer")!.getBoundingClientRect().top +
+        window.scrollY,
+      viewportHeight: window.innerHeight,
+    }));
+  expect(editorFooter.footerTop).toBeGreaterThanOrEqual(
+    editorFooter.editorBottom,
+  );
+  expect(editorFooter.footerTop).toBeGreaterThan(editorFooter.viewportHeight);
 
   await page.getByLabel("昵称", { exact: true }).fill("未保存昵称");
   await page.getByRole("button", { name: "刷新", exact: true }).click();

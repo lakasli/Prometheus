@@ -860,11 +860,15 @@ small {
   background: #6883b633;
 }
 .main-wrap {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
   margin-left: 235px;
   width: calc(100% - 235px);
   min-width: 0;
 }
 .topbar {
+  flex-shrink: 0;
   height: 67px;
   display: flex;
   align-items: center;
@@ -915,9 +919,16 @@ small {
   white-space: nowrap;
 }
 .content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  width: 100%;
   max-width: 1360px;
   margin: 0 auto;
   padding: 31px 38px 22px;
+}
+.content > * {
+  flex-shrink: 0;
 }
 .page-heading {
   display: flex;
@@ -1171,6 +1182,7 @@ small {
   margin-top: 14px;
 }
 .page-footer {
+  margin-top: auto;
   display: flex;
   align-items: center;
   justify-content: space-between;

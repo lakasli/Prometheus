@@ -514,33 +514,58 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
             @change="importFile"
           />
         </div>
-        <p v-if="!library.items.length" class="character-empty">
-          还没有角色卡。先创建或导入一张，校验后发布。
-        </p>
-        <button
-          v-for="item in library.items"
-          :key="item.id"
-          class="character-card-button"
-          :class="{ active: draft?.card_id === item.id }"
-          :disabled="!!working"
-          @click="openCard(item)"
-        >
-          <strong>{{ item.name || "未命名卡片" }}</strong
-          ><small
-            >{{
-              item.archived_at
-                ? "已归档"
-                : item.latest_revision
-                  ? `已发布 v${item.latest_revision}`
-                  : "尚未发布"
-            }}{{ item.draft ? " · 有草稿" : "" }}</small
-          ><span v-if="library.default?.card_id === item.id" class="badge green"
-            >新会话默认 v{{ library.default.revision }}</span
-          >
-        </button>
       </aside>
-      <section class="panel character-editor">
-        <template v-if="edited && data">
+      <div class="character-content">
+        <section class="panel character-gallery" aria-label="角色卡片">
+          <div class="character-heading">
+            <div>
+              <h2>全部角色</h2>
+              <p class="muted">选择一张卡片，查看与编辑角色的表达。</p>
+            </div>
+            <span class="badge neutral">{{ library.items.length }} 张</span>
+          </div>
+          <div v-if="library.items.length" class="character-grid">
+            <button
+              v-for="item in library.items"
+              :key="item.id"
+              type="button"
+              class="character-card-button"
+              :class="{ active: draft?.card_id === item.id }"
+              :aria-pressed="draft?.card_id === item.id"
+              :disabled="!!working"
+              @click="openCard(item)"
+            >
+              <span class="character-card-avatar" aria-hidden="true">{{
+                Array.from(item.name || "角色")[0]
+              }}</span>
+              <strong>{{ item.name || "未命名卡片" }}</strong>
+              <small
+                >{{
+                  item.archived_at
+                    ? "已归档"
+                    : item.latest_revision
+                      ? `已发布 v${item.latest_revision}`
+                      : "尚未发布"
+                }}{{ item.draft ? " · 有草稿" : "" }}</small
+              >
+              <span
+                v-if="library.default?.card_id === item.id"
+                class="badge green"
+                >新会话默认 v{{ library.default.revision }}</span
+              >
+              <span class="character-card-open">{{
+                draft?.card_id === item.id ? "正在编辑" : "打开卡片 →"
+              }}</span>
+            </button>
+          </div>
+          <div v-else class="character-empty">
+            <h2>让助手拥有熟悉的表达</h2>
+            <p>
+              从左侧新建或导入一张角色卡。人格、会话记忆和模型配置分别管理。
+            </p>
+          </div>
+        </section>
+        <section v-if="edited && data" class="panel character-editor">
           <div class="character-heading">
             <div>
               <span class="eyebrow">CHARACTER CARD</span>
@@ -824,12 +849,8 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
               发布不自动共享；QQ开关不影响已有会话或实例默认。新版本和默认值不会改变已有会话的人格。换角色请新建对话。
             </p>
           </div>
-        </template>
-        <div v-else class="character-empty">
-          <h2>让助手拥有熟悉的表达</h2>
-          <p>从左侧新建或选择一张角色卡。人格、会话记忆和模型配置分别管理。</p>
-        </div>
-      </section>
+        </section>
+      </div>
     </div>
   </div>
 </template>
@@ -846,10 +867,26 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
   align-items: start;
 }
 .character-library,
+.character-gallery,
 .character-editor,
 .character-import {
   padding: 24px;
   min-width: 0;
+}
+.character-content {
+  display: grid;
+  gap: 22px;
+  min-width: 0;
+}
+.character-gallery .character-heading p {
+  margin-top: 8px;
+  font-size: 12px;
+}
+.character-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+  gap: 16px;
+  margin-top: 22px;
 }
 .character-heading {
   display: flex;
@@ -899,12 +936,41 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
   display: flex;
   align-items: flex-start;
   flex-direction: column;
-  gap: 5px;
+  gap: 10px;
   text-align: left;
-  padding: 14px;
+  padding: 20px;
   width: 100%;
-  margin-top: 12px;
+  min-width: 0;
+  min-height: 210px;
+  border-radius: 14px;
   overflow-wrap: anywhere;
+}
+.character-card-button:hover:not(:disabled) {
+  border-color: var(--indigo);
+}
+.character-card-button:focus-visible {
+  outline: 2px solid var(--indigo);
+  outline-offset: 3px;
+}
+.character-card-avatar {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  color: var(--indigo);
+  background: var(--soft-blue);
+  font-size: 22px;
+  font-weight: 600;
+}
+.character-card-button strong {
+  font-size: 16px;
+}
+.character-card-open {
+  margin-top: auto;
+  padding-top: 8px;
+  color: var(--indigo);
+  font-size: 12px;
 }
 .character-card-button.active {
   border-color: var(--indigo);
@@ -1032,6 +1098,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
 }
 @media (max-width: 560px) {
   .character-library,
+  .character-gallery,
   .character-editor,
   .character-import {
     padding: 18px;
