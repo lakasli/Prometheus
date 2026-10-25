@@ -10,6 +10,7 @@ import tempfile
 import time
 import types
 import unittest
+import uuid
 from unittest import mock
 
 PATH = pathlib.Path(__file__).resolve().parents[1] / 'qq-multipart-live.py'
@@ -247,6 +248,8 @@ class PrepareOnlyTests(unittest.TestCase):
                 def start(self):
                     self.starts += 1
                     self.running = True
+                def stop(self):
+                    self.running = False
                 def bootstrap(self):
                     pass
                 def close(self):
@@ -299,6 +302,26 @@ class PrepareOnlyTests(unittest.TestCase):
                 self.assertEqual(MODULE.main(), 2)
                 probe.assert_called_once()
                 queue.assert_not_called()
+                # New synthetic source contexts exercise the real report branch:
+                # a confirmed text fallback must never claim verified video.
+                queue.side_effect = None
+                queue.return_value = 'synthetic-outbox'
+                for fallback in (True, False):
+                    full_report = root / ('full-fallback.json' if fallback else 'full-video.json')
+                    arguments[arguments.index('--source-run-id') + 1] = str(uuid.uuid4())
+                    arguments[arguments.index('--report') + 1] = str(full_report)
+                    observation = {'outbox_status': 'sent', 'part_status': 'sent',
+                        'outbox_has_error': fallback, 'part_has_error': fallback,
+                        'outbox_has_message_id': True, 'part_has_message_id': True,
+                        'payload_type': 'video'}
+                    with mock.patch.object(MODULE, 'observed_delivery', return_value=observation):
+                        self.assertEqual(MODULE.main(), int(fallback))
+                    actual = json.loads(full_report.read_text(encoding='utf-8'))
+                    expected = ('Rust branch attempted; upload phase and video delivery were not verified'
+                        if fallback else 'over-5MiB Rust branch plus confirmed video delivery without text fallback')
+                    self.assertTrue(all(item['evidence'] == expected for item in actual['operations']))
+                probe.assert_called_once()
+                self.assertEqual(queue.call_count, 2)
 
     def test_request_body_exactly_matches_rust_for_the_pinned_fixture(self):
         source = pathlib.Path(__file__).resolve().parents[2] / 'crates/dshd/testdata/synthetic-h264.mp4'

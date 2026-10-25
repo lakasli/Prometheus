@@ -561,7 +561,8 @@ def main():
             for operation in OPERATIONS:
                 report['operations'].append({'operation': operation,
                     'outcome': 'required_pipeline_passed' if success else 'not_independently_verified',
-                    'evidence': 'over-5MiB Rust branch plus confirmed video delivery without text fallback',
+                    'evidence': ('over-5MiB Rust branch plus confirmed video delivery without text fallback'
+                        if success else 'Rust branch attempted; upload phase and video delivery were not verified'),
                     'http_status': None, 'business_code': None, 'raw_HTTP_status_observed': False})
             report['evidence_boundary'] = ('qq_media does not persist its internal platform requests in '
                 'qq_api_calls. A no-fallback sent video implies prepare, every PUT/finish and files merge '
