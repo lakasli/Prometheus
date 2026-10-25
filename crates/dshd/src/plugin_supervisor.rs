@@ -432,6 +432,7 @@ pub async fn execute(
                     Some("plugin_seccomp_unavailable") => "plugin_seccomp_unavailable",
                     Some("plugin_cgroup_unverified") => "plugin_cgroup_unverified",
                     Some("plugin_rlimits_unverified") => "plugin_rlimits_unverified",
+                    Some("plugin_pipe_ioctls_unverified") => "plugin_pipe_ioctls_unverified",
                     Some("plugin_sandbox_path_unavailable") => "plugin_sandbox_path_unavailable",
                     Some("plugin_close_range_unavailable") => "plugin_close_range_unavailable",
                     _ => "plugin_worker_preflight_failed",
@@ -447,6 +448,7 @@ pub async fn execute(
             || !response.isolation.no_new_privileges
             || !response.isolation.inherited_fds_closed
             || !response.isolation.rlimits_enforced
+            || !response.isolation.pipe_ioctls_verified
             || response.isolation.cgroup_memory_bytes != plugin_sandbox::MEMORY_BYTES
             || response.isolation.cgroup_tasks != plugin_sandbox::TASKS
             || response.ok && !plugin_component_worker::probes_passed(&response.probes)

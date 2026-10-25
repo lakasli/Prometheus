@@ -43,7 +43,7 @@ world plugin {
 
 - 关闭 3 以上所有继承 FD，清空环境；不传递管理数据库、生产密钥、SSH key、登录目录或 DBus socket。
 - 安装 Linux Landlock ABI ≥ 4：只读工具链和系统运行库，唯一可写路径为本次随机私有 scratch；不授予生产目录、`/proc`、`/run`、`/sys` 或全局 `/tmp`。
-- 安装架构校验的 seccomp 系统调用允许清单，默认拒绝未列出的未来 syscall。Socket / Unix IPC、进程内存读取、ptrace、peer 信号、pidfd、io_uring、挂载 / namespace、密钥环和文件 metadata 修改等不在清单中。`fcntl` 限描述符操作，`prlimit64` 只允许自身，防止旁路控制同 UID 进程。
+- 安装架构校验的 seccomp 系统调用允许清单，默认拒绝未列出的未来 syscall。Socket / Unix IPC、进程内存读取、ptrace、peer 信号、pidfd、io_uring、挂载 / namespace、密钥环和文件 metadata 修改等不在清单中。`fcntl` 限描述符操作，`prlimit64` 只允许自身，防止旁路控制同 UID 进程。策略 `landlock4-seccomp-stateless-v2` 仅增加 `ioctl(FIONBIO)`，供 Rust 用自身匿名管道收集链接器输出；不开放其他 ioctl、socketpair 或宿主 IPC。工作器在读取请求前用新建自有管道验证 FIONBIO 成功及其他 ioctl 返回 EPERM，并在隔离元数据中单独报告此门禁。
 - 用本次独立合成 canary 和 `env_clear` 的合成 peer 验证禁止读取 sibling 文件 / 目录、peer 的 environ / FD、越界写入、INET / INET6 / UNIX sockets、peer 的零信号 / 空内存读，并验证 scratch 可写。探针不读取实际生产 secret 或真实用户内容。
 
 `candidate_ready` 只表示内核和工具链可用于尝试校验。每次 daemon 初始化都清除旧 `verified` 状态；只有实际八项探针及精确退出确认通过，`available` 才为真。管理页面允许重新检查环境。构建 / 调用前要求本进程已验证，每次工作器仍重做隔离探针；任何退出无法确认都会关闭可用状态、保留执行名额和对应 ledger，不提前清除目录或开启下一任务。

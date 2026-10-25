@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const POLICY: &str = "landlock4-seccomp-stateless-v1";
+pub const POLICY: &str = "landlock4-seccomp-stateless-v2";
 pub const MEMORY_BYTES: u64 = 1024 * 1024 * 1024;
 pub const TASKS: u64 = 32;
 pub const FILE_BYTES: u64 = 16 * 1024 * 1024;
@@ -19,6 +19,7 @@ pub struct Isolation {
     pub cgroup_memory_bytes: u64,
     pub cgroup_tasks: u64,
     pub rlimits_enforced: bool,
+    pub pipe_ioctls_verified: bool,
     pub unit: String,
 }
 
@@ -121,6 +122,8 @@ mod linux {
         fn getpid() -> i32;
         fn __errno_location() -> *mut i32;
         fn getrlimit(resource: i32, limits: *mut Limits) -> i32;
+        fn pipe2(descriptors: *mut i32, flags: i32) -> i32;
+        fn ioctl(fd: i32, request: usize, ...) -> i32;
     }
     fn ruleset(abi: i32) -> Result<i32, &'static str> {
         if abi < 4 {
@@ -248,6 +251,48 @@ mod linux {
             jf: 0,
             k: 0x00050000 | 38,
         });
+        // Rust's wait_with_output uses FIONBIO on its own stdout/stderr
+        // pipes. No other device/TTY ioctl is needed or granted.
+        #[cfg(target_arch = "aarch64")]
+        let ioctl_nr = 29;
+        #[cfg(target_arch = "x86_64")]
+        let ioctl_nr = 16;
+        list.push(Filter {
+            code: 0x15,
+            jt: 0,
+            jf: 4,
+            k: ioctl_nr,
+        });
+        list.push(Filter {
+            code: 0x20,
+            jt: 0,
+            jf: 0,
+            k: 24,
+        });
+        list.push(Filter {
+            code: 0x15,
+            jt: 0,
+            jf: 1,
+            k: 0x5421,
+        });
+        list.push(Filter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: 0x7fff0000,
+        });
+        list.push(Filter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: 0x00050000 | 1,
+        });
+        list.push(Filter {
+            code: 0x20,
+            jt: 0,
+            jf: 0,
+            k: 0,
+        });
         // fcntl is limited to descriptor duplication/flags: F_SETOWN and file
         // leases could otherwise cause signals to another same-UID process.
         #[cfg(target_arch = "aarch64")]
@@ -360,6 +405,25 @@ mod linux {
         }
         Ok(())
     }
+    fn pipe_ioctl_probe() -> bool {
+        let mut descriptors = [-1, -1];
+        if unsafe { pipe2(descriptors.as_mut_ptr(), 0x80000) } != 0 {
+            return false;
+        }
+        let mut enabled = 1i32;
+        let allowed = unsafe { ioctl(descriptors[0], 0x5421, &mut enabled as *mut i32) } == 0;
+        // TCGETS would normally fail ENOTTY on this private pipe. EPERM
+        // specifically proves that the syscall policy blocked the request.
+        let forbidden = unsafe {
+            ioctl(descriptors[0], 0x5401, &mut enabled as *mut i32) == -1
+                && *__errno_location() == 1
+        };
+        unsafe {
+            close(descriptors[0]);
+            close(descriptors[1]);
+        }
+        allowed && forbidden
+    }
     fn cgroup() -> Result<(String, u64, u64), &'static str> {
         let membership =
             std::fs::read_to_string("/proc/self/cgroup").map_err(|_| "plugin_cgroup_unverified")?;
@@ -471,6 +535,9 @@ mod linux {
         }
         result?;
         filter()?;
+        if !pipe_ioctl_probe() {
+            return Err("plugin_pipe_ioctls_unverified");
+        }
         Ok(Isolation {
             policy: POLICY.into(),
             landlock_abi: abi,
@@ -480,6 +547,7 @@ mod linux {
             cgroup_memory_bytes: memory,
             cgroup_tasks: tasks,
             rlimits_enforced: true,
+            pipe_ioctls_verified: true,
             unit,
         })
     }

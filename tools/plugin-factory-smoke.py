@@ -217,7 +217,8 @@ def main():
                             raise AssertionError('actual isolated worker lifecycle probe failed')
                         if (not isolated['passed'] or not all(isolated['probes'].values())
                                 or isolated['isolation']['landlock_abi'] < 4
-                                or not isolated['isolation']['rlimits_enforced']):
+                                or not isolated['isolation']['rlimits_enforced']
+                                or not isolated['isolation']['pipe_ioctls_verified']):
                             raise AssertionError('actual isolated worker enforcement probe failed')
                         observed_units.add(isolated['isolation']['unit'])
                         report['isolation_probe_repetitions'] = repetition + 1
