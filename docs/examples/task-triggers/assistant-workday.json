@@ -1,0 +1,47 @@
+{
+  "task_trigger_draft": {
+    "spec": "dsh.task-trigger",
+    "spec_version": "1",
+    "title": "工作日9点生成今日规划",
+    "time_zone": "Asia/Shanghai",
+    "trigger": {
+      "type": "calendar",
+      "frequency": "daily",
+      "at_times": [
+        "09:00:00"
+      ],
+      "day_class": "workday",
+      "calendar_id": "cn-official"
+    },
+    "action": {
+      "type": "assistant_run",
+      "prompt": "根据下面由我明确提供的固定目标，给出简短的今日计划：整理待办、预留学习时间。没有接入日历或待办工具时说明资料范围，不声称读取了外部账号。",
+      "skill": null,
+      "persona": {
+        "mode": "instance_snapshot"
+      },
+      "output_mode": "text",
+      "context_policy": "isolated"
+    },
+    "delivery": {
+      "kind": "web_inbox"
+    },
+    "active_window": {
+      "start_at": null,
+      "end_at": null
+    },
+    "policy": {
+      "misfire": "skip",
+      "grace_seconds": 300,
+      "max_catch_up": 1,
+      "overlap": "coalesce_one",
+      "catch_up_window_seconds": 0
+    },
+    "budget": {
+      "daily_occurrences": 100,
+      "daily_model_runs": 10,
+      "max_output_tokens": 1024,
+      "run_timeout_seconds": 120
+    }
+  }
+}

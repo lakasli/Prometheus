@@ -16,3 +16,5 @@ Skill 是管理员保存的可复用任务指令，不授予工具、文件、�
 管理 API 为 `/api/admin/v1/skills`（GET / POST）、`/skills/{id}`（PATCH / DELETE，JSON 内 `expected_revision`）及 `/skills/images/{run_id}`（GET PNG）。所有读取须管理员认证，写入同时检查 Origin / CSRF，更新与删除使用乐观版本。Skill 在 SQLite 中持久化，审计只存对象引用，不存密钥。新增数据表为 additive；已使用的 Skill 快照、用户编辑和原生生图配置要求具备 `skills:1` 的版本读取，部署回退检查拒绝静默降级，保留升级前备份，不自动恢复覆盖用户数据。
 
 相关检查：`cargo test --workspace --locked`、`npm test`、`npm run build`、`python -S -m unittest discover -s tools/tests`。隔离进程验收为 `tools/skills-smoke.py`，真实文本模型验收为 `tools/skills-live.py`；浏览器使用 `tools/skills-browser-fixture.py` 与 `web/admin/tests/e2e/{characters,skills}.spec.ts`。最终部署 SHA、实际测试范围与未执行项见 [本轮验收](skills-validation.md)。
+
+后续默认 Skill「设置触发任务」目前仅有 [指令草案](skills/task-trigger-setup.md) 和 [停用配置示例](examples/task-trigger-setup.skill.json)，并未安装。它按 [任务触发设计](task-triggers.md) 输出 `task_trigger_draft`，需独立的草稿解析、管理表单及服务器能力；现有 Skill 指令功能本身不能创建或启用定时任务。

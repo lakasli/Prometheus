@@ -1,0 +1,1245 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dsh:task-trigger:proposal:1",
+  "title": "DSH task trigger design proposal v1",
+  "description": "Design contract only. Does not install or activate a scheduler. UTF-8 byte limits, IANA zone and offset consistency, calendar coverage, source ACLs, current revision, date combinations, quotas and action limits require authoritative server validation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_trigger_draft"
+  ],
+  "properties": {
+    "task_trigger_draft": {
+      "$ref": "#/$defs/task"
+    }
+  },
+  "$defs": {
+    "instant": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "date": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "time": {
+      "type": "string",
+      "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
+    },
+    "onceAt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "mode",
+        "at"
+      ],
+      "properties": {
+        "type": {
+          "const": "once"
+        },
+        "mode": {
+          "const": "at"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:Z|[+-]\\d{2}:\\d{2})$"
+        }
+      }
+    },
+    "onceAfter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "mode",
+        "after_seconds"
+      ],
+      "properties": {
+        "type": {
+          "const": "once"
+        },
+        "mode": {
+          "const": "after"
+        },
+        "after_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 31536000
+        }
+      }
+    },
+    "interval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "every_seconds",
+        "anchor",
+        "first_fire"
+      ],
+      "properties": {
+        "type": {
+          "const": "interval"
+        },
+        "every_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 31536000
+        },
+        "anchor": {
+          "const": "first_enable"
+        },
+        "first_fire": {
+          "const": "after_interval"
+        }
+      }
+    },
+    "calendarDaily": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "frequency",
+        "at_times",
+        "day_class",
+        "calendar_id"
+      ],
+      "properties": {
+        "type": {
+          "const": "calendar"
+        },
+        "frequency": {
+          "const": "daily"
+        },
+        "at_times": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
+          },
+          "minItems": 1,
+          "maxItems": 24,
+          "uniqueItems": true
+        },
+        "day_class": {
+          "enum": [
+            "any",
+            "workday",
+            "restday"
+          ]
+        },
+        "calendar_id": {
+          "anyOf": [
+            {
+              "const": "cn-official"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "day_class": {
+                "const": "any"
+              }
+            },
+            "required": [
+              "day_class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "calendar_id": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "calendar_id": {
+                "const": "cn-official"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "calendarWeekly": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "frequency",
+        "at_times",
+        "day_class",
+        "calendar_id",
+        "weekdays"
+      ],
+      "properties": {
+        "type": {
+          "const": "calendar"
+        },
+        "frequency": {
+          "const": "weekly"
+        },
+        "at_times": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
+          },
+          "minItems": 1,
+          "maxItems": 24,
+          "uniqueItems": true
+        },
+        "day_class": {
+          "enum": [
+            "any",
+            "workday",
+            "restday"
+          ]
+        },
+        "calendar_id": {
+          "anyOf": [
+            {
+              "const": "cn-official"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "weekdays": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 7
+          },
+          "minItems": 1,
+          "maxItems": 7,
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "day_class": {
+                "const": "any"
+              }
+            },
+            "required": [
+              "day_class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "calendar_id": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "calendar_id": {
+                "const": "cn-official"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "calendarMonthly": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "frequency",
+        "at_times",
+        "day_class",
+        "calendar_id",
+        "month_days"
+      ],
+      "properties": {
+        "type": {
+          "const": "calendar"
+        },
+        "frequency": {
+          "const": "monthly"
+        },
+        "at_times": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
+          },
+          "minItems": 1,
+          "maxItems": 24,
+          "uniqueItems": true
+        },
+        "day_class": {
+          "enum": [
+            "any",
+            "workday",
+            "restday"
+          ]
+        },
+        "calendar_id": {
+          "anyOf": [
+            {
+              "const": "cn-official"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "month_days": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 31
+              },
+              {
+                "const": "last"
+              }
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "day_class": {
+                "const": "any"
+              }
+            },
+            "required": [
+              "day_class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "calendar_id": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "calendar_id": {
+                "const": "cn-official"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "calendarYearly": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "frequency",
+        "at_times",
+        "day_class",
+        "calendar_id",
+        "month_dates"
+      ],
+      "properties": {
+        "type": {
+          "const": "calendar"
+        },
+        "frequency": {
+          "const": "yearly"
+        },
+        "at_times": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
+          },
+          "minItems": 1,
+          "maxItems": 24,
+          "uniqueItems": true
+        },
+        "day_class": {
+          "enum": [
+            "any",
+            "workday",
+            "restday"
+          ]
+        },
+        "calendar_id": {
+          "anyOf": [
+            {
+              "const": "cn-official"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "month_dates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "month",
+              "day"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "day": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 31
+              }
+            }
+          },
+          "minItems": 1,
+          "maxItems": 24,
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "day_class": {
+                "const": "any"
+              }
+            },
+            "required": [
+              "day_class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "calendar_id": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "calendar_id": {
+                "const": "cn-official"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "calendarDates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "frequency",
+        "at_times",
+        "day_class",
+        "calendar_id",
+        "dates"
+      ],
+      "properties": {
+        "type": {
+          "const": "calendar"
+        },
+        "frequency": {
+          "const": "dates"
+        },
+        "at_times": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
+          },
+          "minItems": 1,
+          "maxItems": 24,
+          "uniqueItems": true
+        },
+        "day_class": {
+          "enum": [
+            "any",
+            "workday",
+            "restday"
+          ]
+        },
+        "calendar_id": {
+          "anyOf": [
+            {
+              "const": "cn-official"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dates": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "day_class": {
+                "const": "any"
+              }
+            },
+            "required": [
+              "day_class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "calendar_id": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "calendar_id": {
+                "const": "cn-official"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "source_id",
+        "event_type",
+        "filters",
+        "cooldown_seconds",
+        "day_class",
+        "calendar_id"
+      ],
+      "properties": {
+        "type": {
+          "const": "event"
+        },
+        "source_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "event_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "filters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/predicate"
+          },
+          "minItems": 0,
+          "maxItems": 8,
+          "uniqueItems": true
+        },
+        "cooldown_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "day_class": {
+          "enum": [
+            "any",
+            "workday",
+            "restday"
+          ]
+        },
+        "calendar_id": {
+          "anyOf": [
+            {
+              "const": "cn-official"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "day_class": {
+                "const": "any"
+              }
+            },
+            "required": [
+              "day_class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "calendar_id": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "calendar_id": {
+                "const": "cn-official"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "predicate": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "field",
+            "operator",
+            "value"
+          ],
+          "properties": {
+            "field": {
+              "enum": [
+                "data.status",
+                "data.run_kind",
+                "data.channel",
+                "data.severity"
+              ]
+            },
+            "operator": {
+              "enum": [
+                "eq",
+                "neq"
+              ]
+            },
+            "value": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "field",
+            "operator",
+            "values"
+          ],
+          "properties": {
+            "field": {
+              "enum": [
+                "data.status",
+                "data.run_kind",
+                "data.channel",
+                "data.severity"
+              ]
+            },
+            "operator": {
+              "const": "in"
+            },
+            "values": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "minItems": 1,
+              "maxItems": 16,
+              "uniqueItems": true
+            }
+          }
+        }
+      ]
+    },
+    "notify": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "content"
+      ],
+      "properties": {
+        "type": {
+          "const": "notify"
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16000
+        }
+      }
+    },
+    "assistantRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "prompt",
+        "skill",
+        "persona",
+        "output_mode",
+        "context_policy"
+      ],
+      "properties": {
+        "type": {
+          "const": "assistant_run"
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16000
+        },
+        "skill": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "revision"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "persona": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "mode"
+              ],
+              "properties": {
+                "mode": {
+                  "const": "instance_snapshot"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "mode",
+                "card_id",
+                "revision"
+              ],
+              "properties": {
+                "mode": {
+                  "const": "character_revision"
+                },
+                "card_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                }
+              }
+            }
+          ]
+        },
+        "output_mode": {
+          "enum": [
+            "text",
+            "html_drawing",
+            "native_image"
+          ]
+        },
+        "context_policy": {
+          "const": "isolated"
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "misfire",
+        "grace_seconds",
+        "max_catch_up",
+        "overlap",
+        "catch_up_window_seconds"
+      ],
+      "properties": {
+        "misfire": {
+          "enum": [
+            "skip",
+            "coalesce_one",
+            "bounded_catch_up"
+          ]
+        },
+        "grace_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        },
+        "max_catch_up": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "overlap": {
+          "enum": [
+            "skip",
+            "coalesce_one"
+          ]
+        },
+        "catch_up_window_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "misfire": {
+                "const": "skip"
+              }
+            },
+            "required": [
+              "misfire"
+            ]
+          },
+          "then": {
+            "properties": {
+              "catch_up_window_seconds": {
+                "const": 0
+              },
+              "max_catch_up": {
+                "const": 1
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "catch_up_window_seconds": {
+                "minimum": 60
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "misfire": {
+                "const": "coalesce_one"
+              }
+            },
+            "required": [
+              "misfire"
+            ]
+          },
+          "then": {
+            "properties": {
+              "max_catch_up": {
+                "const": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "daily_occurrences",
+        "daily_model_runs",
+        "max_output_tokens",
+        "run_timeout_seconds"
+      ],
+      "properties": {
+        "daily_occurrences": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "daily_model_runs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "max_output_tokens": {
+          "type": "integer",
+          "minimum": 128,
+          "maximum": 4096
+        },
+        "run_timeout_seconds": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 300
+        }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "spec",
+        "spec_version",
+        "title",
+        "time_zone",
+        "trigger",
+        "action",
+        "delivery",
+        "active_window",
+        "policy",
+        "budget"
+      ],
+      "properties": {
+        "spec": {
+          "const": "dsh.task-trigger"
+        },
+        "spec_version": {
+          "const": "1"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "time_zone": {
+          "type": "string",
+          "maxLength": 80,
+          "pattern": "^(?:UTC|[A-Za-z][A-Za-z0-9_+.-]*(?:/[A-Za-z0-9_+.-]+)+)$"
+        },
+        "trigger": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/onceAt"
+            },
+            {
+              "$ref": "#/$defs/onceAfter"
+            },
+            {
+              "$ref": "#/$defs/interval"
+            },
+            {
+              "$ref": "#/$defs/calendarDaily"
+            },
+            {
+              "$ref": "#/$defs/calendarWeekly"
+            },
+            {
+              "$ref": "#/$defs/calendarMonthly"
+            },
+            {
+              "$ref": "#/$defs/calendarYearly"
+            },
+            {
+              "$ref": "#/$defs/calendarDates"
+            },
+            {
+              "$ref": "#/$defs/event"
+            }
+          ]
+        },
+        "action": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/notify"
+            },
+            {
+              "$ref": "#/$defs/assistantRun"
+            }
+          ]
+        },
+        "delivery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "web_inbox"
+            }
+          }
+        },
+        "active_window": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "start_at",
+            "end_at"
+          ],
+          "properties": {
+            "start_at": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:Z|[+-]\\d{2}:\\d{2})$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "end_at": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:Z|[+-]\\d{2}:\\d{2})$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "policy": {
+          "$ref": "#/$defs/policy"
+        },
+        "budget": {
+          "$ref": "#/$defs/budget"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "properties": {
+                  "type": {
+                    "const": "assistant_run"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "policy": {
+                "properties": {
+                  "misfire": {
+                    "enum": [
+                      "skip",
+                      "coalesce_one"
+                    ]
+                  }
+                }
+              },
+              "budget": {
+                "properties": {
+                  "daily_model_runs": {
+                    "minimum": 1
+                  }
+                }
+              },
+              "trigger": {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "interval"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "every_seconds": {
+                      "minimum": 60
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "properties": {
+                  "type": {
+                    "const": "notify"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "budget": {
+                "properties": {
+                  "daily_model_runs": {
+                    "const": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "trigger": {
+                "properties": {
+                  "day_class": {
+                    "enum": [
+                      "workday",
+                      "restday"
+                    ]
+                  }
+                },
+                "required": [
+                  "day_class"
+                ]
+              }
+            },
+            "required": [
+              "trigger"
+            ]
+          },
+          "then": {
+            "properties": {
+              "time_zone": {
+                "const": "Asia/Shanghai"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "properties": {
+                  "type": {
+                    "const": "assistant_run"
+                  },
+                  "output_mode": {
+                    "enum": [
+                      "html_drawing",
+                      "native_image"
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "output_mode"
+                ]
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "action": {
+                "properties": {
+                  "skill": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

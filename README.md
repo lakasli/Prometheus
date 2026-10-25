@@ -28,6 +28,8 @@ ACP 通知属于已提交的语义输出，不承诺模型 token 流。M0 在途
 
 后台自动事实抽取、微信真实平台收发验收、QQ / 微信渠道媒体、ASR / TTS、完整插件工厂和Harness工具桥仍待交付；Web单PNG图片对话已部署并通过本轮验收，但不代表完整M4。WAT开发诊断原型不代表M5，现有记忆与微信切片也不代表M2全部完成。后续按 [架构文档](docs/architecture.md) 的功能与信息架构推进，重大偏离先说明并由用户确认，不改写目标来迁就原型。
 
+「任务触发」已完成 [详细设计](docs/task-triggers.md)、[规则 Schema](docs/schemas/dsh-task-trigger-v1.schema.json) 和 [设置触发任务 Skill 草案](docs/skills/task-trigger-setup.md)，覆盖日期、秒间隔、中国工作日 / 休息日及事件。按用户本轮确认，当前只交付设计，尚未新增运行页面、调度器或安装该 Skill；[静态验证记录](docs/task-triggers-design-validation.md) 不代表运行验收。
+
 角色卡根据AIRI源码研究独立实现，采用CCv3文本内容与DSH模块偏好扩展；服务端版本、会话绑定和入队快照按本项目设计。见 [角色卡契约](docs/character-cards.md)、[Schema](docs/schemas/dsh-character-card-v1.schema.json) 与 [原创示例](docs/examples/campanus.character-card.json)。未引入AIRI依赖。临时源码尚在忽略目录中，删除操作被工具策略拒绝；实际状态见 [研究记录](docs/research/airi-character-card-review.md)。
 
 在Web“角色卡”中新建或导入卡，保存草稿后校验 / 预览，发布版本；“设为新会话默认”与发布分别操作。QQ使用前勾选“允许QQ私聊用户选择此角色”，再私聊发送 `/角色`、`/角色 当前` 或 `/角色 切换 <角色名称或完整ID>`。同名卡须使用完整ID；群聊和频道不开放切换。换角色会开始新会话并保留旧记录，不改变其他用户或实例默认。

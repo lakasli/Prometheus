@@ -1,0 +1,50 @@
+{
+  "task_trigger_draft": {
+    "spec": "dsh.task-trigger",
+    "spec_version": "1",
+    "title": "本人交互任务失败时提醒",
+    "time_zone": "Asia/Shanghai",
+    "trigger": {
+      "type": "event",
+      "source_id": "dsh.runs",
+      "event_type": "dsh.run.failed.v1",
+      "filters": [
+        {
+          "field": "data.run_kind",
+          "operator": "in",
+          "values": [
+            "model",
+            "skill_text"
+          ]
+        }
+      ],
+      "cooldown_seconds": 60,
+      "day_class": "any",
+      "calendar_id": null
+    },
+    "action": {
+      "type": "notify",
+      "content": "请查看本次任务提醒。"
+    },
+    "delivery": {
+      "kind": "web_inbox"
+    },
+    "active_window": {
+      "start_at": null,
+      "end_at": null
+    },
+    "policy": {
+      "misfire": "skip",
+      "grace_seconds": 300,
+      "max_catch_up": 1,
+      "overlap": "coalesce_one",
+      "catch_up_window_seconds": 0
+    },
+    "budget": {
+      "daily_occurrences": 1000,
+      "daily_model_runs": 0,
+      "max_output_tokens": 1024,
+      "run_timeout_seconds": 120
+    }
+  }
+}
