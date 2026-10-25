@@ -55,7 +55,9 @@ PY
 
 export DSH_BUILD_SHA=$sha
 export CARGO_TARGET_DIR=$root/cache/target
-export CARGO_BUILD_JOBS=2
+build_jobs=${DSH_BUILD_JOBS:-2}
+[[ $build_jobs == 1 || $build_jobs == 2 ]] || { echo 'Build jobs must be 1 or 2 for the 8GB target' >&2; exit 2; }
+export CARGO_BUILD_JOBS=$build_jobs
 cargo_cmd=(cargo)
 if [[ ${DSH_CARGO_MIRROR:-} == rsproxy ]]; then
   cargo_cmd+=(--config 'source.crates-io.replace-with="rsproxy-sparse"' --config 'source.rsproxy-sparse.registry="sparse+https://rsproxy.cn/index/"')
@@ -63,8 +65,8 @@ elif [[ -n ${DSH_CARGO_MIRROR:-} ]]; then
   echo 'Unsupported cargo mirror; use empty or rsproxy' >&2; exit 2
 fi
 cd "$release/source"
-"${cargo_cmd[@]}" test --workspace --locked -j 2 >"$root/shared/logs/test-$sha.log" 2>&1 || { tail -n 60 "$root/shared/logs/test-$sha.log"; exit 1; }
-"${cargo_cmd[@]}" build --release --locked -p dshd -j 2 >"$root/shared/logs/build-$sha.log" 2>&1 || { tail -n 60 "$root/shared/logs/build-$sha.log"; exit 1; }
+"${cargo_cmd[@]}" test --workspace --locked -j "$build_jobs" >"$root/shared/logs/test-$sha.log" 2>&1 || { tail -n 60 "$root/shared/logs/test-$sha.log"; exit 1; }
+"${cargo_cmd[@]}" build --release --locked -p dshd -j "$build_jobs" >"$root/shared/logs/build-$sha.log" 2>&1 || { tail -n 60 "$root/shared/logs/build-$sha.log"; exit 1; }
 install -m 0755 "$CARGO_TARGET_DIR/release/dshd" "$release/bin/dshd"
 
 # Build before stopping the live service. Check durable features before switching.

@@ -40,6 +40,14 @@ class CompatibilityTests(unittest.TestCase):
     def test_legacy_database_can_use_legacy_release(self):
         compatibility.check(self.data, self.release)
 
+    def test_plugin_registry_approval_and_route_state_cannot_silently_disappear_on_rollback(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE plugin_factory_versions(id TEXT); INSERT INTO plugin_factory_versions VALUES('approved-version');")
+        with self.assertRaisesRegex(RuntimeError,"Component plugin approvals"):
+            compatibility.check(self.data,self.release)
+        (self.release / "deploy/release-capabilities.json").write_text(json.dumps({"plugin_factory":1}))
+        compatibility.check(self.data,self.release)
+
     def test_acknowledged_qq_receive_queue_requires_its_own_reader_capability(self):
         with connect(self.data / "dsh.db") as db:
             db.executescript("CREATE TABLE qq_received_events(status TEXT); INSERT INTO qq_received_events VALUES('queued');")

@@ -23,6 +23,13 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     #[command(hide = true)]
+    PluginComponentWorker {
+        #[arg(long, hide = true)]
+        work_dir: PathBuf,
+        #[arg(long, hide = true)]
+        rustc: PathBuf,
+    },
+    #[command(hide = true)]
     WasmWorker {
         #[arg(long, hide = true)]
         require_cgroup: bool,
@@ -63,6 +70,9 @@ enum Command {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    if let Command::PluginComponentWorker { work_dir, rustc } = &cli.command {
+        std::process::exit(dshd::plugin_component_worker::run_stdio(work_dir, rustc));
+    }
     if let Command::WasmWorker { require_cgroup } = &cli.command {
         std::process::exit(dshd::wasm_worker::run_stdio(*require_cgroup));
     }
@@ -81,6 +91,9 @@ async fn run_app(cli: Cli) -> Result<()> {
         .init();
     match cli.command {
         Command::WasmWorker { .. } => unreachable!("worker runs before Tokio initialization"),
+        Command::PluginComponentWorker { .. } => {
+            unreachable!("worker runs before Tokio initialization")
+        }
         Command::BootstrapToken { data_dir } => {
             let path = dshd::state::create_bootstrap_token(&data_dir)?;
             println!(
@@ -136,6 +149,7 @@ async fn run_app(cli: Cli) -> Result<()> {
                 web_dir,
             })?;
             dshd::wasm_workbench::initialize_runtime(&state).await;
+            dshd::plugin_supervisor::initialize_runtime(&state).await;
             state
                 .db(|db| {
                     let tx = db.transaction()?;

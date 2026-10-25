@@ -154,7 +154,7 @@ onMounted(load);
         <h2>本地语音</h2>
         <p>Piper 在树莓派上合成中文语音，优先用于 QQ 私聊语音回复。</p>
       </div>
-      <button class="secondary" :disabled="busy" @click="load">刷新状态</button>
+      <button class="button secondary" :disabled="busy" @click="load">刷新状态</button>
     </div>
     <p v-if="error" role="alert" class="error-message">{{ error }}</p>
     <p v-if="notice" role="status" class="notice">{{ notice }}</p>
@@ -206,7 +206,7 @@ onMounted(load);
         固定中文声音，本地数据路径，单个按需
         worker；合成失败时聊天保留文字。配置可通过版本记录回退。
       </p>
-      <button type="submit" :disabled="busy || !config || !valid">
+      <button class="button" type="submit" :disabled="busy || !config || !valid">
         保存并生效
       </button>
     </form>
@@ -225,7 +225,7 @@ onMounted(load);
         }}
         字符。仅合成普通文字；试听音频私有保存最多一小时。
       </p>
-      <button
+      <button class="button"
         :disabled="
           busy ||
           !health?.available ||
@@ -244,7 +244,7 @@ onMounted(load);
           >时长 {{ (asset.duration_ms / 1000).toFixed(1) }} 秒 · 合成
           {{ (asset.synthesis_ms / 1000).toFixed(1) }} 秒</span
         >
-        <button class="secondary" :disabled="busy" @click="removeAudio">
+        <button class="button secondary" :disabled="busy" @click="removeAudio">
           清理试听音频
         </button>
       </div>

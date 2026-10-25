@@ -504,6 +504,111 @@ mod tests {
         let cleared=state.db(|db|Ok(db.query_row("SELECT payload_json IS NULL AND config_json IS NULL FROM qq_received_events WHERE event_key=?1",[next.fence.event_key],|r|r.get::<_,bool>(0))?)).unwrap();
         assert!(cleared);
     }
+    #[test]
+    fn prepared_png_and_reusable_asset_commit_with_the_same_private_inbox_source() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let state = state(&dir);
+        let mut config = RuntimeConfig::default();
+        config.qq.enabled = true;
+        config.qq.app_id = "testapp".into();
+        config.qq.credential_ref = Some("testkey".into());
+        state
+            .db(|db| {
+                db.execute(
+                    "UPDATE config_revisions SET config_json=?1 WHERE revision=1",
+                    [serde_json::to_string(&config)?],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        let payload = json!({"t":"C2C_MESSAGE_CREATE","id":"image-event","d":{"id":"image-message","content":"请描述这张合成图片。","author":{"user_openid":"target"},"attachments":[{"content_type":"image/png","url":"https://multimedia.nt.qq.com.cn/synthetic?rkey=private-reference"}]}});
+        receive(&state, &config, &payload).unwrap();
+        let receipt = claim(&state).unwrap().unwrap();
+        let mut png = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut png, 2, 2);
+            encoder.set_color(png::ColorType::Rgb);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder
+                .write_header()
+                .unwrap()
+                .write_image_data(&[0, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255, 255])
+                .unwrap();
+        }
+        let image = image_analysis::canonicalize(&STANDARD.encode(png)).unwrap();
+        let hash = image.sha256.clone();
+        crate::qq::ingest_prepared(
+            &state,
+            &config,
+            &payload,
+            receipt.received_at,
+            receipt.deadline,
+            Prepared::Image(image),
+            Some(&receipt.fence),
+        )
+        .unwrap();
+        state.db(|db|{
+            let(source_owner,source_conversation,asset_owner,asset_conversation,asset_hash,payload_cleared):(String,String,String,String,String,bool)=db.query_row("SELECT i.owner_id,i.conversation_id,a.owner_id,a.conversation_id,a.sha256,e.payload_json IS NULL AND e.config_json IS NULL FROM conversation_images i JOIN conversation_media_assets a ON a.conversation_id=i.conversation_id JOIN qq_received_events e ON e.event_key=?1 WHERE i.image_sha256=?2",params![receipt.fence.event_key,hash],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?)))?;
+            assert_eq!(source_owner,"qq:testapp:c2c:target");assert_eq!(source_owner,asset_owner);assert_eq!(source_conversation,asset_conversation);assert_eq!(asset_hash,hash);assert!(payload_cleared);
+            let count:i64=db.query_row("SELECT count(*) FROM inbox JOIN conversation_images i ON inbox.run_id=i.run_id JOIN messages m ON m.id=i.source_message_id WHERE m.role='user' AND m.content NOT LIKE '%rkey%'",[],|r|r.get(0))?;assert_eq!(count,1);
+            Ok(())
+        }).unwrap();
+        receive(&state, &config, &payload).unwrap();
+        assert_eq!(
+            state
+                .db(|db| Ok(db.query_row("SELECT count(*) FROM runs", [], |r| r.get::<_, i64>(0))?))
+                .unwrap(),
+            1
+        );
+    }
+    #[test]
+    fn unavailable_media_never_executes_caption_control_commands() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let state = state(&dir);
+        let mut config = RuntimeConfig::default();
+        config.qq.enabled = true;
+        config.qq.app_id = "testapp".into();
+        config.qq.credential_ref = Some("testkey".into());
+        state
+            .db(|db| {
+                db.execute(
+                    "UPDATE config_revisions SET config_json=?1 WHERE revision=1",
+                    [serde_json::to_string(&config)?],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        let payload = json!({"t":"C2C_MESSAGE_CREATE","id":"notice-event","d":{"id":"notice-message","content":"/记住 这是合成媒体控制命令测试","author":{"user_openid":"target"}}});
+        receive(&state, &config, &payload).unwrap();
+        let receipt = claim(&state).unwrap().unwrap();
+        crate::qq::ingest_prepared(
+            &state,
+            &config,
+            &payload,
+            receipt.received_at,
+            receipt.deadline,
+            Prepared::Unavailable {
+                code: "synthetic_media_rejected",
+                message: "尚未查看图片，请使用PNG。",
+            },
+            Some(&receipt.fence),
+        )
+        .unwrap();
+        state
+            .db(|db| {
+                let (kind, status): (String, String) =
+                    db.query_row("SELECT run_kind,status FROM runs", [], |r| {
+                        Ok((r.get(0)?, r.get(1)?))
+                    })?;
+                assert_eq!(kind, "media_notice");
+                assert_eq!(status, "completed");
+                let memories: i64 =
+                    db.query_row("SELECT count(*) FROM memory_records", [], |r| r.get(0))?;
+                assert_eq!(memories, 0);
+                Ok(())
+            })
+            .unwrap();
+    }
     #[tokio::test]
     async fn ignored_empty_and_oversize_messages_release_their_private_receipts() {
         let dir = tempfile::TempDir::new().unwrap();

@@ -35,6 +35,18 @@ C2C 单 PNG 入站使用持久短期接收队列，验签 / 接收事务完成�
 
 ## 当前文档与历史资料的差异
 
+### 单聊图片输入
+
+QQ Gateway 与已验签 Webhook 先把消息写入有上限的私有接收队列，再推进游标或 ACK。单个受管消费者按接收顺序处理，下载与图片解码不会占住 Webhook 确认或 Gateway 心跳循环。事件去重使用账号、事件及消息 ID，相同文本但不同 ID 的两条消息不会互相覆盖；重启后的消费 generation 会使旧持有者失效。
+
+首期只接入 QQ C2C 单张 PNG，沿用 Web 图片理解的 1MiB、2048×2048 和 2097152 像素上限。下载仅使用平台附件字段中的受管腾讯 CDN HTTPS 地址，固定公网 DNS、不携带机器人凭证、不跟随重定向，校验后去除元数据。普通文本模型只得到带来源标记的视觉描述，不得到下载地址或媒体密钥。
+
+规范 PNG、用户消息、Inbox、Run、视觉来源记录及同会话私有可回发制品在一个事务中保存。原图回发只使用当前 owner/conversation 的限时 asset ID，不把图片识别结果变成用户明示记忆。下载或格式不支持时回复明确提示，不能把带附件的输入当成已查看图片的普通文字回答；图片说明文字里的控制命令不会因此执行。
+
+接收队列最多 200 条，总暂存 JSON 最多 32MiB；回复截止时间按首次收到消息及平台消息时间计算，不因下载延长。处理完成、忽略、失败、账号切换或过期后清空队列中的原文、配置引用和 CDN 地址，剩余传输回执最多保留一天。历史 Inbox、会话、记忆和附件采用各自原有策略，不随传输回执清理。部署兼容性检查会阻止不认识持久接收队列的旧版本忽略已 ACK 的待处理消息。
+
+### 资料版本
+
 [消息概述](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/overview.html)和[发送单聊消息](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_messages.post.html)当前说明单聊每条入站最多回复 **4 次**，窗口 **60 分钟**。发送单聊消息页面的 `msg_id` 字段仍出现“5 分钟”的旧描述，执行层采用尽快回复、最多 4 次，实际超时仍以平台返回码为准。
 
 [富媒体概述](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/rich-media.html)列出 WAV/MP3/OGG/SILK 语音条；[单聊上传](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_files.post.html)部分字段表仍写 silk。必须以真实文件上传和客户端播放确认最终账号能力，不能仅依据其中一个表宣称语音格式全部可用。该上传页面于 2026-10-09 更新，明确支持 5M 以内 `file_data`，且二进制/分片上传要求 `file_name`。
@@ -53,6 +65,13 @@ python3 tools/qq-api-live.py --binary <fixed-release>/bin/dshd --web-dir <fixed-
 真实探针读取生产 QQ 配置及其引用的凭据，只在私有临时实例中使用；临时实例启用 Webhook 模式，不建立第二条 Gateway 消费连接，不复制会话、消息或记忆，不向真实用户发送消息，不执行真实频道的删除或禁言。报告按每项区分 `platform_accepted`、权限拒绝、平台拒绝、网络结果未知、缺少可测资源和未执行写入。真实调用结果保留 HTTP 与业务码，不把 401/403、权限缺失、未知结果或缺少频道资源报告为通过。
 
 真实 QQ 文字、图片、视频、语音客户端联调由本轮授权的目标会话单独执行和记录。对缺少平台权限、频道、成员、可撤回消息或操作授权的接口，保留可调用入口和明确待验范围；不为凑齐成功率而修改用户频道、移除成员或撤回他人消息。
+
+真实富媒体探针只接受以 `DSH富媒体验收：` 开头、当前账号凭据、有效 C2C 目标且仅 seq=1 已发送的指定 Run。脚本只发本地 Piper 合成 WAV、自生成几何图案 PNG 和自有不超过 5 秒 MP4，分别占 seq=2/3/4；已存在的报告禁止覆盖，未知投递阻断后续，避免重新执行。探针不会把真实会话复制到临时实例，报告仅保存各文件哈希、大小及数字状态；`client_verified=false` 必须通过客户端验证后另记实际结果。
+
+```sh
+python3 tools/qq-media-live.py --binary <fixed-release>/bin/dshd --web-dir <fixed-release>/web --source-data-dir <shared-data> --source-run-id <explicit-test-run> --runtime-root <installed-piper> --video-fixture <owned-short-mp4> --report <new-private-report>
+python3 -m unittest discover -s tools/tests -p test_qq_media_live.py -v
+```
 
 ## 固定操作清单
 

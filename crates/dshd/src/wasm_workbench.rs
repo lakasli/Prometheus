@@ -765,7 +765,7 @@ pub fn claim_next(state: &AppState) -> ApiResult<Option<ClaimedJob>> {
         let (_,config)=crate::character::current_config_in(tx).map_err(internal)?;
         let higher:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM runs WHERE status='queued') OR EXISTS(SELECT 1 FROM memory_candidate_jobs WHERE status='queued' AND expires_at>?1) OR EXISTS(SELECT 1 FROM image_analysis_jobs WHERE status='queued' AND expires_at>?1)",[now()],|r|r.get(0)).api()?;
         let own=running_count(tx).map_err(internal)?;
-        let all=own+worker::running_count(tx).map_err(internal)?+crate::memory_candidates::running_count(tx).map_err(internal)?+crate::image_analysis::running_count(tx).map_err(internal)?;
+        let all=own+crate::plugin_factory::running_count(tx).map_err(internal)?+worker::running_count(tx).map_err(internal)?+crate::memory_candidates::running_count(tx).map_err(internal)?+crate::image_analysis::running_count(tx).map_err(internal)?;
         if higher || own!=0 || all>=config.assistant.max_concurrent_runs.min(2) as i64 {return Ok(None);}
         let id:Option<String>=tx.query_row("SELECT id FROM wasm_workbench_jobs WHERE status='queued' AND expires_at>?1 ORDER BY rowid LIMIT 1",[now()],|r|r.get(0)).optional().api()?;
         let Some(id)=id else {return Ok(None);};

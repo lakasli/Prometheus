@@ -1,6 +1,7 @@
 {
   "schema_reader": 10,
   "media_source_runs": 1,
+  "plugin_factory": 1,
   "structured_replies": 1,
   "local_piper_speech": 1,
   "conversation_media": 1,

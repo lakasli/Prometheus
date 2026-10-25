@@ -119,7 +119,7 @@ onMounted(load);
   <section class="qq-platform-panel">
     <header class="qq-platform-header">
       <div><h3>QQ 能力与接口</h3><p class="muted">查看当前账号的连接、平台权限和调用结果。</p></div>
-      <button class="secondary" :disabled="busy" @click="load">刷新</button>
+      <button class="button secondary" :disabled="busy" @click="load">刷新</button>
     </header>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
     <p v-if="notice" role="status" class="success">{{ notice }}</p>
@@ -130,7 +130,7 @@ onMounted(load);
       <div><strong>{{ operations.length - tested }}</strong><span>待真实测试</span></div>
     </div>
     <p class="muted">单聊支持逐句文字、图片、视频与本地合成语音；每条入站消息最多回复 4 次，回复之间按设置留出间隔。</p>
-    <button :disabled="busy" @click="probe">{{ busy ? "处理中…" : "运行只读连接探测" }}</button>
+    <button class="button" :disabled="busy" @click="probe">{{ busy ? "处理中…" : "运行只读连接探测" }}</button>
     <p class="muted">探测只查询机器人、菜单、面板、素材和网关；不会自动发送消息或修改频道。</p>
     <details class="qq-platform-advanced">
       <summary>高级接口管理</summary>
@@ -153,7 +153,7 @@ onMounted(load);
           <p class="muted">上传凭证与媒体 file_info 由服务端保管。后续引用形如 {"$qq_ref":"返回的 object_ref","field":"file_info"}。</p>
         </template>
         <label v-if="!selected.read_only" class="qq-platform-ack"><input v-model="acknowledge" type="checkbox" />我已核对目标和请求内容，执行本次 {{ selected.title }}</label>
-        <div class="qq-platform-actions"><button class="secondary" :disabled="busy" @click="execute(true)">仅校验请求</button><button :disabled="busy || selected.deprecated || (!selected.read_only && !acknowledge)" @click="execute(false)">{{ selected.read_only ? "查询" : "执行本次操作" }}</button></div>
+        <div class="qq-platform-actions"><button class="button secondary" :disabled="busy" @click="execute(true)">仅校验请求</button><button class="button" :disabled="busy || selected.deprecated || (!selected.read_only && !acknowledge)" @click="execute(false)">{{ selected.read_only ? "查询" : "执行本次操作" }}</button></div>
       </div>
       <details v-if="calls.length"><summary>最近调用记录</summary><ul><li v-for="(call, index) in calls.slice(0, 15)" :key="index">{{ call.operation }} · {{ outcomes[call.outcome] || call.outcome }}<span v-if="call.http_status"> · HTTP {{ call.http_status }}</span><span v-if="call.business_code"> · {{ call.business_code }}</span></li></ul></details>
     </details>

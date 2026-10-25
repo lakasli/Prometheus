@@ -1,0 +1,7 @@
+package dsh:plugin@1.0.0;
+
+/// Stateless JSON tools. No filesystem, environment, network or messaging imports.
+world plugin {
+  export health: func() -> bool;
+  export invoke: func(input: string) -> string;
+}

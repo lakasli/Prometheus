@@ -30,6 +30,7 @@ pub fn router(state: AppState) -> Router {
         .merge(crate::speech_api::router())
         .merge(crate::qq_api::router())
         .merge(crate::reply_delivery_api::router())
+        .merge(crate::plugin_factory_api::router())
         .route("/health/live",get(||async{Json(json!({"status":"ok","version":env!("CARGO_PKG_VERSION"),"commit":crate::build_sha()}))}))
         .route("/health/ready",get(ready))
         .route("/api/admin/v1/auth/status",get(auth::auth_status))
@@ -79,7 +80,7 @@ async fn status(State(state): State<AppState>, _admin: Admin) -> ApiResult<Json<
     let (revision, config) = state.current_config()?;
     let queue=state.db(|db| {
         let count=|sql:&str|->rusqlite::Result<i64>{db.query_row(sql,[],|r|r.get(0))};
-        Ok(json!({"queued":count("SELECT count(*) FROM runs WHERE status='queued'")?+count("SELECT count(*) FROM memory_candidate_jobs WHERE status='queued'")?+count("SELECT count(*) FROM image_analysis_jobs WHERE status='queued'")?+count("SELECT count(*) FROM wasm_workbench_jobs WHERE status='queued'")?,"running":worker::running_count(db)?+crate::memory_candidates::running_count(db)?+crate::image_analysis::running_count(db)?+crate::wasm_workbench::running_count(db)?,"failed":count("SELECT count(*) FROM runs WHERE status IN ('failed','interrupted')")?,"outbox_pending":count("SELECT count(*) FROM outbox WHERE status='queued'")?+count("SELECT count(*) FROM weixin_outbox WHERE status='queued'")?,"outbox_unknown":count("SELECT count(*) FROM outbox WHERE status='unknown'")?+count("SELECT count(*) FROM weixin_outbox WHERE status='unknown'")?}))
+        Ok(json!({"queued":count("SELECT count(*) FROM runs WHERE status='queued'")?+count("SELECT count(*) FROM memory_candidate_jobs WHERE status='queued'")?+count("SELECT count(*) FROM image_analysis_jobs WHERE status='queued'")?+count("SELECT count(*) FROM wasm_workbench_jobs WHERE status='queued'")?+count("SELECT count(*) FROM plugin_factory_jobs WHERE status='queued'")?,"running":worker::running_count(db)?+crate::memory_candidates::running_count(db)?+crate::image_analysis::running_count(db)?+crate::wasm_workbench::running_count(db)?+crate::plugin_factory::running_count(db)?,"failed":count("SELECT count(*) FROM runs WHERE status IN ('failed','interrupted')")?,"outbox_pending":count("SELECT count(*) FROM outbox WHERE status='queued'")?+count("SELECT count(*) FROM weixin_outbox WHERE status='queued'")?,"outbox_unknown":count("SELECT count(*) FROM outbox WHERE status='unknown'")?+count("SELECT count(*) FROM weixin_outbox WHERE status='unknown'")?}))
     })?;
     let last_event = state.db(|db| {
         Ok(db.query_row("SELECT max(received_at) FROM inbox", [], |r| {
@@ -415,7 +416,8 @@ async fn delete_secret(
         let candidate_in_use=crate::memory_candidates::credential_in_use(&tx,&id)?;
         let image_in_use=crate::image_analysis::credential_in_use(&tx,&id)?;
         let wasm_in_use=crate::wasm_workbench::credential_in_use(&tx,&id)?;
-        if config.model.credential_ref.as_ref()==Some(&id) || config.qq.credential_ref.as_ref()==Some(&id) || pending || weixin_in_use || candidate_in_use || image_in_use || wasm_in_use {
+        let factory_in_use=crate::plugin_factory::references_secret(&tx,&id)?;
+        if config.model.credential_ref.as_ref()==Some(&id) || config.qq.credential_ref.as_ref()==Some(&id) || pending || weixin_in_use || candidate_in_use || image_in_use || wasm_in_use || factory_in_use {
             return Ok(Err(ApiError::new(StatusCode::CONFLICT,"credential_in_use","凭据仍被配置、任务或渠道发送引用，请先停止引用再删除")));
         }
         if tx.execute("DELETE FROM secrets WHERE id=?1",[&id])?==0 {return Ok(Err(ApiError::not_found()));}

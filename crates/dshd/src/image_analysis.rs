@@ -639,7 +639,7 @@ pub fn claim_next(state: &AppState) -> ApiResult<Option<ClaimedJob>> {
         let native=worker::running_count(tx).map_err(internal)?;
         let images=running_count(tx).map_err(internal)?;
         let candidates=crate::memory_candidates::running_count(tx).map_err(internal)?;
-        let workshop=crate::wasm_workbench::running_count(tx).map_err(internal)?;
+        let workshop=crate::wasm_workbench::running_count(tx).map_err(internal)? + crate::plugin_factory::running_count(tx).map_err(internal)?;
         if queued_chat || queued_candidate || images!=0 || native+images+candidates+workshop>=config.assistant.max_concurrent_runs.min(2) as i64 {return Ok(None);}
         let row=tx.query_row("SELECT id,owner_id,revision,config_json FROM image_analysis_jobs WHERE status='queued' AND expires_at>?1 ORDER BY rowid LIMIT 1",[now()],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?,r.get::<_,String>(3)?))).optional().api()?;
         let Some((id,owner,revision,text))=row else {return Ok(None);};

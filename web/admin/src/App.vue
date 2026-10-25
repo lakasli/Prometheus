@@ -25,6 +25,7 @@ import SpeechPanel from "./components/SpeechPanel.vue";
 import ReplyMedia from "./components/ReplyMedia.vue";
 import QQPanel from "./components/QQPanel.vue";
 import ReplyDeliveryReview from "./components/ReplyDeliveryReview.vue";
+import PluginFactoryPanel from "./components/PluginFactoryPanel.vue";
 import type { TriggerDefinition } from "./task-triggers";
 import {
   api,
@@ -64,6 +65,7 @@ type Page =
   | "triggers"
   | "qq"
   | "speech"
+  | "plugins"
   | "weixin"
   | "diagnostics"
   | "chat"
@@ -127,10 +129,17 @@ const navigation: {
   },
   {
     id: "speech",
-    icon: "channel",
+    icon: "wave",
     title: "语音与媒体",
     eyebrow: "VOICE & MEDIA",
     description: "管理本地 Piper 中文语音和富媒体回复。",
+  },
+  {
+    id: "plugins",
+    icon: "shield",
+    title: "插件工厂",
+    eyebrow: "PLUGIN FACTORY",
+    description: "生成、验证和管理受限 Rust / WIT 插件。",
   },
   {
     id: "chat",
@@ -1222,13 +1231,13 @@ onUnmounted(() => {
         <details ref="sidebarExtras" class="sidebar-extras">
           <summary>
             <Icon name="sparkles" :size="18" />
-            <span>插件工厂<small>开发中</small></span>
+            <span>更多能力<small>按权限开放</small></span>
             <Icon class="extras-chevron" name="chevron" :size="14" />
           </summary>
           <div class="sidebar-extras-content">
             <span class="eyebrow">COMING NEXT</span>
             <strong>下一段旅程</strong>
-            <p>正式插件工厂正在按架构实现，测试与批准分开进行。</p>
+            <p>语音识别与更多插件权限会在验证后逐步开放。</p>
             <div class="companion-note">
               <Icon name="whale" :size="24" />
               <span>让每一次对话，<br />都有温柔的回响。</span>
@@ -2197,6 +2206,7 @@ onUnmounted(() => {
         </div>
         <WeixinChannel v-if="page === 'weixin'" />
         <section v-if="page === 'speech'" class="panel"><SpeechPanel /></section>
+        <section v-if="page === 'plugins'" class="panel"><PluginFactoryPanel @unauthorized="expireSession" /></section>
         <div v-if="page === 'diagnostics'" class="diagnostics-page">
           <section class="panel" aria-label="任务与诊断概览">
             <div class="panel-heading">

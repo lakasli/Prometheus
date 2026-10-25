@@ -23,6 +23,8 @@ def check(data_dir, release_source):
                 raise RuntimeError(f"Target release lacks {capability} authorization or delivery semantics")
         if "qq_received_events" in tables and db.execute("SELECT EXISTS(SELECT 1 FROM qq_received_events WHERE status IN ('queued','processing'))").fetchone()[0] and int(capabilities.get("qq_durable_receive", 0)) < 1:
             raise RuntimeError("Target release lacks durable QQ reception of acknowledged events")
+        if "plugin_factory_versions" in tables and db.execute("SELECT EXISTS(SELECT 1 FROM plugin_factory_versions)").fetchone()[0] and int(capabilities.get("plugin_factory", 0)) < 1:
+            raise RuntimeError("Target release lacks Component plugin approvals and active routes")
         for table in ("speech_assets", "conversation_media_assets"):
             if table in tables:
                 columns = {r[1] for r in db.execute(f"PRAGMA table_info({table})")}

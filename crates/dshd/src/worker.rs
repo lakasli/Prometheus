@@ -154,6 +154,7 @@ fn enqueue_in_with_skill(
         .optional()?
         .unwrap_or_else(|| "用户".into());
     let memory_command = crate::memory_commands::is_command(input);
+    let plugin_command = crate::plugin_commands::is_command(input);
     let selected = crate::skills::select(
         db,
         input,
@@ -166,12 +167,14 @@ fn enqueue_in_with_skill(
                 |r| r.get::<_, bool>(0),
             )?,
     )?;
-    let snapshot = if memory_command {
+    let snapshot = if memory_command || plugin_command {
         None
     } else {
         character::freeze_for_run(db, conversation, config_revision, &config, &user_name)?
     };
-    let run_kind = if memory_command {
+    let run_kind = if plugin_command {
+        "plugin_command"
+    } else if memory_command {
         "memory_command"
     } else if selected.as_ref().is_some_and(|s| s.native_image) {
         "skill_image"
@@ -264,7 +267,7 @@ fn claim(state: &AppState) -> ApiResult<Option<Claimed>> {
     state.db(|db| {
         let tx=db.transaction()?;
         let (_,config)=character::current_config_in(&tx)?;
-        let running=running_count(&tx)? + crate::memory_candidates::running_count(&tx)? + crate::image_analysis::running_count(&tx)? + crate::wasm_workbench::running_count(&tx)?;
+        let running=running_count(&tx)? + crate::memory_candidates::running_count(&tx)? + crate::image_analysis::running_count(&tx)? + crate::wasm_workbench::running_count(&tx)? + crate::plugin_factory::running_count(&tx)?;
         if running>=config.assistant.max_concurrent_runs.min(2) as i64{return Ok(None);}
         let item=tx.query_row("SELECT r.id,r.conversation_id,r.config_json,r.reply_json,r.character_snapshot_json FROM runs r WHERE r.status='queued' AND NOT EXISTS(SELECT 1 FROM runs other WHERE other.conversation_id=r.conversation_id AND (other.status='running' OR EXISTS(SELECT 1 FROM native_worker_leases l WHERE l.run_id=other.id))) AND (r.run_kind NOT IN ('trigger_model','trigger_image') OR ((SELECT clock_trusted AND space_ok FROM trigger_runtime WHERE id=1)=1 AND EXISTS(SELECT 1 FROM trigger_occurrences o WHERE o.run_id=r.id AND o.status='queued') AND NOT EXISTS(SELECT 1 FROM runs live WHERE live.run_kind IN ('trigger_model','trigger_image') AND (live.status='running' OR EXISTS(SELECT 1 FROM native_worker_leases lease WHERE lease.run_id=live.id))))) ORDER BY CASE WHEN r.run_kind IN ('trigger_model','trigger_image') THEN 1 ELSE 0 END,r.created_at,r.rowid LIMIT 1",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Option<String>>(3)?,r.get::<_,Option<String>>(4)?))).optional()?;
         let Some((id,conversation,config,reply,character))=item else{return Ok(None)};
@@ -290,6 +293,10 @@ pub async fn run_worker(state: AppState, cancellation: CancellationToken) {
         match claim(&state) {
             Ok(Some(item)) => process(&state, item, &cancellation).await,
             Ok(None) => {
+                if let Ok(Some(job)) = crate::plugin_factory::claim_next(&state) {
+                    crate::plugin_factory::run_claimed(&state, job, &cancellation).await;
+                    continue;
+                }
                 if let Ok(Some(job)) = crate::memory_candidates::claim_next(&state) {
                     crate::memory_candidates::run_claimed(&state, job, &cancellation).await;
                     continue;
@@ -321,6 +328,15 @@ async fn process(state: &AppState, item: Claimed, cancel: &CancellationToken) {
     .await;
 }
 async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationToken) {
+    let plugin_command = state
+        .db(|db| {
+            Ok(db.query_row(
+                "SELECT run_kind='plugin_command' FROM runs WHERE id=?1",
+                [&item.id],
+                |r| r.get::<_, bool>(0),
+            )?)
+        })
+        .unwrap_or(false);
     let trigger_context = match state.db(|db| crate::trigger_store::run_context(db, &item.id)) {
         Ok(value) => value,
         Err(_) => {
@@ -382,10 +398,12 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
         }
     }
     let selected = state.db(|db| crate::skills::for_run(db, &item.id));
-    if trigger_context.is_none() && matches!(&selected, Ok(None)) {
+    if !plugin_command && trigger_context.is_none() && matches!(&selected, Ok(None)) {
         crate::conversation_summary::prepare_for_run(state, &item.id, &item.config, cancel).await;
     }
-    let prepared = if trigger_context.is_some() {
+    let prepared = if plugin_command {
+        Ok(Vec::new())
+    } else if trigger_context.is_some() {
         state.db(|db| {
             let tx = db.transaction()?;
             let messages = crate::trigger_execution::prepare_messages_in(&tx, &item.id)?;
@@ -416,7 +434,13 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
                     }
                 }
             };
+            let plugin_cancel = cancel.child_token();
             let request = async {
+                if plugin_command {
+                    return crate::plugin_commands::execute(state, &item.id, &plugin_cancel)
+                        .await?
+                        .ok_or_else(|| "插件命令未匹配".to_owned());
+                }
                 if trigger_context.is_some() {
                     let active=state.db(|db|Ok(db.query_row("SELECT EXISTS(SELECT 1 FROM runs WHERE id=?1 AND status='running')",[&item.id],|r|r.get::<_,bool>(0))?)).map_err(|_|"任务状态不可用".to_owned())?;
                     if !active {
@@ -457,16 +481,33 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
                 )
                 .await
             };
-            tokio::select! {
-                result=request=>result,
-                _=cancel.cancelled()=>Err("服务正在停止，任务结果未确认".into()),
-                _=cancelled=>Err("任务已取消".into()),
+            tokio::pin!(request);
+            let response = tokio::select! {
+                result=&mut request=>Some(result),
+                _=cancel.cancelled()=>None,
+                _=cancelled=>None,
+            };
+            if let Some(result) = response {
+                result
+            } else {
+                if plugin_command {
+                    plugin_cancel.cancel();
+                    let _ = request.await;
+                }
+                Err(if cancel.is_cancelled() {
+                    "服务正在停止，任务结果未确认"
+                } else {
+                    "任务已取消"
+                }
+                .into())
             }
         }
         Err(_) => Err("准备或持久化会话上下文失败；未发送模型请求".into()),
     };
     let result = match result {
-        Ok(content) if trigger_context.is_none() && matches!(&selected, Ok(None)) => {
+        Ok(content)
+            if !plugin_command && trigger_context.is_none() && matches!(&selected, Ok(None)) =>
+        {
             let prepared = async {
                 let mut plan = crate::chat_reply::parse(&content, &item.config.reply)?;
                 let owner = state
