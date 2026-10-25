@@ -1,0 +1,67 @@
+{
+  "kind": "actual QQ ordinary PNG vision and original-image reply",
+  "commit": "615c7587c1c4b8cee5af69b4d13e572ed5534f49",
+  "run_id": "a6ce7b51-4912-4630-a1a1-2469a8c34c39",
+  "recorded_at": "2026-10-25T14:41:21.605361+00:00",
+  "real_qq_tested": true,
+  "real_external_model_tested": true,
+  "synthetic_input_only": true,
+  "production_database_modified_by_test_inspection": false,
+  "run_status": "completed",
+  "image": {
+    "status": "described",
+    "width": 224,
+    "height": 128,
+    "image_sha256": "a2ad032ccebd2f6203f257a000a532e15f9256b37885071a3ddea96ad671cb68"
+  },
+  "plan_normalized": true,
+  "reply_item_kinds": [
+    "text",
+    "text"
+  ],
+  "media_asset_owner_conversation_source_verified": false,
+  "description_mentions_expected_shapes_and_colours": true,
+  "parts": [
+    {
+      "seq": 1,
+      "kind": "text",
+      "status": "sent",
+      "delay_ms": 0,
+      "finished_ms": 1792939247648,
+      "platform_message_id_present": 1
+    },
+    {
+      "seq": 2,
+      "kind": "text",
+      "status": "sent",
+      "delay_ms": 1500,
+      "finished_ms": 1792939250273,
+      "platform_message_id_present": 1
+    }
+  ],
+  "assets": [
+    {
+      "kind": "image",
+      "mime": "image/png",
+      "sha256": "a2ad032ccebd2f6203f257a000a532e15f9256b37885071a3ddea96ad671cb68",
+      "byte_length": 1518,
+      "bytes_sha256_verified": true
+    },
+    {
+      "kind": "image",
+      "mime": "image/png",
+      "sha256": "a2ad032ccebd2f6203f257a000a532e15f9256b37885071a3ddea96ad671cb68",
+      "byte_length": 1518,
+      "bytes_sha256_verified": true
+    }
+  ],
+  "client_verified": false,
+  "platform_cycle_passed": false,
+  "status": "failed",
+  "current_image_candidates_scope_hash_verified": true,
+  "plan_normalized_flag_implies_invalid_json": false,
+  "failure": "model_presentation_plan_contains_only_text_and_no_image_action",
+  "minimum_pacing_ms": 1500,
+  "actual_text_part_gap_ms": 2625,
+  "inspector": "manual scoped read-only SQL; current synthetic run only; no historical user content"
+}

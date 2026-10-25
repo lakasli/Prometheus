@@ -1,0 +1,581 @@
+{
+  "kind": "QQ non-group read-only configured-account API acceptance",
+  "started_at": "2026-10-25T11:52:10.718332+00:00",
+  "platform": "Linux",
+  "architecture": "aarch64",
+  "binary_sha256": "f5bfff3186d6f955f79f71ed932cddfe7565de621347cdc6802b47a3c3c338b1",
+  "commit": "2c709999f0cc5537be177defd36dc6be1413cbd2",
+  "production_database_modified": false,
+  "production_qq_configuration_read": true,
+  "production_credential_read": true,
+  "real_user_content_accessed": false,
+  "real_messages_sent": false,
+  "mutations_executed": false,
+  "complete_live_coverage": false,
+  "checks": [
+    "anonymous QQ API catalog access is denied",
+    "QQ operation calls require CSRF protection",
+    "isolated account configuration validates",
+    "fixed QQ API catalog excludes group endpoints and model tool access",
+    "C2C reply contract uses current four-reply bound",
+    "each catalog operation has an explicit evidence classification"
+  ],
+  "operations": [
+    {
+      "operation": "get_users_me",
+      "method": "GET",
+      "path": "/users/@me",
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null,
+      "trace_id": "12a806e0457627d05199fba067abcb53"
+    },
+    {
+      "operation": "post_v2_generate_url_link",
+      "method": "POST",
+      "path": "/v2/generate_url_link",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "get_v2_menu",
+      "method": "GET",
+      "path": "/v2/menu",
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null,
+      "trace_id": "d12b45dcab219003f3cbb112d63bb1c9"
+    },
+    {
+      "operation": "put_v2_menu",
+      "method": "PUT",
+      "path": "/v2/menu",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "get_v2_panels",
+      "method": "GET",
+      "path": "/v2/panels",
+      "outcome": "platform_rejected",
+      "http_status": 400,
+      "business_code": 40030011,
+      "trace_id": "9c35f8910b5edb3318994da54784eff8"
+    },
+    {
+      "operation": "post_v2_panels",
+      "method": "POST",
+      "path": "/v2/panels",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "delete_v2_panels_panel_id",
+      "method": "DELETE",
+      "path": "/v2/panels/{panel_id}",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "get_v2_panels_panel_id",
+      "method": "GET",
+      "path": "/v2/panels/{panel_id}",
+      "outcome": "requires_resource",
+      "missing_parameters": [
+        "panel_id"
+      ]
+    },
+    {
+      "operation": "put_v2_panels_panel_id",
+      "method": "PUT",
+      "path": "/v2/panels/{panel_id}",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "put_v2_panels_panel_id_target",
+      "method": "PUT",
+      "path": "/v2/panels/{panel_id}/target",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "post_v2_users_user_id_upload_part_finish",
+      "method": "POST",
+      "path": "/v2/users/{user_id}/upload_part_finish",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "post_v2_users_user_id_upload_prepare",
+      "method": "POST",
+      "path": "/v2/users/{user_id}/upload_prepare",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "post_v2_users_user_openid_files",
+      "method": "POST",
+      "path": "/v2/users/{user_openid}/files",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "post_v2_users_user_openid_messages",
+      "method": "POST",
+      "path": "/v2/users/{user_openid}/messages",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "delete_v2_users_user_openid_messages_message_id",
+      "method": "DELETE",
+      "path": "/v2/users/{user_openid}/messages/{message_id}",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "post_v2_users_user_openid_stream_messages",
+      "method": "POST",
+      "path": "/v2/users/{user_openid}/stream_messages",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "delete_channels_channel_id",
+      "method": "DELETE",
+      "path": "/channels/{channel_id}",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "get_channels_channel_id",
+      "method": "GET",
+      "path": "/channels/{channel_id}",
+      "outcome": "requires_resource",
+      "missing_parameters": [
+        "channel_id"
+      ]
+    },
+    {
+      "operation": "patch_channels_channel_id",
+      "method": "PATCH",
+      "path": "/channels/{channel_id}",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "post_channels_channel_id_announces",
+      "method": "POST",
+      "path": "/channels/{channel_id}/announces",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "delete_channels_channel_id_announces_message_id",
+      "method": "DELETE",
+      "path": "/channels/{channel_id}/announces/{message_id}",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "post_channels_channel_id_audio",
+      "method": "POST",
+      "path": "/channels/{channel_id}/audio",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "get_channels_channel_id_members_user_id_permissions",
+      "method": "GET",
+      "path": "/channels/{channel_id}/members/{user_id}/permissions",
+      "outcome": "requires_resource",
+      "missing_parameters": [
+        "channel_id"
+      ]
+    },
+    {
+      "operation": "put_channels_channel_id_members_user_id_permissions",
+      "method": "PUT",
+      "path": "/channels/{channel_id}/members/{user_id}/permissions",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "post_channels_channel_id_messages",
+      "method": "POST",
+      "path": "/channels/{channel_id}/messages",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "delete_channels_channel_id_messages_message_id",
+      "method": "DELETE",
+      "path": "/channels/{channel_id}/messages/{message_id}",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "delete_channels_channel_id_messages_message_id_reactions_type_id",
+      "method": "DELETE",
+      "path": "/channels/{channel_id}/messages/{message_id}/reactions/{type}/{id}",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "get_channels_channel_id_messages_message_id_reactions_type_id",
+      "method": "GET",
+      "path": "/channels/{channel_id}/messages/{message_id}/reactions/{type}/{id}",
+      "outcome": "requires_resource",
+      "missing_parameters": [
+        "channel_id",
+        "message_id",
+        "type",
+        "id"
+      ]
+    },
+    {
+      "operation": "put_channels_channel_id_messages_message_id_reactions_type_id",
+      "method": "PUT",
+      "path": "/channels/{channel_id}/messages/{message_id}/reactions/{type}/{id}",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "delete_channels_channel_id_mic",
+      "method": "DELETE",
+      "path": "/channels/{channel_id}/mic",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "put_channels_channel_id_mic",
+      "method": "PUT",
+      "path": "/channels/{channel_id}/mic",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "get_channels_channel_id_online_nums",
+      "method": "GET",
+      "path": "/channels/{channel_id}/online_nums",
+      "outcome": "requires_resource",
+      "missing_parameters": [
+        "channel_id"
+      ]
+    },
+    {
+      "operation": "get_channels_channel_id_pins",
+      "method": "GET",
+      "path": "/channels/{channel_id}/pins",
+      "outcome": "requires_resource",
+      "missing_parameters": [
+        "channel_id"
+      ]
+    },
+    {
+      "operation": "delete_channels_channel_id_pins_message_id",
+      "method": "DELETE",
+      "path": "/channels/{channel_id}/pins/{message_id}",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "put_channels_channel_id_pins_message_id",
+      "method": "PUT",
+      "path": "/channels/{channel_id}/pins/{message_id}",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "get_channels_channel_id_roles_role_id_permissions",
+      "method": "GET",
+      "path": "/channels/{channel_id}/roles/{role_id}/permissions",
+      "outcome": "requires_resource",
+      "missing_parameters": [
+        "channel_id",
+        "role_id"
+      ]
+    },
+    {
+      "operation": "put_channels_channel_id_roles_role_id_permissions",
+      "method": "PUT",
+      "path": "/channels/{channel_id}/roles/{role_id}/permissions",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "get_channels_channel_id_schedules",
+      "method": "GET",
+      "path": "/channels/{channel_id}/schedules",
+      "outcome": "requires_resource",
+      "missing_parameters": [
+        "channel_id"
+      ]
+    },
+    {
+      "operation": "post_channels_channel_id_schedules",
+      "method": "POST",
+      "path": "/channels/{channel_id}/schedules",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "delete_channels_channel_id_schedules_schedule_id",
+      "method": "DELETE",
+      "path": "/channels/{channel_id}/schedules/{schedule_id}",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "get_channels_channel_id_schedules_schedule_id",
+      "method": "GET",
+      "path": "/channels/{channel_id}/schedules/{schedule_id}",
+      "outcome": "requires_resource",
+      "missing_parameters": [
+        "channel_id",
+        "schedule_id"
+      ]
+    },
+    {
+      "operation": "patch_channels_channel_id_schedules_schedule_id",
+      "method": "PATCH",
+      "path": "/channels/{channel_id}/schedules/{schedule_id}",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "get_channels_channel_id_threads",
+      "method": "GET",
+      "path": "/channels/{channel_id}/threads",
+      "outcome": "requires_resource",
+      "missing_parameters": [
+        "channel_id"
+      ]
+    },
+    {
+      "operation": "put_channels_channel_id_threads",
+      "method": "PUT",
+      "path": "/channels/{channel_id}/threads",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "delete_channels_channel_id_threads_thread_id",
+      "method": "DELETE",
+      "path": "/channels/{channel_id}/threads/{thread_id}",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "get_channels_channel_id_threads_thread_id",
+      "method": "GET",
+      "path": "/channels/{channel_id}/threads/{thread_id}",
+      "outcome": "requires_resource",
+      "missing_parameters": [
+        "channel_id",
+        "thread_id"
+      ]
+    },
+    {
+      "operation": "post_dms_guild_id_messages",
+      "method": "POST",
+      "path": "/dms/{guild_id}/messages",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "delete_dms_guild_id_messages_message_id",
+      "method": "DELETE",
+      "path": "/dms/{guild_id}/messages/{message_id}",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "get_guilds_guild_id",
+      "method": "GET",
+      "path": "/guilds/{guild_id}",
+      "outcome": "requires_resource",
+      "missing_parameters": [
+        "guild_id"
+      ]
+    },
+    {
+      "operation": "post_guilds_guild_id_announces",
+      "method": "POST",
+      "path": "/guilds/{guild_id}/announces",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "delete_guilds_guild_id_announces_message_id",
+      "method": "DELETE",
+      "path": "/guilds/{guild_id}/announces/{message_id}",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "get_guilds_guild_id_api_permission",
+      "method": "GET",
+      "path": "/guilds/{guild_id}/api_permission",
+      "outcome": "requires_resource",
+      "missing_parameters": [
+        "guild_id"
+      ]
+    },
+    {
+      "operation": "post_guilds_guild_id_api_permission_demand",
+      "method": "POST",
+      "path": "/guilds/{guild_id}/api_permission/demand",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "get_guilds_guild_id_channels",
+      "method": "GET",
+      "path": "/guilds/{guild_id}/channels",
+      "outcome": "requires_resource",
+      "missing_parameters": [
+        "guild_id"
+      ]
+    },
+    {
+      "operation": "post_guilds_guild_id_channels",
+      "method": "POST",
+      "path": "/guilds/{guild_id}/channels",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "get_guilds_guild_id_members",
+      "method": "GET",
+      "path": "/guilds/{guild_id}/members",
+      "outcome": "requires_resource",
+      "missing_parameters": [
+        "guild_id"
+      ]
+    },
+    {
+      "operation": "delete_guilds_guild_id_members_user_id",
+      "method": "DELETE",
+      "path": "/guilds/{guild_id}/members/{user_id}",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "get_guilds_guild_id_members_user_id",
+      "method": "GET",
+      "path": "/guilds/{guild_id}/members/{user_id}",
+      "outcome": "requires_resource",
+      "missing_parameters": [
+        "guild_id"
+      ]
+    },
+    {
+      "operation": "patch_guilds_guild_id_members_user_id_mute",
+      "method": "PATCH",
+      "path": "/guilds/{guild_id}/members/{user_id}/mute",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "delete_guilds_guild_id_members_user_id_roles_role_id",
+      "method": "DELETE",
+      "path": "/guilds/{guild_id}/members/{user_id}/roles/{role_id}",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "put_guilds_guild_id_members_user_id_roles_role_id",
+      "method": "PUT",
+      "path": "/guilds/{guild_id}/members/{user_id}/roles/{role_id}",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "get_guilds_guild_id_message_setting",
+      "method": "GET",
+      "path": "/guilds/{guild_id}/message/setting",
+      "outcome": "requires_resource",
+      "missing_parameters": [
+        "guild_id"
+      ]
+    },
+    {
+      "operation": "patch_guilds_guild_id_mute",
+      "method": "PATCH",
+      "path": "/guilds/{guild_id}/mute",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "get_guilds_guild_id_roles",
+      "method": "GET",
+      "path": "/guilds/{guild_id}/roles",
+      "outcome": "requires_resource",
+      "missing_parameters": [
+        "guild_id"
+      ]
+    },
+    {
+      "operation": "post_guilds_guild_id_roles",
+      "method": "POST",
+      "path": "/guilds/{guild_id}/roles",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "delete_guilds_guild_id_roles_role_id",
+      "method": "DELETE",
+      "path": "/guilds/{guild_id}/roles/{role_id}",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "patch_guilds_guild_id_roles_role_id",
+      "method": "PATCH",
+      "path": "/guilds/{guild_id}/roles/{role_id}",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "get_guilds_guild_id_roles_role_id_members",
+      "method": "GET",
+      "path": "/guilds/{guild_id}/roles/{role_id}/members",
+      "outcome": "requires_resource",
+      "missing_parameters": [
+        "guild_id",
+        "role_id"
+      ]
+    },
+    {
+      "operation": "put_interactions_interaction_id",
+      "method": "PUT",
+      "path": "/interactions/{interaction_id}",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "post_users_me_dms",
+      "method": "POST",
+      "path": "/users/@me/dms",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "get_users_me_guilds",
+      "method": "GET",
+      "path": "/users/@me/guilds",
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null,
+      "trace_id": "218160134756020b803da595d262a4e4"
+    },
+    {
+      "operation": "get_gateway",
+      "method": "GET",
+      "path": "/gateway",
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null,
+      "trace_id": "764f872500e19478ac16aa1ac2ca0ada"
+    },
+    {
+      "operation": "get_gateway_bot",
+      "method": "GET",
+      "path": "/gateway/bot",
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null,
+      "trace_id": "f9397c173e4510ec0b2d2c309d7e05be"
+    },
+    {
+      "operation": "get_v2_media_images",
+      "method": "GET",
+      "path": "/v2/media-images",
+      "outcome": "platform_accepted",
+      "http_status": 200,
+      "business_code": null,
+      "trace_id": "05f2795fe749d96a9bcfe78aaefc65ed"
+    },
+    {
+      "operation": "post_v2_media_images_complete",
+      "method": "POST",
+      "path": "/v2/media-images/complete",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "post_v2_media_images_prepare",
+      "method": "POST",
+      "path": "/v2/media-images/prepare",
+      "outcome": "not_executed_write"
+    },
+    {
+      "operation": "delete_v2_media_images_image_id_delete",
+      "method": "DELETE",
+      "path": "/v2/media-images/{image_id}/delete",
+      "outcome": "not_executed_write"
+    }
+  ],
+  "status": "completed_with_explicit_untested_scope",
+  "deployment_sha": "2c709999f0cc5537be177defd36dc6be1413cbd2",
+  "summary": {
+    "not_executed_write": 51,
+    "platform_accepted": 6,
+    "platform_rejected": 1,
+    "requires_resource": 19
+  },
+  "finished_at": "2026-10-25T11:52:20.132296+00:00"
+}

@@ -1,0 +1,99 @@
+{
+  "kind": "explicit QQ C2C synthetic voice image video acceptance",
+  "started_at": "2026-10-25T11:57:15.342502+00:00",
+  "commit": "2c709999f0cc5537be177defd36dc6be1413cbd2",
+  "binary_sha256": "f5bfff3186d6f955f79f71ed932cddfe7565de621347cdc6802b47a3c3c338b1",
+  "source_run_sha256": "1deae6df5306d6589ec6253be4a7de3e06c41333c25c209074babad6cbe5ef97",
+  "platform": "Linux",
+  "architecture": "aarch64",
+  "production_database_modified": false,
+  "production_qq_configuration_read": true,
+  "production_credential_read": true,
+  "existing_user_content_copied": false,
+  "real_qq_send_attempted": true,
+  "synthetic_media_only": true,
+  "client_verified": false,
+  "automatic_retries": false,
+  "checks": [
+    "source marker owner account frozen deadline and exactly one sent reply verified",
+    "owned synthetic MP4 fixture is bounded and no longer than five seconds",
+    "private webhook-only account and local Piper configuration validate",
+    "real local Piper runtime is available",
+    "backend Piper asset is mono PCM WAV with matching SHA256",
+    "all synthetic files fit the documented direct-upload bound",
+    "authorized source context remains unchanged for voice",
+    "authorized source context remains unchanged for image",
+    "authorized source context remains unchanged for video"
+  ],
+  "media": [
+    {
+      "kind": "voice",
+      "seq": 2,
+      "bytes": 165932,
+      "sha256": "e05da683c7588eccbf909a58c7cd4f623980808cc9c93c3422b3e291d75c87d3",
+      "duration_ms": 3762,
+      "platform_accepted": true,
+      "client_verified": false,
+      "upload_intent_recorded": true,
+      "upload": {
+        "outcome": "platform_accepted",
+        "http_status": 200,
+        "business_code": null
+      },
+      "send_intent_recorded": true,
+      "send": {
+        "outcome": "platform_accepted",
+        "http_status": 200,
+        "business_code": null
+      },
+      "outcome": "platform_accepted"
+    },
+    {
+      "kind": "image",
+      "seq": 3,
+      "bytes": 712,
+      "sha256": "9b52a8ca7bc7aaf524a1441d829a1c273afa26509f9009cbb39910393f792711",
+      "duration_ms": null,
+      "platform_accepted": true,
+      "client_verified": false,
+      "upload_intent_recorded": true,
+      "upload": {
+        "outcome": "platform_accepted",
+        "http_status": 200,
+        "business_code": null
+      },
+      "send_intent_recorded": true,
+      "send": {
+        "outcome": "platform_accepted",
+        "http_status": 200,
+        "business_code": null
+      },
+      "outcome": "platform_accepted"
+    },
+    {
+      "kind": "video",
+      "seq": 4,
+      "bytes": 11508,
+      "sha256": "517f27e7ec76c46b8ebb4a37fa1cfaab97342599ca380177ff698fcfe6345b04",
+      "duration_ms": 2000,
+      "platform_accepted": true,
+      "client_verified": false,
+      "upload_intent_recorded": true,
+      "upload": {
+        "outcome": "platform_accepted",
+        "http_status": 200,
+        "business_code": null
+      },
+      "send_intent_recorded": true,
+      "send": {
+        "outcome": "platform_accepted",
+        "http_status": 200,
+        "business_code": null
+      },
+      "outcome": "platform_accepted"
+    }
+  ],
+  "status": "platform_accepted_client_verification_pending",
+  "deployment_sha": "2c709999f0cc5537be177defd36dc6be1413cbd2",
+  "finished_at": "2026-10-25T11:57:38.622456+00:00"
+}
