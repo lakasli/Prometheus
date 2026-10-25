@@ -6,7 +6,7 @@
 
 目标 `campanus@192.168.189.191`：Raspberry Pi 5 Model B Rev 1.1、Ubuntu 24.04.4 LTS、aarch64、Rust 1.88.0、约 7,933 MiB RAM、无 swap。现有系统、桌面、用户数据和凭据保持原有位置；前端在 Windows 构建静态包，Rust 在树莓派单并发构建。
 
-正式运行目标为 `615c7587c1c4b8cee5af69b4d13e572ed5534f49`，前端包 SHA-256 为 `c0505d49567507079e4a6616b7863572a5c3bc9c6290f47ab4b83fb76716cf06`。上一可用版本为 `25d973820568d72c7ace88bd8239b15c8ee29f56`。部署通过同 SHA 的 `deploy/deploy.sh`，日志位于目标 `shared/logs/test-<完整SHA>.log` 与 `build-<完整SHA>.log`。
+首次正式验收运行版本为 `615c7587c1c4b8cee5af69b4d13e572ed5534f49`，前端包 SHA-256 为 `c0505d49567507079e4a6616b7863572a5c3bc9c6290f47ab4b83fb76716cf06`。当时上一可用版本为 `25d973820568d72c7ace88bd8239b15c8ee29f56`。部署通过同 SHA 的 `deploy/deploy.sh`，日志位于目标 `shared/logs/test-<完整SHA>.log` 与 `build-<完整SHA>.log`。
 
 正式发布于 2026-10-25 22:34（+08:00）完成，命令退出 0，`current`、`/health/ready.commit`、发布源码 HEAD 和前端 `release.json` 均为上述 SHA，systemd 服务 active / health ready。正式二进制 SHA-256 为 `316eb2e29d6742ccda5a185342f6fb13adafac1b4880277b6fc451d929bed564`，release 编译耗时 8 分 16 秒。切换前由部署脚本保存兼容性检查及私有 SQLite 备份。
 
@@ -52,3 +52,9 @@
 已在实际认证 Edge 页面 `http://127.0.0.1:18419/admin/#plugins` 刷新并观察 `Web 615c7587c1`、Rust 插件工厂、新建 / 版本列表及清楚的空权限范围；点击“检查构建环境”得到真实 `passed=true`、策略 v3、8 项探针及 clone / ioctl / FD / rlimit 门禁全 true。生产版本列表仍为空，没有通过页面创建、批准或启用生产插件。源码转义与批准复核交互的详细覆盖来自前端测试，未将此只读页面观察描述成真人源码审批。
 
 未执行生产回滚演练或真人源码审批；旧失败、协议模拟、私有 debug 预验收、正式 release、真实模型和客户端观察分别记录，不互相替代。
+
+## 后续正式版本回归
+
+QQ 本条图片回传修复发布 `c75b868e33fea4a3c6065d2d593acaeb19847fc7` 后，2026-10-25 23:27（+08:00）再次核对 current / health / 源码 / 前端版本一致，服务 ready。二进制 SHA-256 为 `9a148978909efb2d6825faa1b4ff17f2a291b88c9d3ee81dc733a159155ebf0a`；前端包为 `5dbcde267f844a1245a9292999452fba533899fb85475a779d497ca3ac3f3275`。
+
+同版工厂 [19 项正式回归](validation/plugin-factory-c75b868-aarch64.json)通过，包含原 18 项及新增显式 Web `/plugin` 调用的受控模型回归。Linux 全量 262 个 daemon、4 个 kernel 测试通过。隔离策略、Component 工具链与权限范围维持不变；真实模型生成仍只使用前述 `615c758…` 的一次预算，没有为后续回归重复消耗或自动批准生产插件。当前整体语音 / 媒体状态见 [本轮验收](voice-plugins-validation.md)。

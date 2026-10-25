@@ -1,0 +1,19 @@
+{
+  "kind": "separate native QQ desktop observation of the synthetic image roundtrip",
+  "binary_commit": "c75b868e33fea4a3c6065d2d593acaeb19847fc7",
+  "platform_evidence": "qq-image-roundtrip-c75b868-aarch64.json",
+  "run_sha256": "7e68406f302e14ee0927b92bf1b7a071b715da639a62768b32ac1cbf35f3e20f",
+  "observation_date": "2026-10-25",
+  "timezone": "Asia/Shanghai",
+  "method": "native QQ accessibility and screenshot inspection through computer-use",
+  "synthetic_input_only": true,
+  "client_verified": true,
+  "client_rendered_new_assistant_image": true,
+  "expected_blue_circle_and_orange_square_visible": true,
+  "assistant_image_caption_visible": true,
+  "separate_preceding_description_visible": true,
+  "raw_platform_report_modified": false,
+  "human_audio_quality_evaluated": false,
+  "scope": "the new ordinary C2C request on c75b868; does not convert earlier failed requests into successes",
+  "status": "passed"
+}

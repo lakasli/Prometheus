@@ -1,0 +1,177 @@
+{
+  "kind": "read-only QQ current-image roundtrip evidence",
+  "observed_at": "2026-10-25T15:31:08.701547+00:00",
+  "script_commit": "8b2642511fd252b8a2ac1bb10b614d76809910c6",
+  "expected_binary_commit": "c75b868e33fea4a3c6065d2d593acaeb19847fc7",
+  "binary_commit_verified_by_script": true,
+  "binary_commit_check_scope": "current_readiness_at_observation_not_historical_run_provenance",
+  "run_sha256": "7e68406f302e14ee0927b92bf1b7a071b715da639a62768b32ac1cbf35f3e20f",
+  "expected_input_sha256": "02e4431e6b76ae6665865b506a79c6118bf134b2829a97b8d0d1399b65fff61a",
+  "expected_image_sha256": "a2ad032ccebd2f6203f257a000a532e15f9256b37885071a3ddea96ad671cb68",
+  "production_database_modified": false,
+  "credential_read": false,
+  "message_bodies_exported": false,
+  "model_or_qq_requests": 0,
+  "automatic_retries": false,
+  "client_verified": false,
+  "real_qq_tested": true,
+  "checks": [
+    {
+      "check": "valid_arguments",
+      "passed": true
+    },
+    {
+      "check": "exact_run_exists",
+      "passed": true
+    },
+    {
+      "check": "exact_input_matches_without_export",
+      "passed": true
+    },
+    {
+      "check": "frozen_qq_c2c_owner",
+      "passed": true
+    },
+    {
+      "check": "run_completed",
+      "passed": true
+    },
+    {
+      "check": "run_after_forget_floor",
+      "passed": true
+    },
+    {
+      "check": "frozen_interval_valid",
+      "passed": true
+    },
+    {
+      "check": "current_image_source_exists",
+      "passed": true
+    },
+    {
+      "check": "current_image_source_scope_and_message",
+      "passed": true
+    },
+    {
+      "check": "current_image_described",
+      "passed": true
+    },
+    {
+      "check": "canonical_source_hash_matches",
+      "passed": true
+    },
+    {
+      "check": "persisted_reply_plan_exists",
+      "passed": true
+    },
+    {
+      "check": "reply_plan_version_and_array",
+      "passed": true
+    },
+    {
+      "check": "exactly_one_current_image_reply",
+      "passed": true
+    },
+    {
+      "check": "reply_plan_delays_and_text_fields_valid",
+      "passed": true
+    },
+    {
+      "check": "asset_reference_without_generation",
+      "passed": true
+    },
+    {
+      "check": "referenced_asset_exists_within_bound",
+      "passed": true
+    },
+    {
+      "check": "asset_scope_floor_ttl_and_kind",
+      "passed": true
+    },
+    {
+      "check": "actual_png_bytes_match_current_source",
+      "passed": true
+    },
+    {
+      "check": "outbox_exists",
+      "passed": true
+    },
+    {
+      "check": "outbox_matches_frozen_c2c_target",
+      "passed": true
+    },
+    {
+      "check": "outbox_sent_without_error",
+      "passed": true
+    },
+    {
+      "check": "parts_count_and_sequences_match_plan",
+      "passed": true
+    },
+    {
+      "check": "part_1_matches_plan",
+      "passed": true
+    },
+    {
+      "check": "part_1_sent_without_fallback",
+      "passed": true
+    },
+    {
+      "check": "part_1_has_finish_time",
+      "passed": true
+    },
+    {
+      "check": "part_2_matches_plan",
+      "passed": true
+    },
+    {
+      "check": "part_2_sent_without_fallback",
+      "passed": true
+    },
+    {
+      "check": "part_2_has_finish_time",
+      "passed": true
+    },
+    {
+      "check": "part_2_paced",
+      "passed": true
+    },
+    {
+      "check": "fixed_loopback_ready_commit_matches",
+      "passed": true
+    }
+  ],
+  "parts": [
+    {
+      "seq": 1,
+      "kind": "text",
+      "sent": true,
+      "platform_message_id_present": true,
+      "error_is_null": true,
+      "finished_ms": 1792942255973
+    },
+    {
+      "seq": 2,
+      "kind": "image",
+      "sent": true,
+      "platform_message_id_present": true,
+      "error_is_null": true,
+      "finished_ms": 1792942259323,
+      "gap_ms": 3350,
+      "required_minimum_ms": 1500
+    }
+  ],
+  "run_created_at": 1792942252,
+  "frozen_min_interval_ms": 1500,
+  "image_dimensions": [
+    224,
+    128
+  ],
+  "asset_bytes": 1518,
+  "asset_sha256": "a2ad032ccebd2f6203f257a000a532e15f9256b37885071a3ddea96ad671cb68",
+  "reply_item_count": 2,
+  "image_item_count": 1,
+  "status": "platform_delivery_verified_client_pending",
+  "script_commit_verified_from_checkout": true,
+  "observed_binary_commit": "c75b868e33fea4a3c6065d2d593acaeb19847fc7"
+}
