@@ -1,0 +1,34 @@
+{
+  "commit": "1920ac9a17175406958282de844a254be01b8677",
+  "verified_at": "2026-10-25T09:09:25.041912+00:00",
+  "host": "192.168.189.191",
+  "platform": "Ubuntu 24.04.4 LTS / aarch64",
+  "release": "/home/campanus/apps/dsh/releases/1920ac9a17175406958282de844a254be01b8677",
+  "previous_release": "/home/campanus/apps/dsh/releases/595288f9b181fb156056666a8e63a3e855e9f05c",
+  "deployed_at": "2026-10-25T09:07:39.450805+00:00",
+  "source_sha": "1920ac9a17175406958282de844a254be01b8677",
+  "frontend_commit": "1920ac9a17175406958282de844a254be01b8677",
+  "health": {
+    "commit": "1920ac9a17175406958282de844a254be01b8677",
+    "status": "ready"
+  },
+  "counts": {
+    "admins": 1,
+    "conversations": 4,
+    "messages": 20,
+    "memory_records": 0,
+    "secrets": 3,
+    "character_cards": 2
+  },
+  "config_revision": "4",
+  "default_skills": 2,
+  "original_data_counts_unchanged": true,
+  "config_revision_unchanged": true,
+  "binary_sha256": "178c03f754c410be2c65dccc708ae0f5bdfc88d0507c16465468ac9c617b26a9",
+  "frontend_archive_sha256": "4d667d7cda383a82035946e4139ef477ca61b8046d3b12af289cdb5952cb649d",
+  "rollback_executed": false,
+  "data_restore_executed": false,
+  "pre_upgrade_backups": [
+    "pre-1920ac9a17175406958282de844a254be01b8677-20261025T090738064875530.sqlite"
+  ]
+}

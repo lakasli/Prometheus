@@ -20,7 +20,7 @@
 | Git | 当前 SSH 会话中可用，路径 `/usr/bin/git` |
 | Rust 工具链 | 本轮用户级安装 Rust / Cargo 1.88.0，路径 `/home/campanus/.cargo/bin` |
 | Node 工具链 | 本轮实测 Node 24.22.1、npm 11.19.1；M1静态前端运行不依赖Node服务 |
-| 当前应用部署状态 | 图片对话与导航调整已部署到`bd914f8ea73ffad5697248ddf3df716f7208299a`，见 [本轮记录](conversation-images-validation.md)；[M0/M1记录](m0-m1-validation.md)保留为历史结果 |
+| 当前应用部署状态 | Skill 管理、绘画及角色卡详情修复已部署到 `1920ac9a17175406958282de844a254be01b8677`，见 [本轮记录](skills-validation.md)；[图片对话](conversation-images-validation.md)及 [M0/M1记录](m0-m1-validation.md)保留为历史结果 |
 | Web 管理方式 | 用户浏览器访问 Rust 提供的静态管理页面；经 SSH 隧道或 HTTPS 代理连接 |
 
 SSH 密码使用用户已提供的会话凭证，不在本文件保存。后续可使用本地凭证管理器或 SSH key；不得把真实值写入脚本或提交记录。
