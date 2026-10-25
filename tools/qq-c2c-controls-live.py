@@ -57,6 +57,16 @@ class UnknownResult(RuntimeError):
     pass
 
 
+class ControlsApiFailure(RuntimeError):
+    def __init__(self, status, code=None):
+        self.http_status, self.error_code = status, code
+        super().__init__('isolated controls API rejected request')
+
+
+def is_known_local_rejection(error):
+    return isinstance(error, ControlsApiFailure) and 400 <= error.http_status < 500
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True)
@@ -118,9 +128,11 @@ def main():
             response = error
         with response:
             raw, status = response.read(), response.code
+        value = json.loads(raw)
         if status != expected:
-            raise RuntimeError('isolated control API status ' + str(status))
-        return json.loads(raw)
+            error = value.get('error', {}) if isinstance(value, dict) else {}
+            raise ControlsApiFailure(status, error.get('code'))
+        return value
 
     def operation(kind, identifier, parameters, body=None):
         nonlocal failed, blocked, stage
@@ -135,9 +147,12 @@ def main():
         try:
             result = call('POST', PREFIX + '/qq/api/operations/' + identifier,
                 {'parameters': parameters, 'body': body, 'acknowledge_effects': True})
-        except Exception:
-            entry['outcome'] = 'result_unknown'
-            blocked, failed = True, True
+        except Exception as error:
+            known_local_rejection = is_known_local_rejection(error)
+            entry['outcome'] = 'local_request_rejected' if known_local_rejection else 'result_unknown'
+            if isinstance(error, ControlsApiFailure):
+                entry['local_http_status'], entry['local_error_code'] = error.http_status, error.error_code
+            blocked, failed = not known_local_rejection, True
             save()
             raise
         entry.update({key: result.get(key) for key in ['outcome', 'http_status', 'business_code']})
@@ -236,6 +251,8 @@ def main():
         failed = True
         report['status'] = 'blocked_by_unknown' if blocked else 'failed'
         report['failure'] = {'stage': stage, 'exception_type': type(error).__name__}
+        if isinstance(error, ControlsApiFailure):
+            report['failure'].update(local_http_status=error.http_status, local_error_code=error.error_code)
         print('FAIL ' + stage + ' (' + type(error).__name__ + ')', flush=True)
     finally:
         # No network calls in finally: after an uncertain request, a cleanup

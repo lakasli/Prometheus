@@ -69,6 +69,13 @@ class DiscoveryTests(unittest.TestCase):
 
 
 class OwnershipTests(unittest.TestCase):
+    def test_fresh_panel_is_specific_and_only_the_explicit_approved_user_is_bound(self):
+        self.assertEqual(RESOURCE.panel_request('marker')['user_openids'], [])
+        body = RESOURCE.panel_request('marker', 'only-approved-test-user')
+        self.assertEqual(body['scope'], 'c2c')
+        self.assertEqual(body['target_type'], 'specific')
+        self.assertEqual(body['user_openids'], ['only-approved-test-user'])
+        self.assertNotIn('group_openids', body)
     def test_cleanup_rejects_existing_ids_and_other_accounts_or_runs(self):
         journal = {'account_sha256': 'account-a', 'panel': {'id': 'fresh-id', 'created_by_this_invocation': True}}
         self.assertTrue(RESOURCE.owned_resource('panel', 'fresh-id', {'old-id'}, journal, 'account-a'))

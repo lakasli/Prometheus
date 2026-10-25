@@ -106,13 +106,18 @@ python3 -m unittest discover -s tools/tests -p 'test_qq_*.py' -v
 | 互动回调 ACK | 实际订阅并收到 `INTERACTION_CREATE`、有效且未过期的 interaction_id | 缺真实事件时明确未测试，不能拿随机 ID 当联调证据 |
 | QQ 小程序 `qq.getGuildInfo` | QQ 小程序工程、机器人服务配置、客户端 extendData 和对应客户端 SDK | 属于客户端能力，不能伪装成已实现的 Rust HTTP 接口 |
 
-`tools/qq-resource-live.py` 提供专属面板与合成素材的有界 CRUD：先完整快照现有 ID，再用随机 marker 创建新对象，只修改、删除本次创建且不在快照中的 ID，使用 0600 ownership journal 留恢复依据。它不写现有菜单，不绑定真实用户、不发消息；unknown 写入不会重发，unknown 删除不会再次自动删除，清理未确认时报告 `cleanup_pending=true`。该脚本是验收工具，实际成功范围须看固定部署 SHA 上生成的报告。
+`tools/qq-resource-live.py` 提供专属面板与合成素材的有界 CRUD：先完整快照现有 ID，再用随机 marker 创建新对象，只修改、删除本次创建且不在快照中的 ID，使用 0600 ownership journal 留恢复依据。默认面板不绑定用户；显式提供 `--target-source-run-id` 时，必须通过独立接口验收 marker、owner、账号、凭据、回复窗口及 Native seq1 检查，只可临时绑定该 Run 的本人测试目标，并只在这个新面板上测试解除/恢复同一关联。它不写现有菜单，不发消息；unknown 写入不会重发，unknown 删除不会再次自动删除，清理未确认时报告 `cleanup_pending=true`。该脚本是验收工具，实际成功范围须看固定部署 SHA 上生成的报告。
 
 ```sh
 python3 tools/qq-resource-live.py --binary <fixed-release>/bin/dshd --web-dir <fixed-release>/web --source-data-dir <shared-data> --report <new-private-report>
+# 已明确授权本人测试目标时，额外传 --target-source-run-id <explicit-interface-test-run>
 ```
 
 2026-10-25 的初次只读报告保留了 `/v2/panels` 返回 HTTP400/40030011 的事实。当时请求缺少必填 scope，后续补齐清单、服务端校验、UI 及探针默认查询，不将历史失败改写成平台权限拒绝或成功。角色成员分页采用官方 `start_index`，帖子列表不虚构未公开的分页参数。
+
+同日真实空面板列表返回 `{"is_end":true}` 并省略 records；探针仅在明确结束且无后续 cursor 时将省略/null 数组当作空集。空用户绑定创建返回 HTTP400/40030016，只能判定有必填字段未满足，未凭此猜测缺的是 user_openids 或命令字段；command 项按官方示例带齐 type/name/desc，后续非空本人目标用单独报告验证。
+
+首次合成 Markdown 客户端已显示后，撤回被本地路径参数校验拦截：平台实际消息 ID 含 `!`。修复把合法 opaque ID 的 `!+/=` 作为单个路径 segment 规范转义（例如 `/` 为 `%2F`），并保留 URL、控制字符、预编码 `%` 与 dot 路径段拒绝；安全单 ID `a..b` 不误伤。真实 HTTP mock 验证编码后不能增加路由分段。原报告的保守 unknown 保留，后续工具另外记录本地 4xx/code，区分“未提交平台”与“平台请求结果未知”；旧合成消息不盲重撤回，新版本用新的专属 marker 验收。
 
 ### 清单索引
 

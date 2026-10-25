@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Exercise only newly created unbound QQ panels and synthetic image materials.
 
-Existing menu/panel/image IDs are never mutated. New panels are C2C-specific
-with an empty user list; a refusal never falls back to a global configuration.
+Existing menu/panel/image IDs are never mutated. New panels are C2C-specific,
+by default unbound; an explicit guarded test Run may select only its own user.
+A refusal never falls back to a global configuration.
 Each created ID is recorded in a mode-0600 ownership journal before proceeding.
 No message is sent. Unknown writes are never repeated. Only resources created
 by this invocation, absent from the initial snapshot, are eligible for cleanup.
@@ -36,6 +37,10 @@ class ResourceApiFailure(RuntimeError):
         super().__init__('isolated resource API failed')
 
 
+class UncertainResourceResult(RuntimeError):
+    pass
+
+
 def load_module(name, filename):
     spec = importlib.util.spec_from_file_location(name, pathlib.Path(__file__).with_name(filename))
     result = importlib.util.module_from_spec(spec)
@@ -55,6 +60,13 @@ def cleanup_needed(journal, kind):
     resource = journal.get(kind, {})
     return bool(resource.get('id') and resource.get('created_by_this_invocation') and
                 not resource.get('deleted') and not resource.get('delete_intent_recorded'))
+
+
+def panel_request(marker, approved_user=None):
+    if approved_user is not None and (not isinstance(approved_user, str) or not approved_user or len(approved_user) > 200):
+        raise ValueError('approved test user is invalid')
+    return {'scope': 'c2c', 'target_type': 'specific', 'user_openids': [approved_user] if approved_user is not None else [],
+            'panel': {'items': [{'type': 'command', 'name': 'DSH验收', 'desc': '临时合成接口验收'}], 'remark': marker}}
 
 
 def write_private(path, value):
@@ -79,6 +91,7 @@ def main():
     parser.add_argument('--web-dir', required=True)
     parser.add_argument('--source-data-dir', required=True)
     parser.add_argument('--report', required=True)
+    parser.add_argument('--target-source-run-id', help='Optional fixed DSH接口验收 Run; only its verified C2C owner may be bound to the fresh panel')
     args = parser.parse_args()
     binary = pathlib.Path(args.binary).resolve(strict=True)
     web = pathlib.Path(args.web_dir).resolve(strict=True)
@@ -159,6 +172,8 @@ def main():
             failed = True
         save()
         print('QQ ' + identifier + ': ' + str(entry['outcome']) + ' HTTP=' + str(entry.get('http_status')) + ' code=' + str(entry.get('business_code')), flush=True)
+        if entry['outcome'] in {'result_unknown', 'asynchronous_pending'}:
+            raise UncertainResourceResult('further test operations blocked; owned cleanup journal retained')
         time.sleep(1)
         return result
 
@@ -196,6 +211,14 @@ def main():
             raise RuntimeError('configured QQ account unavailable')
         account_hash = hashlib.sha256(qq['app_id'].encode()).hexdigest()
         journal['account_sha256'] = account_hash
+        approved_user = None
+        if args.target_source_run_id:
+            target_run = str(uuid.UUID(args.target_source_run_id))
+            target_qq, target = media_helpers.source_context(source, target_run, required_marker=media_helpers.INTERFACE_MARKER)
+            check('temporary panel target comes only from the explicitly authorized interface test Run', target_qq == qq)
+            approved_user = target['target']
+            report['panel_targets_authorized_test_user_only'] = True
+            journal['target_source_run_id'] = target_run
         credential = str(uuid.UUID(qq['credential_ref']))
         store = (source / 'secrets').resolve(strict=True)
         secret = (store / credential).resolve(strict=True)
@@ -235,7 +258,7 @@ def main():
         report['initial_material_count'] = len(initial_materials)
         journal['panel_create_unresolved'] = True
         save()
-        created = operation('post_v2_panels', body={'scope': 'c2c', 'target_type': 'specific', 'user_openids': [], 'panel': {'items': [{'type': 'command', 'name': 'DSH验收', 'desc': '临时合成接口验收'}], 'remark': marker}})
+        created = operation('post_v2_panels', body=panel_request(marker, approved_user))
         if created.get('outcome') not in {'result_unknown', 'asynchronous_pending'} and not created.get('platform_accepted'):
             journal.pop('panel_create_unresolved', None)
             save()
@@ -244,11 +267,22 @@ def main():
             remember('panel', identifier, initial_panels)
             detail = operation('get_v2_panels_panel_id', parameters={'panel_id': identifier})
             data = detail.get('response', {})
-            check('new panel is scoped specific unbound and carries the private ownership marker', detail.get('platform_accepted') and data.get('scope') == 'c2c' and data.get('target_type') == 'specific' and not data.get('user_openids') and data.get('panel', {}).get('remark') == marker)
+            expected_users = [approved_user] if approved_user is not None else []
+            check('new panel is scoped specific with exactly the approved test targets and ownership marker', detail.get('platform_accepted') and data.get('scope') == 'c2c' and data.get('target_type') == 'specific' and (data.get('user_openids') or []) == expected_users and data.get('panel', {}).get('remark') == marker)
             changed = operation('put_v2_panels_panel_id', parameters={'panel_id': identifier}, body={'panel': {'items': [{'type': 'command', 'name': 'DSH验收', 'desc': '已更新的合成验收'}], 'remark': marker + '_UPDATED'}})
             if changed.get('platform_accepted'):
                 detail = operation('get_v2_panels_panel_id', parameters={'panel_id': identifier})
-                check('only the newly created panel revision changed', detail.get('platform_accepted') and detail.get('response', {}).get('panel', {}).get('remark') == marker + '_UPDATED' and not detail.get('response', {}).get('user_openids'))
+                check('only the newly created panel revision changed', detail.get('platform_accepted') and detail.get('response', {}).get('panel', {}).get('remark') == marker + '_UPDATED' and (detail.get('response', {}).get('user_openids') or []) == expected_users)
+            if approved_user is not None:
+                detached = operation('put_v2_panels_panel_id_target', parameters={'panel_id': identifier}, body={'op': 'del', 'user_openids': [approved_user]})
+                if detached.get('platform_accepted'):
+                    detail = operation('get_v2_panels_panel_id', parameters={'panel_id': identifier})
+                    check('only this fresh panel test-user association was removed', detail.get('platform_accepted') and not detail.get('response', {}).get('user_openids'))
+                if detached.get('outcome') not in {'result_unknown', 'asynchronous_pending'}:
+                    attached = operation('put_v2_panels_panel_id_target', parameters={'panel_id': identifier}, body={'op': 'add', 'user_openids': [approved_user]})
+                    if attached.get('platform_accepted'):
+                        detail = operation('get_v2_panels_panel_id', parameters={'panel_id': identifier})
+                        check('fresh panel association is restored only for the approved test user', detail.get('platform_accepted') and detail.get('response', {}).get('user_openids') == [approved_user])
             cleanup('panel', initial_panels, 'delete_v2_panels_panel_id', 'panel_id')
         png = media_helpers.synthetic_png()
         file_name = marker.lower() + '.png'

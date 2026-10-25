@@ -9,6 +9,10 @@ SPEC.loader.exec_module(MODULE)
 
 
 class StreamAndOwnershipTests(unittest.TestCase):
+    def test_local_validation_rejection_is_distinct_from_uncertain_network_result(self):
+        self.assertTrue(MODULE.is_known_local_rejection(MODULE.ControlsApiFailure(400, 'qq_parameters')))
+        self.assertFalse(MODULE.is_known_local_rejection(MODULE.ControlsApiFailure(500, 'internal_error')))
+        self.assertFalse(MODULE.is_known_local_rejection(TimeoutError()))
     def test_one_stream_reuses_seq4_and_increments_only_the_index(self):
         first = MODULE.stream_fragment('synthetic-source', 0, 'prefix')
         last = MODULE.stream_fragment('synthetic-source', 1, 'prefix end', 'new-stream-id')
