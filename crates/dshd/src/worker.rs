@@ -653,7 +653,9 @@ fn prepare_messages(state: &AppState, item: &RunInput) -> ApiResult<Vec<Value>> 
             if selected.is_none(){
                 let assets=crate::media_assets::list_in(&tx,&owner,&item.conversation)?;
                 let speech=crate::speech::status(state,&item.config.speech);
-                system.push_str(&crate::chat_reply::prompt(&item.config,&json!({"speech_available":speech["available"],"image_generation_available":item.config.model.image_generation,"assets":assets})));
+                let rich=!owner.starts_with("weixin:") && item.reply.as_ref().is_none_or(|r|r.kind=="c2c");
+                let visible_assets=assets.iter().map(|a|json!({"asset_id":a.id,"type":a.kind,"mime":a.mime,"expires_at":a.expires_at})).collect::<Vec<_>>();
+                system.push_str(&crate::chat_reply::prompt(&item.config,&json!({"speech_available":rich&&speech["available"]==true,"image_send_available":rich,"video_send_available":rich,"image_generation_available":rich&&item.config.model.image_generation,"assets":if rich{visible_assets}else{Vec::new()}})));
             }
             if selected.as_ref().is_some_and(|s|s.skill.id=="task-trigger-setup") {
                 let mut capabilities=crate::trigger_store::capabilities_in(&tx,&owner,now())?;
