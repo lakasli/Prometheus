@@ -33,6 +33,8 @@ world plugin {
 
 每个管理者最多 100 个版本、2,000 个工厂任务；函数体最多 64 KiB，规格最多 48 KiB，Component 最多 4 MiB，每次输入最多 16 KiB、输出最多 64 KiB。版本不可覆盖；修改需求或源码应创建新版本。
 
+执行配置 `stateless-json-anonymous-memory-v1` 也绑定发布包摘要。每次调用使用新实例和匿名线性内存，关闭 Wasmtime COW 初始化映像；短生命周期工作器不复用映像，也不为此授予 `F_ADD_SEALS` 等额外 `fcntl` 权限。
+
 ## 实际隔离门禁
 
 此策略与此前不可用的完整 Harness 沙箱相互独立。它不依靠用户级 `ProtectHome` / `PrivateNetwork` 属性来证明边界，也不开放 Harness 工具。完整 M3 的原有待办维持不变。

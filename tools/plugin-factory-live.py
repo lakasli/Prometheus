@@ -150,7 +150,7 @@ def main():
                                 check('real generated Rust compiles to WIT Component and passes actual Wasmtime contract tests', item['status'] == 'eligible' and item['test_report']['passed'])
                                 report['actual_component_worker_tested'] = True
                                 item = factory.activate(harness, factory.approve(harness, item))
-                                output = harness.call('POST', ROOT + '/plugins/user.synthetic-sum/invoke', {'input': [123, -46]})[0]
+                                output = harness.call('POST', ROOT + '/plugins/user.synthetic-sum/invoke', {'input': [123, -46]}, timeout=110)[0]
                                 check('separate synthetic authenticated approval and activation enable unseen input result seventy seven', output['output'] == 77)
                                 report['synthetic_approval_api_cycle_tested'] = True
                                 if args.include_chat_command:

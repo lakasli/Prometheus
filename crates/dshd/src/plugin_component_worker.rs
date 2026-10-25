@@ -16,6 +16,7 @@ use wasmtime::{
 };
 
 pub const ENGINE: &str = "wasmtime-36.0.19";
+pub const RUNTIME_PROFILE: &str = "stateless-json-anonymous-memory-v1";
 pub const HOST_API: &str = "dsh:plugin@1.0.0";
 pub const MAX_COMPONENT: usize = 4 * 1024 * 1024;
 pub const MAX_SOURCE: usize = 65536;
@@ -204,6 +205,9 @@ fn execute(bytes: &[u8], inputs: &[Value]) -> Result<Vec<Value>, &'static str> {
         .consume_fuel(true)
         .epoch_interruption(true)
         .max_wasm_stack(256 * 1024)
+        // Fresh short-lived workers do not benefit from reusable COW images.
+        // Anonymous initialization also avoids granting F_ADD_SEALS on memfds.
+        .memory_init_cow(false)
         .memory_reservation(64 * 1024 * 1024)
         .memory_guard_size(65536);
     let engine = WasmEngine::new(&config).map_err(|_| "plugin_engine_unavailable")?;

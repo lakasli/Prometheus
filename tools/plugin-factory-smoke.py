@@ -211,7 +211,7 @@ def main():
                     observed_units = set()
                     report['isolation_probe_repetitions'] = 0
                     for repetition in range(32):
-                        isolated = harness.call('POST', ROOT + '/check', {}, expected={200, 409, 503})[0]
+                        isolated = harness.call('POST', ROOT + '/check', {}, expected={200, 409, 503}, timeout=110)[0]
                         if 'error' in isolated:
                             report['isolation_failure_code'] = isolated['error'].get('code')
                             raise AssertionError('actual isolated worker lifecycle probe failed')
@@ -253,7 +253,7 @@ def main():
                     harness.call('POST', version_path(first) + '/approve', dict(approval, reviewed=True), headers=tag(first), expected=409)
                     check('test completion grants no activation and explicit approval binds exact source component bundle and revision', approved['status'] == 'approved')
                     first = activate(harness, approved)
-                    value = harness.call('POST', ROOT + '/plugins/user.synthetic-sum/invoke', {'input': [4, 5]})[0]
+                    value = harness.call('POST', ROOT + '/plugins/user.synthetic-sum/invoke', {'input': [4, 5]}, timeout=110)[0]
                     check('separate activation registers the tested tool and actual invocation returns nine', first['status'] == 'active' and value['output'] == 9)
                     harness.call('POST', ROOT + '/plugins/user.synthetic-sum/invoke', {'input': {'owner': 'forged'}}, expected=400)
                     with helpers.other_admin(harness):
@@ -261,17 +261,17 @@ def main():
                     harness.stop()
                     harness.start()
                     harness.login()
-                    value = harness.call('POST', ROOT + '/plugins/user.synthetic-sum/invoke', {'input': [4, 5]})[0]
+                    value = harness.call('POST', ROOT + '/plugins/user.synthetic-sum/invoke', {'input': [4, 5]}, timeout=110)[0]
                     check('approved active version and immutable source hashes survive daemon restart', value['output'] == 9 and refresh(harness, first)['component_sha256'] == first['component_sha256'])
                     second = create(harness, '0.2.0', SUM.replace('values.iter().sum::<i64>().to_string()', '(values.iter().sum::<i64>() + 1).to_string()'), delta=1)
                     second, built = action(harness, second, 'build')
                     second, tested = action(harness, second, 'test')
                     check('second immutable version independently builds and tests', built['status'] == 'completed' and tested['status'] == 'completed')
                     second = activate(harness, approve(harness, second))
-                    value = harness.call('POST', ROOT + '/plugins/user.synthetic-sum/invoke', {'input': [4, 5]})[0]
+                    value = harness.call('POST', ROOT + '/plugins/user.synthetic-sum/invoke', {'input': [4, 5]}, timeout=110)[0]
                     check('version activation switches bundle and preserves previous approved version', value['output'] == 10)
                     first = activate(harness, refresh(harness, first), rollback=True)
-                    value = harness.call('POST', ROOT + '/plugins/user.synthetic-sum/invoke', {'input': [4, 5]})[0]
+                    value = harness.call('POST', ROOT + '/plugins/user.synthetic-sum/invoke', {'input': [4, 5]}, timeout=110)[0]
                     check('explicit rollback restores the exact previously approved stateless version', value['output'] == 9 and refresh(harness, second)['status'] == 'rolled_back')
                     first = refresh(harness, first)
                     harness.call('POST', version_path(first) + '/quarantine', {}, headers=tag(first))

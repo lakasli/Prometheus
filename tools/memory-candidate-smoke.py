@@ -162,7 +162,7 @@ class Provider(http.server.BaseHTTPRequestHandler):
 
 class Harness(acceptance.Harness):
     def call(self, method, path, data=None, expected=200, headers=None,
-             with_csrf=True, authenticated=True):
+             with_csrf=True, authenticated=True, timeout=15):
         request_headers = {'Origin': self.base, 'Content-Type': 'application/json'}
         if self.csrf and with_csrf:
             request_headers['X-CSRF-Token'] = self.csrf
@@ -171,7 +171,7 @@ class Harness(acceptance.Harness):
         request = urllib.request.Request(self.base + path, body, request_headers, method=method)
         client = self.client if authenticated else self.anonymous
         try:
-            response = client.open(request, timeout=15)
+            response = client.open(request, timeout=timeout)
         except urllib.error.HTTPError as error:
             response = error
         with response:

@@ -526,7 +526,7 @@ fn bundle(
     component_hash: &str,
     environment_hash: &str,
 ) -> ApiResult<String> {
-    Ok(hash(serde_json::to_string(&json!({"specification":spec,"source_sha256":source_hash,"component_sha256":component_hash,"build_environment_sha256":environment_hash,"host_api":component::HOST_API,"engine":component::ENGINE,"policy":plugin_sandbox::POLICY,"permissions":[],"state_schema_version":1})).map_err(internal)?.as_bytes()))
+    Ok(hash(serde_json::to_string(&json!({"specification":spec,"source_sha256":source_hash,"component_sha256":component_hash,"build_environment_sha256":environment_hash,"host_api":component::HOST_API,"engine":component::ENGINE,"runtime_profile":component::RUNTIME_PROFILE,"policy":plugin_sandbox::POLICY,"permissions":[],"state_schema_version":1})).map_err(internal)?.as_bytes()))
 }
 fn verified(db: &Connection, id: &str, owner: &str) -> ApiResult<(Detail, Vec<u8>)> {
     let detail = detail(db, id, owner)?;
