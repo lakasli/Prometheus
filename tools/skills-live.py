@@ -171,8 +171,8 @@ def main():
                 harness.call('POST', path + '/apply', {}, expected=202,
                              headers={'If-Match': '"' + str(current['revision']) + '"'})
                 initial = harness.call('GET', SKILLS)[0]
-                check('temporary instance contains only two default Skills and no native image dispatch',
-                      len(initial['items']) == 2 and not initial['drawing']['native_available'])
+                check('temporary instance contains only three default Skills and no native image dispatch',
+                      len(initial['items']) == 3 and not initial['drawing']['native_available'])
                 marker = 'SKILLLIVE' + secrets.token_hex(7).upper()
                 creator_chat = harness.conversation('Synthetic real-model Skill creation')
                 creator_run = submit(harness, creator_chat,
@@ -197,7 +197,7 @@ def main():
                       and 0 < len(generated['instructions'].encode()) <= 16000
                       and marker in generated['instructions'])
                 report['real_skill_creator_tested'] = True
-                check('creator output has not automatically installed a Skill', len(harness.call('GET', SKILLS)[0]['items']) == 2)
+                check('creator output has not automatically installed a Skill', len(harness.call('GET', SKILLS)[0]['items']) == 3)
                 reviewed = harness.call('POST', SKILLS, dict(generated, enabled=False), expected=201)[0]
                 check('explicit review saves actual generated instructions disabled',
                       reviewed['instructions'] == generated['instructions'] and not reviewed['enabled'])

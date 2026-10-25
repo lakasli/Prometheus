@@ -92,6 +92,16 @@ def check(data_dir, release_source):
                 if isinstance(model, dict) and model.get("image_generation") is True:
                     uses_skills = True
                     break
+        uses_triggers = any(
+            table in tables and db.execute(f"SELECT EXISTS(SELECT 1 FROM {table})").fetchone()[0]
+            for table in ("trigger_jobs", "trigger_occurrences", "trigger_execution_grants")
+        )
+        if "runs" in tables:
+            columns = {r[1] for r in db.execute("PRAGMA table_info(runs)")}
+            if "run_kind" in columns:
+                uses_triggers |= db.execute("SELECT EXISTS(SELECT 1 FROM runs WHERE run_kind IN ('trigger_model','trigger_image'))").fetchone()[0]
+        if uses_triggers and int(capabilities.get("task_triggers", 0)) < 1:
+            raise RuntimeError("Target release lacks task trigger authorization, scheduling and isolated context support")
         if uses_skills and int(capabilities.get("skills", 0)) < 1:
             raise RuntimeError("Target release lacks Skill snapshots or image generation configuration support")
 

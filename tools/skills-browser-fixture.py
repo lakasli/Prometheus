@@ -77,7 +77,12 @@ def main():
                                for item in payload.get('messages', [])
                                if item.get('role') == 'system')
             question = self.question(payload)
-            if ('skill-creator' in system or '制作 Skill' in system
+            if 'task_trigger_draft' in system and '设置触发任务' in system:
+                proposal = json.loads((pathlib.Path(__file__).resolve().parents[1] / 'docs/examples/task-triggers/once-after.json').read_text(encoding='utf-8'))
+                proposal['task_trigger_draft']['title'] = '合成模型生成的触发任务'
+                proposal['task_trigger_draft']['trigger']['after_seconds'] = 2
+                text = '```json\n' + json.dumps(proposal, ensure_ascii=False) + '\n```'
+            elif ('skill-creator' in system or '制作 Skill' in system
                     or '制作可复用 Skill' in system or 'creator-probe' in question):
                 text = '```json\n' + json.dumps(self.generated_skill, ensure_ascii=False) + '\n```'
             elif ('HTML' in system or 'html' in system or '绘画' in system

@@ -129,9 +129,9 @@ test("character cards use real local APIs for versioning, import and isolated co
     galleryBounds!.x + galleryBounds!.width,
   );
   expect(editorBounds!.y).toBe(libraryBounds!.y);
-  await expect(page.locator(".character-card-description")).toContainText(
-    "浏览器隔离验收使用的原创文本角色。",
-  );
+  await expect(
+    page.locator(".character-card-button.active .character-card-description"),
+  ).toContainText("浏览器隔离验收使用的原创文本角色。");
   const editorFooter = await page
     .locator(".character-editor")
     .evaluate((editor) => ({

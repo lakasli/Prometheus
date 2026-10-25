@@ -134,7 +134,16 @@ test("Skill management, generated draft review, HTML canvas and native PNG use a
   await expect(
     page.getByRole("heading", { name: "Skill 库", exact: true }),
   ).toBeVisible();
-  await expect(page.locator(".skill-item")).toHaveCount(2);
+  const existingSkills = (
+    await (await page.request.get(prefix + "/skills")).json()
+  ).items;
+  expect(
+    existingSkills
+      .filter((skill: { builtin: boolean }) => skill.builtin)
+      .map((skill: { id: string }) => skill.id)
+      .sort(),
+  ).toEqual(["drawing", "skill-creator", "task-trigger-setup"]);
+  await expect(page.locator(".skill-item")).toHaveCount(existingSkills.length);
   await page.getByRole("button", { name: "新建 Skill", exact: true }).click();
   const name = "浏览器技能_" + crypto.randomBytes(3).toString("hex");
   await page.getByLabel("Skill 名称", { exact: true }).fill(name);

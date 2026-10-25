@@ -9,7 +9,7 @@ M0/M1原始部署与真实Harness / QQ联调已通过，历史证据见 [M0/M1�
 ## 当前功能范围
 
 - 管理员一次性初始化、密码哈希、可撤销会话、Origin / CSRF 检查。
-- Skill 管理、版本冻结和显式对话调用，默认「制作 Skill」与「绘画」；生成草稿经审核保存，绘画按已配置能力走原生 PNG 或隔离 HTML / SVG。角色卡选中后左侧列表、右侧完整详情，草稿名称与介绍同步显示。契约与验证边界见 [Skill 说明](docs/skills.md)。
+- Skill 管理、版本冻结和显式对话调用，默认「制作 Skill」「绘画」与「设置触发任务」；生成草稿经审核保存，绘画按已配置能力走原生 PNG 或隔离 HTML / SVG。角色卡选中后左侧列表、右侧完整详情，草稿名称与介绍同步显示。契约与验证边界见 [Skill 说明](docs/skills.md)。
 - 模型与 QQ 配置、受限密钥存储、配置草稿 / 校验 / 连接测试 / 版本应用 / 回退。
 - 浏览器和 CLI 文本对话、独立会话历史、全局最多两个活跃 Run。
 - SQLite 入站去重、持久队列与回复 Outbox；排队任务重启可恢复，在途结果未知时明确标记，不盲目重发。
@@ -28,7 +28,7 @@ ACP 通知属于已提交的语义输出，不承诺模型 token 流。M0 在途
 
 后台自动事实抽取、微信真实平台收发验收、QQ / 微信渠道媒体、ASR / TTS、完整插件工厂和Harness工具桥仍待交付；Web单PNG图片对话已部署并通过本轮验收，但不代表完整M4。WAT开发诊断原型不代表M5，现有记忆与微信切片也不代表M2全部完成。后续按 [架构文档](docs/architecture.md) 的功能与信息架构推进，重大偏离先说明并由用户确认，不改写目标来迁就原型。
 
-「任务触发」已完成 [详细设计](docs/task-triggers.md)、[规则 Schema](docs/schemas/dsh-task-trigger-v1.schema.json) 和 [设置触发任务 Skill 草案](docs/skills/task-trigger-setup.md)，覆盖日期、秒间隔、中国工作日 / 休息日及事件。按用户本轮确认，当前只交付设计，尚未新增运行页面、调度器或安装该 Skill；[静态验证记录](docs/task-triggers-design-validation.md) 不代表运行验收。
+「任务触发」已实现正式管理 tab、持久调度与默认 [设置触发任务 Skill](docs/skills/task-trigger-setup.md)：一次性时刻 / 启用后秒延迟、固定秒间隔、日历日期、中国工作日 / 休息日，以及本人交互 Run 完成 / 失败与服务启动事件。模型仅生成待审核草稿，保存停用后须预演并明确启用；固定提醒或隔离助手任务的结果保存在认证 Web 页面。当前内置已核验的 2026 年中国日历，未知年份阻断，不发送 QQ / 微信主动消息或接受外部 webhook。契约见 [详细设计](docs/task-triggers.md) 和 [Schema](docs/schemas/dsh-task-trigger-v1.schema.json)，本地检查及正式部署状态见 [运行验收](docs/task-triggers-validation.md)；先前 [静态验证](docs/task-triggers-design-validation.md) 仅为历史设计证据。
 
 角色卡根据AIRI源码研究独立实现，采用CCv3文本内容与DSH模块偏好扩展；服务端版本、会话绑定和入队快照按本项目设计。见 [角色卡契约](docs/character-cards.md)、[Schema](docs/schemas/dsh-character-card-v1.schema.json) 与 [原创示例](docs/examples/campanus.character-card.json)。未引入AIRI依赖。临时源码尚在忽略目录中，删除操作被工具策略拒绝；实际状态见 [研究记录](docs/research/airi-character-card-review.md)。
 
@@ -64,6 +64,7 @@ python -S tools/smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
 python -S tools/character-smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
 python -S tools/memory-smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
 python -S tools/summary-smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
+python -S tools/task-triggers-smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
 python -S tools/tests/test_deploy_compatibility.py
 ```
 

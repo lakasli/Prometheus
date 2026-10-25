@@ -72,6 +72,42 @@ pub fn initialize(db: &Connection) -> anyhow::Result<()> {
     result
 }
 
+/// Separate seed marker upgrades existing instances without overwriting edits
+/// or resurrecting a default that an administrator deliberately removed.
+pub fn initialize_trigger_setup(db: &Connection) -> anyhow::Result<()> {
+    db.execute_batch("SAVEPOINT trigger_skill_seed;")?;
+    let result = (|| -> anyhow::Result<()> {
+        let seeded: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM settings WHERE key='trigger_setup_skill_seed_v1')",
+            [],
+            |r| r.get(0),
+        )?;
+        if !seeded {
+            let draft: serde_json::Value = serde_json::from_str(include_str!(
+                "../../../docs/examples/task-trigger-setup.skill.json"
+            ))?;
+            let instructions = draft["instructions"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("missing setup Skill instructions"))?;
+            anyhow::ensure!(
+                instructions.len() <= 16000,
+                "setup Skill instructions too large"
+            );
+            db.execute("INSERT OR IGNORE INTO skills(id,name,description,instructions,kind,enabled,revision,builtin,updated_at) VALUES('task-trigger-setup',?1,?2,?3,'instruction',1,1,1,?4)",params![draft["name"].as_str().unwrap_or("设置触发任务"),draft["description"].as_str().unwrap_or("制作任务草稿"),instructions,now()])?;
+            db.execute(
+                "INSERT INTO settings(key,value) VALUES('trigger_setup_skill_seed_v1','1')",
+                [],
+            )?;
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        db.execute_batch("ROLLBACK TO trigger_skill_seed;")?;
+    }
+    db.execute_batch("RELEASE trigger_skill_seed;")?;
+    result
+}
+
 fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Skill> {
     Ok(Skill {
         id: r.get(0)?,
@@ -202,12 +238,12 @@ mod tests {
         let temp = TempDir::new().unwrap();
         {
             let state = open(temp.path());
-            state.db(|db|{assert_eq!(list(db)?.len(),2);db.execute("DELETE FROM skills WHERE id='drawing'",[])?;db.execute("UPDATE skills SET name='edited',enabled=0,revision=2 WHERE id='skill-creator'",[])?;Ok(())}).unwrap();
+            state.db(|db|{assert_eq!(list(db)?.len(),3);db.execute("DELETE FROM skills WHERE id='drawing'",[])?;db.execute("UPDATE skills SET name='edited',enabled=0,revision=2 WHERE id='skill-creator'",[])?;Ok(())}).unwrap();
         }
         let state = open(temp.path());
         state
             .db(|db| {
-                assert_eq!(list(db)?.len(), 1);
+                assert_eq!(list(db)?.len(), 2);
                 let creator = get(db, "skill-creator")?.unwrap();
                 assert_eq!(creator.name, "edited");
                 assert!(!creator.enabled);

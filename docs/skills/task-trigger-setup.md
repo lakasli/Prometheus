@@ -1,6 +1,6 @@
-# 设置触发任务 Skill 草案
+# 设置触发任务 Skill
 
-本文件属于任务触发 v0.1 设计，尚未安装。未来默认 ID 为 `task-trigger-setup`，名称「设置触发任务」，类型 instruction。下面的指令正文供未来默认种子和可审核 JSON 使用；安装时还需完成任务能力、Schema 注入和对话草稿审核入口，不能只安装提示词就宣称具备调度能力。
+本轮任务触发实现的默认 Skill，ID 为 `task-trigger-setup`，名称「设置触发任务」，类型 instruction。独立事务种子 `trigger_setup_skill_seed_v1` 在升级时安装；管理员后续修改、停用或删除不会被重启覆盖。下面正文与 [可审核的停用导入 JSON](../examples/task-trigger-setup.skill.json) 一致，内置种子启用此 Skill；两者状态用途不同。模型只生成审核草稿，须由管理员在任务表单保存、预演并另行启用。运行能力、部署与验收边界见 [任务触发契约](../task-triggers.md) 和 [运行记录](../task-triggers-validation.md)。
 
 ## 指令正文
 

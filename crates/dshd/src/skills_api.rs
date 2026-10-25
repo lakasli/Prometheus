@@ -33,7 +33,7 @@ async fn image(
     Path(run_id): Path<String>,
 ) -> ApiResult<Response> {
     use base64::{engine::general_purpose::STANDARD, Engine};
-    let content=state.db(|db|Ok(db.query_row("SELECT response FROM runs WHERE id=?1 AND owner_id=?2 AND run_kind='skill_image' AND status='completed' AND length(response)<=6291456",params![run_id,admin.id],|r|r.get::<_,String>(0)).optional()?))?.ok_or_else(ApiError::not_found)?;
+    let content=state.db(|db|Ok(db.query_row("SELECT response FROM runs WHERE id=?1 AND owner_id=?2 AND run_kind IN ('skill_image','trigger_image') AND status='completed' AND length(response)<=6291456",params![run_id,admin.id],|r|r.get::<_,String>(0)).optional()?))?.ok_or_else(ApiError::not_found)?;
     let encoded = content
         .strip_prefix("![绘画](data:image/png;base64,")
         .and_then(|s| s.strip_suffix(')'))
@@ -297,7 +297,7 @@ mod tests {
         );
         let (status, list) = call(&state, "GET", "/skills", Value::Null, true, false).await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(list["items"].as_array().unwrap().len(), 2);
+        assert_eq!(list["items"].as_array().unwrap().len(), 3);
         assert_eq!(list["drawing"]["native_available"], false);
     }
 

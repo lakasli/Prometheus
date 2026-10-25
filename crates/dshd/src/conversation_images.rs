@@ -118,6 +118,10 @@ pub fn owned(db: &Connection, conversation: &str, owner: &str) -> ApiResult<()> 
     let Some(source) = source else {
         return Err(ApiError::not_found());
     };
+    let automatic:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM runs WHERE conversation_id=?1 AND run_kind IN ('trigger_model','trigger_image'))",[conversation],|r|r.get(0)).map_err(|_|ApiError::internal())?;
+    if automatic {
+        return Err(ApiError::forbidden("自动任务会话不能追加图片消息"));
+    }
     if source.is_some() || owner.starts_with("qq:") || owner.starts_with("weixin:") {
         return Err(ApiError::forbidden("本期图片对话仅支持本人Web来源"));
     }

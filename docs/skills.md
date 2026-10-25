@@ -1,6 +1,6 @@
 # Skill 管理与绘画
 
-Skill 是管理员保存的可复用任务指令，不授予工具、文件、网络或系统权限，不替代 Rust / WIT 插件工厂与 Harness 隔离。左侧「Skill 管理」提供创建、编辑、启停、删除和版本冲突检测。默认安装「制作 Skill」与「绘画」；管理员修改、停用或删除默认项后，重启不会覆盖这些操作。
+Skill 是管理员保存的可复用任务指令，不授予工具、文件、网络或系统权限，不替代 Rust / WIT 插件工厂与 Harness 隔离。左侧「Skill 管理」提供创建、编辑、启停、删除和版本冲突检测。默认安装「制作 Skill」「绘画」与「设置触发任务」；管理员修改、停用或删除默认项后，重启不会覆盖这些操作。
 
 对话工作台从「本次 Skill」选择后发送任务，选择只用于一次消息。文字渠道和 CLI 可以使用 `/skill <编号> <任务内容>`；编号在管理详情中可见。用户消息入队时冻结 Skill 内容、版本、执行方式及模型配置；同一消息编号重试返回原任务，不能借重试改换 Skill。后续编辑不会改变已提交的任务。Skill 输出不进入自动会话摘要或记忆候选来源。
 
@@ -17,4 +17,6 @@ Skill 是管理员保存的可复用任务指令，不授予工具、文件、�
 
 相关检查：`cargo test --workspace --locked`、`npm test`、`npm run build`、`python -S -m unittest discover -s tools/tests`。隔离进程验收为 `tools/skills-smoke.py`，真实文本模型验收为 `tools/skills-live.py`；浏览器使用 `tools/skills-browser-fixture.py` 与 `web/admin/tests/e2e/{characters,skills}.spec.ts`。最终部署 SHA、实际测试范围与未执行项见 [本轮验收](skills-validation.md)。
 
-后续默认 Skill「设置触发任务」目前仅有 [指令草案](skills/task-trigger-setup.md) 和 [停用配置示例](examples/task-trigger-setup.skill.json)，并未安装。它按 [任务触发设计](task-triggers.md) 输出 `task_trigger_draft`，需独立的草稿解析、管理表单及服务器能力；现有 Skill 指令功能本身不能创建或启用定时任务。
+「设置触发任务」使用独立升级标记 `trigger_setup_skill_seed_v1` 安装，ID 为 `task-trigger-setup`。服务器向显式选择该 Skill 的对话提供带时区当前时间、Schema、动作 / 事件目录、日历覆盖、预算与可访问的 Skill / 角色引用；模型按 [任务触发契约](task-triggers.md) 输出 `task_trigger_draft`。对话中的「审核任务草稿」打开正式任务表单，管理员核对后保存停用，再预演并另行启用；生成 JSON 本身不创建任务，也不授予后台管理权限。
+
+完整 [Skill 指令](skills/task-trigger-setup.md) 与 [停用导入示例](examples/task-trigger-setup.skill.json) 保持一致。设置 Skill 的编辑、停用、删除和重启持久化沿用现有管理规则；自动任务固定已批准的 Skill / 角色内容，同时在派发前重查授权和依赖是否仍可用。自动模型使用隔离上下文，不读取普通聊天或长期记忆，不生成摘要 / 记忆候选。当前部署、任务触发与真实模型检查见 [任务触发验收](task-triggers-validation.md)，不以早先两个默认 Skill 的验收代替。

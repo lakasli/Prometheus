@@ -2,14 +2,23 @@
 import { computed } from "vue";
 import type { SkillDraft } from "../types";
 import { drawingHtml, drawingImage, skillCandidate } from "../skill-output";
-const props = defineProps<{
-  content: string;
-  generatedImageUrl?: string | null;
+import { taskTriggerCandidate } from "../task-output";
+import type { TriggerDefinition } from "../task-triggers";
+const props = withDefaults(
+  defineProps<{
+    content: string;
+    generatedImageUrl?: string | null;
+    reviewable?: boolean;
+  }>(),
+  { reviewable: true },
+);
+const emit = defineEmits<{
+  review: [draft: SkillDraft];
+  reviewTask: [draft: TriggerDefinition];
 }>();
-const emit = defineEmits<{ review: [draft: SkillDraft] }>();
 const image = computed(() =>
   props.generatedImageUrl &&
-  /^\/api\/admin\/v1\/skills\/images\/[a-f0-9-]{36}$/.test(
+  /^\/api\/admin\/v1\/(?:skills\/images\/[a-f0-9-]{36}|task-triggers\/occurrences\/[a-f0-9-]{36}\/image)$/.test(
     props.generatedImageUrl,
   )
     ? props.generatedImageUrl
@@ -17,6 +26,7 @@ const image = computed(() =>
 );
 const html = computed(() => (image.value ? null : drawingHtml(props.content)));
 const candidate = computed(() => skillCandidate(props.content));
+const taskCandidate = computed(() => taskTriggerCandidate(props.content));
 function download() {
   const url = URL.createObjectURL(
     new Blob([html.value!], { type: "text/html;charset=utf-8" }),
@@ -64,11 +74,18 @@ function download() {
     >
     <div v-else class="message-content">{{ content }}</div>
     <button
-      v-if="candidate"
+      v-if="candidate && reviewable !== false"
       class="button secondary small"
       @click="emit('review', candidate)"
     >
       审核并保存为 Skill
+    </button>
+    <button
+      v-if="taskCandidate && reviewable !== false"
+      class="button secondary small"
+      @click="emit('reviewTask', taskCandidate)"
+    >
+      审核任务草稿
     </button>
   </div>
 </template>

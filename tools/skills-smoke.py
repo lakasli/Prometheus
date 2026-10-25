@@ -202,8 +202,8 @@ def main():
                 harness.bootstrap()
                 initial = harness.call('GET', SKILLS)[0]
                 by_id = {item['id']: item for item in initial['items']}
-                check('two persisted default Skills exist and native capability is initially false',
-                      set(by_id) == {'skill-creator', 'drawing'}
+                check('three persisted default Skills exist and native capability is initially false',
+                      set(by_id) == {'skill-creator', 'drawing', 'task-trigger-setup'}
                       and all(item['enabled'] and item['builtin'] and item['revision'] == 1 for item in by_id.values())
                       and not initial['drawing']['native_available'])
                 body = {'name': 'Synthetic instruction', 'description': 'Synthetic test only.',
@@ -269,7 +269,7 @@ def main():
                 check('default creator produces a structured reviewable draft without automatic installation',
                       result['status'] == 'completed' and '```json' in result['response']
                       and json.dumps(mock.generated_skill) in result['response']
-                      and len(unchanged) == 3
+                      and {row['id'] for row in unchanged} == set(by_id) | {item['id']}
                       and by_id['skill-creator']['instructions'] in system_text(mock.payload('creator-probe')))
                 reviewed = harness.call('POST', SKILLS, dict(mock.generated_skill, enabled=False), expected=201)[0]
                 check('explicitly reviewed generated Skill can be saved disabled', not reviewed['enabled'])
@@ -326,7 +326,7 @@ def main():
                 harness.login()
                 restored = {value['id']: value for value in harness.call('GET', SKILLS)[0]['items']}
                 check('restart preserves edits and disabled defaults without resurrecting deleted Skills',
-                      set(restored) == {'drawing', item['id']}
+                      set(restored) == {'drawing', item['id'], 'task-trigger-setup'}
                       and not restored['drawing']['enabled']
                       and restored['drawing']['revision'] == drawing['revision']
                       and restored[item['id']]['instructions'] == item['instructions'])

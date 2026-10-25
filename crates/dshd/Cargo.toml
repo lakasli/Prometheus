@@ -11,6 +11,8 @@ base64 = "=0.22.1"
 argon2 = "0.5"
 axum = "=0.8.4"
 clap = { version = "=4.5.37", features = ["derive", "env"] }
+chrono = { version = "=0.4.42", default-features = false, features = ["std", "serde"] }
+chrono-tz = { version = "=0.10.4", features = ["serde"] }
 crc32fast = "=1.5.3"
 ed25519-dalek = "2.1"
 futures-util = "0.3"

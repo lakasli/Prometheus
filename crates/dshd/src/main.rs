@@ -136,7 +136,21 @@ async fn run_app(cli: Cli) -> Result<()> {
                 web_dir,
             })?;
             dshd::wasm_workbench::initialize_runtime(&state).await;
+            state
+                .db(|db| {
+                    let tx = db.transaction()?;
+                    dshd::trigger_store::service_started_in(&tx)?;
+                    tx.commit()?;
+                    Ok(())
+                })
+                .map_err(|_| anyhow::anyhow!("task event initialization unavailable"))?;
             let mut kernel = dsh_kernel::Kernel::new();
+            let scheduler_state = state.clone();
+            kernel
+                .mount_task("task-trigger-scheduler", &[], move |cancel| {
+                    dshd::trigger_scheduler::run(scheduler_state.clone(), cancel)
+                })
+                .await?;
             for index in 0..2 {
                 let worker_state = state.clone();
                 kernel

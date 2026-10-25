@@ -20,6 +20,8 @@ import WasmWorkbench from "./components/WasmWorkbench.vue";
 import ConversationComposer from "./components/ConversationComposer.vue";
 import SkillsPanel from "./components/SkillsPanel.vue";
 import SkillOutput from "./components/SkillOutput.vue";
+import TaskTriggers from "./components/TaskTriggers.vue";
+import type { TriggerDefinition } from "./task-triggers";
 import {
   api,
   ApiError,
@@ -55,6 +57,7 @@ type Page =
   | "assistant"
   | "characters"
   | "skills"
+  | "triggers"
   | "qq"
   | "weixin"
   | "diagnostics"
@@ -95,6 +98,13 @@ const navigation: {
     title: "Skill 管理",
     eyebrow: "AGENT SKILLS",
     description: "管理助手的工作方法，让每次任务都有章可循。",
+  },
+  {
+    id: "triggers",
+    icon: "clock",
+    title: "任务触发",
+    eyebrow: "TASK TRIGGERS",
+    description: "按日期、间隔、工作日或可信事件安排助手任务。",
   },
   {
     id: "qq",
@@ -236,6 +246,12 @@ const characterCards = ref<InstanceType<typeof CharacterCards> | null>(null);
 const skillsPanel = ref<InstanceType<typeof SkillsPanel> | null>(null);
 const skillDraft = ref<SkillDraft | null>(null);
 const skillChoice = ref("");
+const taskTriggers = ref<InstanceType<typeof TaskTriggers> | null>(null);
+const triggerDraft = ref<TriggerDefinition | null>(null);
+function reviewTask(value: TriggerDefinition) {
+  triggerDraft.value = value;
+  navigate("triggers");
+}
 function reviewSkill(value: SkillDraft) {
   skillDraft.value = value;
   navigate("skills");
@@ -418,6 +434,12 @@ function navigate(id: Page) {
   if (id !== page.value && !mayLeaveChat()) return;
   if (
     id !== page.value &&
+    taskTriggers.value?.hasUnsaved &&
+    !window.confirm("任务有未保存修改或结果未确认的操作，确定离开？")
+  )
+    return;
+  if (
+    id !== page.value &&
     skillsPanel.value?.hasUnsaved &&
     !window.confirm("Skill 有未保存的修改，确定离开？")
   )
@@ -453,6 +475,14 @@ function readHash() {
     requested === "images" || requested === "wasm" ? requested : null;
   const id = legacy ? "diagnostics" : requested;
   if (navigation.some((item) => item.id === id)) {
+    if (
+      id !== page.value &&
+      taskTriggers.value?.hasUnsaved &&
+      !window.confirm("任务有未保存修改或结果未确认的操作，确定离开？")
+    ) {
+      location.hash = page.value;
+      return;
+    }
     if (
       id !== page.value &&
       skillsPanel.value?.hasUnsaved &&
@@ -587,6 +617,11 @@ async function authenticate() {
   });
 }
 async function logout() {
+  if (
+    taskTriggers.value?.hasUnsaved &&
+    !window.confirm("任务有未保存修改或结果未确认的操作，确定退出登录？")
+  )
+    return;
   if (
     skillsPanel.value?.hasUnsaved &&
     !window.confirm("Skill 有未保存的修改，确定退出登录？")
@@ -1917,6 +1952,13 @@ onUnmounted(() => {
           @unauthorized="expireSession"
           @use="useSkill"
         />
+        <TaskTriggers
+          v-if="page === 'triggers'"
+          ref="taskTriggers"
+          :initial-draft="triggerDraft"
+          @consumed="triggerDraft = null"
+          @unauthorized="expireSession"
+        />
 
         <template v-if="page === 'chat'">
           <section class="chat-workspace">
@@ -2060,6 +2102,7 @@ onUnmounted(() => {
                     :content="message.content"
                     :generated-image-url="message.generated_image_url"
                     @review="reviewSkill"
+                    @review-task="reviewTask"
                   />
                   <div v-else class="message-content">
                     {{ message.content }}

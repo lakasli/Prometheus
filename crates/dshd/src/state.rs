@@ -36,6 +36,7 @@ pub struct Inner {
     pub summary_slots: tokio::sync::Semaphore,
     pub weixin_signal: tokio::sync::watch::Sender<u64>,
     pub wasm_runtime: Mutex<crate::wasm_workbench::RuntimeStatus>,
+    pub trigger_clock: Mutex<crate::trigger_scheduler::ClockHealth>,
 }
 
 pub fn now() -> i64 {
@@ -135,6 +136,10 @@ impl AppState {
         // Queued items survive restart. An interrupted external request is not blindly replayed.
         db.execute("UPDATE runs SET status='interrupted',error='服务重启时任务仍在执行；结果未确认，请人工重试',updated_at=?1 WHERE status='running'",[now()])?;
         db.execute("UPDATE outbox SET status='unknown',error='服务重启时发送结果未知' WHERE status='sending'",[])?;
+        crate::trigger_calendar::initialize(&db)?;
+        crate::trigger_store::initialize(&db)?;
+        crate::trigger_retention::initialize(&db)?;
+        crate::skills::initialize_trigger_setup(&db)?;
         Ok(Self(Arc::new(Inner {
             db: Mutex::new(db),
             options,
@@ -149,6 +154,7 @@ impl AppState {
             summary_slots: tokio::sync::Semaphore::new(1),
             weixin_signal: tokio::sync::watch::channel(0u64).0,
             wasm_runtime: Mutex::new(crate::wasm_workbench::RuntimeStatus::default()),
+            trigger_clock: Mutex::new(crate::trigger_scheduler::ClockHealth::default()),
         })))
     }
 
@@ -159,6 +165,9 @@ impl AppState {
                 ApiError::new(character.status, character.code, character.message.clone())
             } else if let Some(skill) = error.downcast_ref::<crate::skills::SkillError>() {
                 ApiError::bad(skill.code, skill.message)
+            } else if let Some(trigger) = error.downcast_ref::<crate::trigger_store::TriggerError>()
+            {
+                ApiError::new(trigger.status, trigger.code, trigger.message.clone())
             } else {
                 ApiError::internal()
             }

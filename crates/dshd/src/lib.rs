@@ -22,6 +22,13 @@ pub mod skills;
 pub mod skills_api;
 pub mod state;
 pub mod summary_api;
+pub mod trigger_api;
+pub mod trigger_calendar;
+pub mod trigger_execution;
+pub mod trigger_retention;
+pub mod trigger_rule;
+pub mod trigger_scheduler;
+pub mod trigger_store;
 pub mod wasm_supervisor;
 pub mod wasm_workbench;
 pub mod wasm_workbench_api;
@@ -39,3 +46,5 @@ pub fn build_sha() -> &'static str {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod trigger_execution_tests;

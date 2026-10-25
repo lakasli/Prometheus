@@ -223,5 +223,27 @@ class CompatibilityTests(unittest.TestCase):
                     db.execute(f"DELETE FROM {table}")
 
 
+    def test_empty_trigger_tables_allow_pretrigger_rollback(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE trigger_jobs(id TEXT); CREATE TABLE trigger_occurrences(id TEXT); CREATE TABLE trigger_execution_grants(id TEXT); CREATE TABLE trigger_events(id TEXT); INSERT INTO trigger_events VALUES('bootstrap-only');")
+        compatibility.check(self.data, self.release)
+
+    def test_trigger_definitions_require_scheduler_aware_reader(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE trigger_jobs(id TEXT); INSERT INTO trigger_jobs VALUES('disabled-draft');")
+        with self.assertRaisesRegex(RuntimeError, "task trigger"):
+            compatibility.check(self.data, self.release)
+        (self.release / "deploy/release-capabilities.json").write_text(json.dumps({"task_triggers": 1}))
+        compatibility.check(self.data, self.release)
+
+    def test_trigger_runs_cannot_downgrade_even_without_definition(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("ALTER TABLE runs ADD COLUMN run_kind TEXT; INSERT INTO runs(id,run_kind) VALUES('synthetic','trigger_model');")
+        with self.assertRaisesRegex(RuntimeError, "isolated context"):
+            compatibility.check(self.data, self.release)
+        (self.release / "deploy/release-capabilities.json").write_text(json.dumps({"task_triggers": 1}))
+        compatibility.check(self.data, self.release)
+
+
 if __name__ == "__main__":
     unittest.main()
