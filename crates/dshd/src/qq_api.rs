@@ -247,6 +247,8 @@ async fn execute_operation(
                 "platform_accepted"
             } else if reply.asynchronous() {
                 "asynchronous_pending"
+            } else if reply.uncertain() {
+                "result_unknown"
             } else if matches!(reply.http_status, 401 | 403)
                 || matches!(
                     reply.business_code,

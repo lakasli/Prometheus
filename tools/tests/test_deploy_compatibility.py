@@ -40,6 +40,24 @@ class CompatibilityTests(unittest.TestCase):
     def test_legacy_database_can_use_legacy_release(self):
         compatibility.check(self.data, self.release)
 
+    def test_acknowledged_qq_receive_queue_requires_its_own_reader_capability(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE qq_received_events(status TEXT); INSERT INTO qq_received_events VALUES('queued');")
+        with self.assertRaisesRegex(RuntimeError, "durable QQ reception"):
+            compatibility.check(self.data, self.release)
+        (self.release / "deploy/release-capabilities.json").write_text(json.dumps({"qq_durable_receive":1}))
+        compatibility.check(self.data, self.release)
+
+    def test_generated_asset_source_cancellation_cannot_be_downgraded(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE conversation_media_assets(source_run_id TEXT); INSERT INTO conversation_media_assets VALUES('running-source');")
+        manifest=self.release / "deploy/release-capabilities.json"
+        manifest.write_text(json.dumps({"conversation_media":1}))
+        with self.assertRaisesRegex(RuntimeError, "source-run cancellation"):
+            compatibility.check(self.data, self.release)
+        manifest.write_text(json.dumps({"conversation_media":1,"media_source_runs":1}))
+        compatibility.check(self.data, self.release)
+
     def test_persona_work_blocks_legacy_but_allows_capable_release(self):
         with connect(self.data / "dsh.db") as db:
             db.execute("INSERT INTO runs VALUES('fixture','{}')")

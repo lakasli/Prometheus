@@ -76,6 +76,8 @@ def main():
                 h.bootstrap()
                 report['commit'] = h.commit
                 h.configure(server.server_port)
+                h.request('GET', P + '/qq/deliveries', expected=401, authenticated=False)
+                h.request('POST', P + '/qq/deliveries/synthetic/resolve', {'expected_status':'unknown','abandon_remaining':True,'checked_client':True}, expected=403, with_csrf=False)
                 c = h.conversation('Synthetic reply acceptance')
 
                 def turn(output):

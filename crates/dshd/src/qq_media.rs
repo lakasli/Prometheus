@@ -33,6 +33,9 @@ impl PlatformReply {
     pub fn asynchronous(&self) -> bool {
         matches!(self.http_status, 201 | 202) || matches!(self.business_code, Some(304023 | 304024))
     }
+    pub fn uncertain(&self) -> bool {
+        self.asynchronous() || self.http_status == 408 || self.http_status >= 500
+    }
     pub fn status_text(&self, stage: &str) -> String {
         format!(
             "QQ{stage}返回HTTP {}，业务码{}",
@@ -209,7 +212,7 @@ pub async fn send_message(
     )
     .await?;
     if !reply.accepted() {
-        return Err((reply.asynchronous(), reply.status_text("发送")));
+        return Err((reply.uncertain(), reply.status_text("发送")));
     }
     reply.value["id"]
         .as_str()
@@ -472,6 +475,22 @@ mod tests {
         };
         assert!(!r.accepted());
         assert!(!r.asynchronous());
+        let r = PlatformReply {
+            http_status: 500,
+            business_code: None,
+            trace_id: None,
+            value: json!({}),
+        };
+        assert!(!r.accepted());
+        assert!(r.uncertain());
+        let r = PlatformReply {
+            http_status: 504,
+            business_code: Some(50055002),
+            trace_id: None,
+            value: json!({}),
+        };
+        assert!(!r.accepted());
+        assert!(r.uncertain());
     }
 
     #[derive(Clone, Debug)]

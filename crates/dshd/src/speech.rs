@@ -94,11 +94,24 @@ pub fn initialize(db: &Connection) -> anyhow::Result<()> {
       created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS speech_assets_expiry ON speech_assets(expires_at);",
     )?;
+    let present = {
+        let mut stmt = db.prepare("PRAGMA table_info(speech_assets)")?;
+        let names = stmt
+            .query_map([], |r| r.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?;
+        names.iter().any(|name| name == "source_run_id")
+    };
+    if !present {
+        db.execute(
+            "ALTER TABLE speech_assets ADD COLUMN source_run_id TEXT REFERENCES runs(id)",
+            [],
+        )?;
+    }
     prune_in(db)?;
     Ok(())
 }
 pub fn prune_in(db: &Connection) -> anyhow::Result<()> {
-    db.execute("DELETE FROM speech_assets WHERE expires_at<=?1 OR (conversation_id IS NOT NULL AND (NOT EXISTS(SELECT 1 FROM conversations c WHERE c.id=speech_assets.conversation_id AND c.owner_id=speech_assets.owner_id) OR context_floor<>COALESCE((SELECT through_run_rowid FROM memory_context_watermarks w WHERE w.conversation_id=speech_assets.conversation_id),0)))", [now()])?;
+    db.execute("DELETE FROM speech_assets WHERE expires_at<=?1 OR (conversation_id IS NOT NULL AND (NOT EXISTS(SELECT 1 FROM conversations c WHERE c.id=speech_assets.conversation_id AND c.owner_id=speech_assets.owner_id) OR context_floor<>COALESCE((SELECT through_run_rowid FROM memory_context_watermarks w WHERE w.conversation_id=speech_assets.conversation_id),0))) OR (source_run_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.id=speech_assets.source_run_id AND r.owner_id=speech_assets.owner_id AND r.conversation_id=speech_assets.conversation_id AND r.status IN ('running','completed')))", [now()])?;
     Ok(())
 }
 
@@ -237,6 +250,51 @@ pub async fn synthesize(
     conversation: Option<&str>,
     text: &str,
 ) -> ApiResult<SpeechAsset> {
+    synthesize_inner(state, config, owner, conversation, text, None).await
+}
+pub async fn synthesize_for_run(
+    state: &AppState,
+    config: &SpeechConfig,
+    owner: &str,
+    conversation: &str,
+    text: &str,
+    source: &crate::media_assets::MaterializationSource,
+) -> ApiResult<SpeechAsset> {
+    synthesize_inner(
+        state,
+        config,
+        owner,
+        Some(conversation),
+        text,
+        Some(source.clone()),
+    )
+    .await
+}
+fn source_active(
+    state: &AppState,
+    source: Option<&crate::media_assets::MaterializationSource>,
+    owner: &str,
+    conversation: Option<&str>,
+) -> ApiResult<bool> {
+    let Some(source) = source else {
+        return Ok(true);
+    };
+    let Some(conversation) = conversation else {
+        return Ok(false);
+    };
+    state.db(|db| crate::media_assets::source_active_in(db, source, owner, conversation))
+}
+async fn synthesize_inner(
+    state: &AppState,
+    config: &SpeechConfig,
+    owner: &str,
+    conversation: Option<&str>,
+    text: &str,
+    source: Option<crate::media_assets::MaterializationSource>,
+) -> ApiResult<SpeechAsset> {
+    if !source_active(state, source.as_ref(), owner, conversation)? {
+        return Err(ApiError::conflict());
+    }
     if !config.enabled {
         return Err(ApiError::new(
             StatusCode::CONFLICT,
@@ -264,29 +322,78 @@ pub async fn synthesize(
     tokio::spawn(async move {
         let _permit = permit;
         let verification = runtime.clone();
-        tokio::task::spawn_blocking(move || verification.verify()).await.map_err(|_| ApiError::internal())??;
+        tokio::task::spawn_blocking(move || verification.verify())
+            .await
+            .map_err(|_| ApiError::internal())??;
+        if !source_active(&state, source.as_ref(), &owner, conversation.as_deref())? {
+            return Err(ApiError::conflict());
+        }
         let started = Instant::now();
-        let audio = run_worker(&runtime,&text,config.timeout_seconds).await?;
-        let (sample_rate,duration_ms) = validate_wav(&audio)?;
-        if context_floor(&state,&owner,conversation.as_deref())? != floor { return Err(ApiError::conflict()); }
+        let audio = run_worker(&runtime, &text, config.timeout_seconds).await?;
+        let (sample_rate, duration_ms) = validate_wav(&audio)?;
+        if context_floor(&state, &owner, conversation.as_deref())? != floor {
+            return Err(ApiError::conflict());
+        }
         let id = uuid::Uuid::new_v4().to_string();
-        let asset = SpeechAsset { id:id.clone(),conversation_id:conversation.clone(),provider:"piper".into(),voice:config.voice,mime_type:"audio/wav".into(),
-            sha256:hex::encode(Sha256::digest(&audio)),bytes:audio.len(),duration_ms,sample_rate,
-            synthesis_ms:started.elapsed().as_millis() as u64,created_at:now(),expires_at:now()+ASSET_TTL_SECONDS,
-            audio_url:format!("/api/admin/v1/speech/assets/{id}") };
-        state.db(|db| {
+        let asset = SpeechAsset {
+            id: id.clone(),
+            conversation_id: conversation.clone(),
+            provider: "piper".into(),
+            voice: config.voice,
+            mime_type: "audio/wav".into(),
+            sha256: hex::encode(Sha256::digest(&audio)),
+            bytes: audio.len(),
+            duration_ms,
+            sample_rate,
+            synthesis_ms: started.elapsed().as_millis() as u64,
+            created_at: now(),
+            expires_at: now() + ASSET_TTL_SECONDS,
+            audio_url: format!("/api/admin/v1/speech/assets/{id}"),
+        };
+        persist_asset(
+            &state,
+            &owner,
+            conversation.as_deref(),
+            floor,
+            source.as_ref(),
+            &asset,
+            &audio,
+        )?;
+        Ok(asset)
+    })
+    .await
+    .map_err(|_| ApiError::internal())?
+}
+fn persist_asset(
+    state: &AppState,
+    owner: &str,
+    conversation: Option<&str>,
+    floor: i64,
+    source: Option<&crate::media_assets::MaterializationSource>,
+    asset: &SpeechAsset,
+    audio: &[u8],
+) -> ApiResult<()> {
+    state.db(|db| {
             let tx = db.transaction()?;
             prune_in(&tx)?;
-            crate::chat_reply::require_reader(&tx, 9)?;
+            if let Some(conversation)=conversation {
+                let owns:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM conversations WHERE id=?1 AND owner_id=?2)",params![conversation,owner],|r|r.get(0))?;
+                if !owns || crate::memory_context::history_floor(&tx,conversation)?!=floor {return Ok(2);}
+            }
+            if let Some(source)=&source {
+                if !crate::media_assets::source_active_in(&tx,source,owner,conversation.unwrap_or_default())? {return Ok(2);}
+            }
+            crate::chat_reply::require_reader(&tx, if source.is_some() {10}else{9})?;
             let (count,bytes):(i64,i64) = tx.query_row("SELECT count(*),COALESCE(sum(length(audio)),0) FROM speech_assets",[],|r|Ok((r.get(0)?,r.get(1)?)))?;
-            let owner_count:i64 = tx.query_row("SELECT count(*) FROM speech_assets WHERE owner_id=?1",[&owner],|r|r.get(0))?;
-            if count>=64 || owner_count>=20 || bytes+audio.len() as i64 > TOTAL_ASSET_BYTES { return Ok(false); }
-            tx.execute("INSERT INTO speech_assets(id,owner_id,conversation_id,context_floor,metadata_json,audio,created_at,expires_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",params![id,owner,conversation,floor,serde_json::to_string(&asset)?,audio,asset.created_at,asset.expires_at])?;
+            let owner_count:i64 = tx.query_row("SELECT count(*) FROM speech_assets WHERE owner_id=?1",[owner],|r|r.get(0))?;
+            if count>=64 || owner_count>=20 || bytes+audio.len() as i64 > TOTAL_ASSET_BYTES { return Ok(0); }
+            tx.execute("INSERT INTO speech_assets(id,owner_id,conversation_id,context_floor,metadata_json,audio,created_at,expires_at,source_run_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![asset.id,owner,conversation,floor,serde_json::to_string(asset)?,audio,asset.created_at,asset.expires_at,source.map(|s|s.run_id.as_str())])?;
             tx.commit()?;
-            Ok(true)
-        })?.then_some(()).ok_or_else(|| ApiError::new(StatusCode::CONFLICT,"speech_storage_limit","短期语音制品已达限额，请等待过期或清理制品"))?;
-        Ok(asset)
-    }).await.map_err(|_| ApiError::internal())?
+            Ok(1)
+        }).and_then(|outcome|match outcome {
+            1=>Ok(()),2=>Err(ApiError::conflict()),
+            _=>Err(ApiError::new(StatusCode::CONFLICT,"speech_storage_limit","短期语音制品已达限额，请等待过期或清理制品")),
+        })
 }
 
 async fn run_worker(runtime: &Runtime, text: &str, timeout_seconds: u64) -> ApiResult<Vec<u8>> {
@@ -422,7 +529,7 @@ pub fn read_asset(state: &AppState, owner: &str, id: &str) -> ApiResult<(SpeechA
     }
     state.db(|db| {
         prune_in(db)?;
-        let row:Option<(String,Vec<u8>)>=db.query_row("SELECT metadata_json,audio FROM speech_assets WHERE id=?1 AND owner_id=?2 AND expires_at>?3",params![id,owner,now()],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
+        let row:Option<(String,Vec<u8>)>=db.query_row("SELECT metadata_json,audio FROM speech_assets a WHERE id=?1 AND owner_id=?2 AND expires_at>?3 AND (source_run_id IS NULL OR EXISTS(SELECT 1 FROM runs r WHERE r.id=a.source_run_id AND r.owner_id=a.owner_id AND r.conversation_id=a.conversation_id AND r.status='completed'))",params![id,owner,now()],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
         row.map(|(metadata,audio)|Ok((serde_json::from_str(&metadata)?,audio))).transpose()
     })?.ok_or_else(ApiError::not_found)
 }
@@ -516,7 +623,7 @@ mod tests {
             audio_url: "fixture".into(),
         };
         state.db(|db|{db.execute("INSERT INTO conversations(id,owner_id,title,created_at) VALUES('c','owner','fixture',0)",[])?;
-            db.execute("INSERT INTO speech_assets VALUES(?1,'owner','c',0,?2,?3,0,?4)",params![id,serde_json::to_string(&asset)?,wav(),now()+60])?;Ok(())}).unwrap();
+            db.execute("INSERT INTO speech_assets(id,owner_id,conversation_id,context_floor,metadata_json,audio,created_at,expires_at) VALUES(?1,'owner','c',0,?2,?3,0,?4)",params![id,serde_json::to_string(&asset)?,wav(),now()+60])?;Ok(())}).unwrap();
         assert!(read_asset(&state, "other", &id).is_err());
         assert!(read_asset(&state, "owner", &id).is_ok());
         state
@@ -529,5 +636,111 @@ mod tests {
             })
             .unwrap();
         assert!(read_asset(&state, "owner", &id).is_err());
+    }
+    #[test]
+    fn synthesized_audio_persistence_atomically_rejects_cancelled_source_and_new_floor() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = AppState::open(crate::state::Options {
+            data_dir: temp.path().into(),
+            origin: "http://127.0.0.1:18419".into(),
+            allow_private_model: false,
+            cookie_secure: false,
+            web_dir: temp.path().into(),
+        })
+        .unwrap();
+        state.db(|db|{
+            db.execute("INSERT INTO conversations VALUES('c','owner','fixture',NULL,0)",[])?;
+            db.execute("INSERT INTO runs(id,conversation_id,owner_id,client_message_id,input,config_json,status,created_at,updated_at) VALUES('r','c','owner','r','q','{}','running',0,0)",[])?;
+            Ok(())
+        }).unwrap();
+        let source = state
+            .db(|db| crate::media_assets::source_in(db, "r", "owner", "c"))
+            .unwrap()
+            .unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        let asset = SpeechAsset {
+            id,
+            conversation_id: Some("c".into()),
+            provider: "piper".into(),
+            voice: VOICE.into(),
+            mime_type: "audio/wav".into(),
+            sha256: "fixture".into(),
+            bytes: 364,
+            duration_ms: 10,
+            sample_rate: 16000,
+            synthesis_ms: 1,
+            created_at: now(),
+            expires_at: now() + 60,
+            audio_url: "fixture".into(),
+        };
+        state
+            .db(|db| {
+                db.execute("UPDATE runs SET status='cancelled' WHERE id='r'", [])?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(
+            persist_asset(&state, "owner", Some("c"), 0, Some(&source), &asset, &wav()).is_err()
+        );
+        state
+            .db(|db| {
+                db.execute("UPDATE runs SET status='running' WHERE id='r'", [])?;
+                db.execute(
+                    "INSERT INTO memory_context_watermarks VALUES('c','assistant',1,0)",
+                    [],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(
+            persist_asset(&state, "owner", Some("c"), 0, Some(&source), &asset, &wav()).is_err()
+        );
+        assert_eq!(
+            state
+                .db(
+                    |db| Ok(db.query_row("SELECT count(*) FROM speech_assets", [], |r| r
+                        .get::<_, i64>(0))?)
+                )
+                .unwrap(),
+            0
+        );
+        let fresh = state
+            .db(|db| crate::media_assets::source_in(db, "r", "owner", "c"))
+            .unwrap()
+            .unwrap();
+        persist_asset(&state, "owner", Some("c"), 1, Some(&fresh), &asset, &wav()).unwrap();
+        assert!(read_asset(&state, "owner", &asset.id).is_err());
+        assert_eq!(
+            state
+                .db(
+                    |db| Ok(db.query_row("SELECT count(*) FROM speech_assets", [], |r| r
+                        .get::<_, i64>(0))?)
+                )
+                .unwrap(),
+            1
+        );
+        state
+            .db(|db| {
+                db.execute("UPDATE runs SET status='completed' WHERE id='r'", [])?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(read_asset(&state, "owner", &asset.id).is_ok());
+        state
+            .db(|db| {
+                db.execute("UPDATE runs SET status='interrupted' WHERE id='r'", [])?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(read_asset(&state, "owner", &asset.id).is_err());
+        assert_eq!(
+            state
+                .db(
+                    |db| Ok(db.query_row("SELECT count(*) FROM speech_assets", [], |r| r
+                        .get::<_, i64>(0))?)
+                )
+                .unwrap(),
+            0
+        );
     }
 }

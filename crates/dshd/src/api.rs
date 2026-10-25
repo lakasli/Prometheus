@@ -29,6 +29,7 @@ pub fn router(state: AppState) -> Router {
         .merge(crate::media_assets::router())
         .merge(crate::speech_api::router())
         .merge(crate::qq_api::router())
+        .merge(crate::reply_delivery_api::router())
         .route("/health/live",get(||async{Json(json!({"status":"ok","version":env!("CARGO_PKG_VERSION"),"commit":crate::build_sha()}))}))
         .route("/health/ready",get(ready))
         .route("/api/admin/v1/auth/status",get(auth::auth_status))

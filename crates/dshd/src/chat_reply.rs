@@ -252,12 +252,24 @@ pub fn require_reader(db: &Connection, version: i64) -> anyhow::Result<()> {
 pub async fn materialize(
     state: &crate::state::AppState,
     config: &RuntimeConfig,
+    run_id: &str,
     owner: &str,
     conversation: &str,
     plan: &mut ReplyPlan,
+    cancel: &tokio_util::sync::CancellationToken,
 ) -> Result<(), String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
+    let source = state
+        .db(|db| {
+            let tx = db.transaction()?;
+            let source = crate::media_assets::source_in(&tx, run_id, owner, conversation)?;
+            tx.commit()?;
+            Ok(source)
+        })
+        .map_err(|_| "回复来源不可用".to_owned())?
+        .ok_or("任务已取消或上下文已失效".to_owned())?;
     for item in &mut plan.items {
+        materialization_active(state, &source, owner, conversation, cancel)?;
         let result: Result<String, String> = match item.kind.as_str() {
             "text" => continue,
             "voice" => {
@@ -272,12 +284,13 @@ pub async fn materialize(
                             }
                         })
                 } else {
-                    crate::speech::synthesize(
+                    crate::speech::synthesize_for_run(
                         state,
                         &config.speech,
                         owner,
-                        Some(conversation),
+                        conversation,
                         &item.text,
+                        &source,
                     )
                     .await
                     .map(|asset| asset.id)
@@ -295,9 +308,16 @@ pub async fn materialize(
                         let bytes = STANDARD
                             .decode(encoded)
                             .map_err(|_| "生图制品编码无效".to_owned())?;
-                        crate::media_assets::store(state, owner, conversation, "image", bytes)
-                            .map(|a| a.id)
-                            .map_err(|_| "生图制品保存失败".into())
+                        crate::media_assets::store_for_run(
+                            state,
+                            owner,
+                            conversation,
+                            "image",
+                            bytes,
+                            &source,
+                        )
+                        .map(|a| a.id)
+                        .map_err(|_| "生图制品保存失败".into())
                     }
                     Err(_) => Err("当前绘画服务不可用，无法生成图片".into()),
                 }
@@ -318,6 +338,7 @@ pub async fn materialize(
             }),
             _ => Err("不支持此回复类型".into()),
         };
+        materialization_active(state, &source, owner, conversation, cancel)?;
         match result {
             Ok(id) => {
                 item.asset_id = Some(id);
@@ -333,6 +354,24 @@ pub async fn materialize(
                 plan.normalized = true;
             }
         }
+    }
+    Ok(())
+}
+fn materialization_active(
+    state: &crate::state::AppState,
+    source: &crate::media_assets::MaterializationSource,
+    owner: &str,
+    conversation: &str,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Result<(), String> {
+    if cancel.is_cancelled() {
+        return Err("服务正在停止，未启动后续媒体请求".into());
+    }
+    let active = state
+        .db(|db| crate::media_assets::source_active_in(db, source, owner, conversation))
+        .map_err(|_| "回复来源不可用".to_owned())?;
+    if !active {
+        return Err("任务已取消或上下文已失效，未启动后续媒体请求".into());
     }
     Ok(())
 }

@@ -481,14 +481,44 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
                 crate::chat_reply::materialize(
                     state,
                     &item.config,
+                    &item.id,
                     &owner,
                     &item.conversation,
                     &mut plan,
+                    cancel,
                 )
                 .await?;
                 Ok((plan.readable(), Some(plan)))
             };
-            tokio::select! {result=prepared=>result,_=cancel.cancelled()=>Err("服务正在停止，媒体结果未确认".into())}
+            let stopped = async {
+                loop {
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    let active = state.db(|db| {
+                        Ok(db.query_row(
+                            "SELECT EXISTS(SELECT 1 FROM runs WHERE id=?1 AND status='running')",
+                            [&item.id],
+                            |r| r.get::<_, bool>(0),
+                        )?)
+                    });
+                    if !matches!(active, Ok(true)) {
+                        break;
+                    }
+                }
+            };
+            tokio::pin!(prepared);
+            tokio::select! {
+                result=&mut prepared=>result,
+                _=stopped=>{
+                    // The current transport/child keeps its lease until it
+                    // finishes. Provenance checks then stop the next item.
+                    let _=prepared.await;
+                    Err("任务已取消，媒体请求已回收".into())
+                },
+                _=cancel.cancelled()=>{
+                    let _=prepared.await;
+                    Err("服务正在停止，媒体请求已回收".into())
+                },
+            }
         }
         Ok(content) => Ok((content, None)),
         Err(error) => Err(error),

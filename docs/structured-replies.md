@@ -37,6 +37,8 @@ Run 完成、可读消息、计划、Outbox 父记录与逐项记录在同一 SQ
 
 ## 验证命令
 
+生成源 Run 约束进一步要求 reader 10：运行中的制品不可读或列给后续模型，只有 completed 的来源制品可用；取消、失败或重启中断会阻断并回收制品。保存制品的事务同时校验来源 Run 和原始遗忘水位，避免耗时合成期间发生遗忘后留下旧上下文制品。
+
 ```sh
 python3 tools/replies-smoke.py --binary <release>/bin/dshd --web-dir <release>/web --report <private-log>/replies-smoke.json
 python3 tools/speech-smoke.py --binary <release>/bin/dshd --web-dir <release>/web --runtime-root /home/campanus/apps/dsh/shared/speech/piper-1.8.0 --report <private-log>/speech-smoke.json

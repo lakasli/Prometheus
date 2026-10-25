@@ -28,6 +28,9 @@ const QQ_TOKEN_BASE: &str = "https://api.bot.qq.com";
 const USER_AGENT: &str = "DSH/0.1 QQ-Gateway";
 const MAX_GATEWAY_MESSAGE: usize = 128 * 1024;
 
+#[path = "qq_incoming_media.rs"]
+pub mod incoming_media;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ClosePolicy {
     pub clear_token: bool,
@@ -254,12 +257,33 @@ pub async fn webhook(
         return Err(ApiError::forbidden("QQ签名校验失败或事件已过期"));
     }
     if payload["op"] == 0 {
-        ingest(&state, &config, &payload)?;
+        incoming_media::receive(&state, &config, &payload)?;
     }
     Ok(Json(json!({"op":12,"d":0})))
 }
 
 pub fn ingest(state: &AppState, config: &RuntimeConfig, payload: &Value) -> ApiResult<()> {
+    let received_at = now();
+    ingest_prepared(
+        state,
+        config,
+        payload,
+        received_at,
+        incoming_media::reply_deadline(payload, received_at),
+        incoming_media::Prepared::Text,
+        None,
+    )
+}
+
+pub fn ingest_prepared(
+    state: &AppState,
+    config: &RuntimeConfig,
+    payload: &Value,
+    received_at: i64,
+    deadline: i64,
+    prepared: incoming_media::Prepared,
+    fence: Option<&incoming_media::Fence>,
+) -> ApiResult<()> {
     let event_type = payload["t"].as_str().unwrap_or("");
     if ![
         "C2C_MESSAGE_CREATE",
@@ -279,10 +303,23 @@ pub fn ingest(state: &AppState, config: &RuntimeConfig, payload: &Value) -> ApiR
         .as_str()
         .ok_or_else(|| ApiError::bad("invalid_event", "QQ消息缺少ID"))?;
     let event_id = payload["id"].as_str().unwrap_or(message_id);
-    let Some(raw) = data["content"].as_str() else {
-        return Ok(());
+    let has_media = prepared.has_media();
+    let media_notice = prepared.notice();
+    let media_code = if let incoming_media::Prepared::Unavailable { code, .. } = &prepared {
+        Some(*code)
+    } else {
+        None
     };
-    let content = strip_mentions(raw).trim().to_string();
+    let raw = data["content"].as_str().unwrap_or("");
+    let mut content = strip_mentions(raw).trim().to_string();
+    if content.is_empty() && has_media {
+        content = if matches!(&prepared, incoming_media::Prepared::Image(_)) {
+            "请客观描述这张图片。"
+        } else {
+            "[收到不支持或不可用的媒体消息]"
+        }
+        .into();
+    }
     if content.is_empty() {
         return Ok(());
     }
@@ -296,6 +333,7 @@ pub fn ingest(state: &AppState, config: &RuntimeConfig, payload: &Value) -> ApiR
         _ => ("channel", data["channel_id"].as_str().unwrap_or("")),
     };
     if target.is_empty()
+        || target.len() > 200
         || !target
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'_')
@@ -316,30 +354,32 @@ pub fn ingest(state: &AppState, config: &RuntimeConfig, payload: &Value) -> ApiR
             .credential_ref
             .clone()
             .ok_or_else(|| ApiError::bad("qq_unconfigured", "QQ凭证未设置"))?,
-        // Current official C2C contract: 60 minutes and at most four replies.
-        // Channel/group/DMS reply windows remain five minutes.
-        deadline: now() + if kind == "c2c" { 3600 } else { 300 },
+        // This deadline was frozen at durable receipt, before media download.
+        deadline,
     };
     state.db(|db| {
         let tx=db.transaction()?;
-        if tx.query_row("SELECT 1 FROM inbox WHERE event_key=?1",[&event_key],|r|r.get::<_,i64>(0)).optional()?.is_some(){return Ok(());}
+        if let Some(fence)=fence{incoming_media::verify_fence_in(&tx,fence)?;}
+        if tx.query_row("SELECT 1 FROM inbox WHERE event_key=?1",[&event_key],|r|r.get::<_,i64>(0)).optional()?.is_some(){if let Some(fence)=fence{incoming_media::finish_in(&tx,fence,"completed",media_code)?;}tx.commit()?;return Ok(());}
         // A retransmission after a persona switch still belongs to the original Run.
         if let Some(run)=tx.query_row("SELECT id FROM runs WHERE owner_id=?1 AND client_message_id=?2 ORDER BY rowid LIMIT 1",params![owner,message_id],|r|r.get::<_,String>(0)).optional()? {
-            tx.execute("INSERT INTO inbox(event_key,account_id,event_type,received_at,run_id) VALUES(?1,?2,?3,?4,?5)",params![event_key,account,event_type,now(),run])?;
+            tx.execute("INSERT INTO inbox(event_key,account_id,event_type,received_at,run_id) VALUES(?1,?2,?3,?4,?5)",params![event_key,account,event_type,received_at,run])?;
+            if let Some(fence)=fence{incoming_media::finish_in(&tx,fence,"completed",media_code)?;}
             tx.commit()?;return Ok(());
         }
         let existing=tx.query_row("SELECT id FROM conversations WHERE source_key=?1 AND owner_id=?2",params![source_key,owner],|r|r.get::<_,String>(0)).optional()?;
         let fresh=existing.is_none();
         let mut id=existing.unwrap_or_else(||uuid::Uuid::new_v4().to_string());
         let (config_revision,active_config)=character::current_config_in(&tx)?;
+        if fence.is_some(){anyhow::ensure!(active_config.qq.enabled && active_config.qq.app_id==config.qq.app_id && active_config.qq.credential_ref==config.qq.credential_ref,"QQ receive account changed");}
         tx.execute("INSERT OR IGNORE INTO conversations(id,owner_id,title,source_key,created_at) VALUES(?1,?2,?3,?4,?5)",params![id,owner,format!("QQ {kind}"),source_key,now()])?;
-        let command=persona_command(&content);
-        let memory_command=crate::memory_commands::is_command(&content);
+        let command=if has_media{None}else{persona_command(&content)};
+        let memory_command=!has_media && crate::memory_commands::is_command(&content);
         let has_binding=tx.query_row("SELECT 1 FROM conversation_character_bindings WHERE conversation_id=?1",[&id],|r|r.get::<_,i64>(0)).optional()?.is_some();
         let has_model_work=tx.query_row("SELECT 1 FROM runs WHERE conversation_id=?1 AND run_kind IN ('model','skill_text','skill_image') LIMIT 1",[&id],|r|r.get::<_,i64>(0)).optional()?.is_some();
         if command.is_none() && !memory_command && (fresh || (!has_binding && !has_model_work)) {character::bind_new_conversation(&tx,&id,None,&active_config)?;}
         let run=uuid::Uuid::new_v4().to_string();
-        let command_response=if let Some(command)=command {
+        let command_response=if let Some(notice)=media_notice{Some(notice.to_string())}else if let Some(command)=command {
             if kind!="c2c" {Some("角色命令仅支持私聊。群聊和频道的角色仍由管理员设置。".to_string())}
             else {let(next,response)=handle_persona_command(&tx,&id,&source_key,&owner,command,&active_config)?;id=next;Some(response)}
         }else{None};
@@ -349,10 +389,18 @@ pub fn ingest(state: &AppState, config: &RuntimeConfig, payload: &Value) -> ApiR
         // Local control replies must stay usable when a preferred model mapping expires.
         let snapshot=if command_response.is_some()||memory_command{None}else{character::freeze_for_run(&tx,&id,config_revision,&active_config,"用户")?};
         let status=if command_response.is_some(){"completed"}else{"queued"};
-        let selected=if command_response.is_some()||memory_command {None}else{crate::skills::select(&tx,&content,None,false,false)?};
-        let run_kind=if command_response.is_some(){"character_command"}else if memory_command{"memory_command"}else if selected.is_some(){"skill_text"}else{"model"};
+        let selected=if command_response.is_some()||memory_command||has_media {None}else{crate::skills::select(&tx,&content,None,false,false)?};
+        let run_kind=if command_response.is_some(){if has_media{"media_notice"}else{"character_command"}}else if memory_command{"memory_command"}else if selected.is_some(){"skill_text"}else{"model"};
         tx.execute("INSERT INTO runs(id,conversation_id,owner_id,client_message_id,input,config_json,reply_json,status,response,created_at,updated_at,character_snapshot_json,character_digest,compiler_version,run_kind) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10,?11,?12,?13,?14)",params![run,id,owner,message_id,content,serde_json::to_string(&active_config)?,serde_json::to_string(&reply)?,status,command_response,now(),snapshot.as_ref().map(serde_json::to_string).transpose()?,snapshot.as_ref().map(|s|&s.projection_digest),snapshot.as_ref().map(|s|&s.compiler_version),run_kind])?;
         tx.execute("INSERT INTO messages(id,conversation_id,run_id,role,content,created_at) VALUES(?1,?2,?3,'user',?4,?5)",params![uuid::Uuid::new_v4().to_string(),id,run,content,now()])?;
+        if let incoming_media::Prepared::Image(image)=prepared {
+            let pending:i64=tx.query_row("SELECT count(*) FROM conversation_images WHERE image IS NOT NULL",[],|r|r.get(0))?;
+            anyhow::ensure!(pending<20,"conversation image queue full");
+            crate::media_assets::store_png_in(&tx,&owner,&id,&image)?;
+            let source:String=tx.query_row("SELECT id FROM messages WHERE run_id=?1 AND role='user'",[&run],|r|r.get(0))?;
+            tx.execute("INSERT INTO conversation_images(run_id,conversation_id,owner_id,source_message_id,width,height,image_sha256,image,status,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'queued',?9)",params![run,id,owner,source,image.width,image.height,image.sha256,image.bytes,received_at])?;
+            tx.execute("INSERT OR IGNORE INTO dsh_schema_migrations(version,created_at) VALUES(8,?1)",[now()])?;
+        }
         if let Some(selected)=selected {crate::skills::store(&tx,&run,&selected)?;}
         if let Some(response)=command_response {
             let pending:i64=tx.query_row("SELECT count(*) FROM outbox WHERE status IN ('queued','sending')",[],|r|r.get(0))?;
@@ -360,7 +408,8 @@ pub fn ingest(state: &AppState, config: &RuntimeConfig, payload: &Value) -> ApiR
             tx.execute("INSERT INTO messages(id,conversation_id,run_id,role,content,created_at) VALUES(?1,?2,?3,'assistant',?4,?5)",params![uuid::Uuid::new_v4().to_string(),id,run,response,now()])?;
             tx.execute("INSERT INTO outbox(id,run_id,account_id,credential_ref,target_json,content,status,deadline,created_at) VALUES(?1,?2,?3,?4,?5,?6,'queued',?7,?8)",params![uuid::Uuid::new_v4().to_string(),run,reply.account_id,reply.credential_ref,serde_json::to_string(&reply)?,response,reply.deadline,now()])?;
         }
-        tx.execute("INSERT INTO inbox(event_key,account_id,event_type,received_at,run_id) VALUES(?1,?2,?3,?4,?5)",params![event_key,account,event_type,now(),run])?;
+        tx.execute("INSERT INTO inbox(event_key,account_id,event_type,received_at,run_id) VALUES(?1,?2,?3,?4,?5)",params![event_key,account,event_type,received_at,run])?;
+        if let Some(fence)=fence{incoming_media::finish_in(&tx,fence,"completed",media_code)?;}
         tx.commit()?;Ok(())
     })?;
     state.0.notify.notify_waiters();
@@ -782,7 +831,7 @@ async fn gateway_session(
                                     *resume=Some((session,payload["s"].as_i64().unwrap_or(0),identity.to_string()));connection(state,"connected");
                                 } else if payload["t"]=="RESUMED" {connection(state,"connected");}
                                 if payload["t"]=="READY"||payload["t"]=="RESUMED" {if let Ok(mut last)=state.0.qq_last_error.lock(){*last=None;}}
-                                ingest(state,config,&payload).map_err(|_|"QQ事件入库失败")?;
+                                incoming_media::receive(state,config,&payload).map_err(|_|"QQ事件入库失败")?;
                                 // Only advance the resume sequence after durable event handling succeeded.
                                 if let Some(seq)=payload["s"].as_i64(){sequence=Some(seq);if let Some(r)=resume.as_mut(){r.1=seq;}}
                             },

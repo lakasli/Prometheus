@@ -22,6 +22,7 @@ pub mod qq;
 pub mod qq_api;
 pub mod qq_media;
 pub mod reply_delivery;
+pub mod reply_delivery_api;
 pub mod skill_drawing;
 pub mod skills;
 pub mod skills_api;

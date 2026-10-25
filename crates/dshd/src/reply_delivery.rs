@@ -28,11 +28,14 @@ struct Delivery {
 }
 fn claim_in(db: &mut Connection, at: i64) -> anyhow::Result<Option<Delivery>> {
     let tx = db.transaction()?;
+    // Expire before selecting: a busy unrelated conversation must not keep a
+    // dead predecessor fencing this conversation indefinitely.
+    tx.execute("UPDATE outbox SET status='expired',error='回复截止时间已过，未发送' WHERE status='queued' AND deadline<?1",[now()])?;
+    tx.execute("UPDATE outbox_reply_parts SET status=(SELECT status FROM outbox WHERE id=outbox_reply_parts.outbox_id),error=(SELECT error FROM outbox WHERE id=outbox_reply_parts.outbox_id) WHERE status='queued' AND EXISTS(SELECT 1 FROM outbox o WHERE o.id=outbox_reply_parts.outbox_id AND o.status IN ('expired','cancelled'))",[])?;
     // The oldest unfinished message in one conversation fences newer answers.
     // Another conversation may continue while this one waits for its interval.
     let item=tx.query_row("SELECT o.id,o.target_json,o.content,r.owner_id,r.conversation_id,p.seq,p.payload_json FROM outbox o JOIN runs r ON r.id=o.run_id LEFT JOIN outbox_reply_parts p ON p.outbox_id=o.id AND p.seq=(SELECT min(q.seq) FROM outbox_reply_parts q WHERE q.outbox_id=o.id AND q.status='queued') WHERE o.status='queued' AND o.deadline>=?1 AND (p.seq IS NULL OR p.due_ms<=?2) AND NOT EXISTS(SELECT 1 FROM outbox_reply_parts u WHERE u.outbox_id=o.id AND u.status IN ('unknown','failed','sending')) AND NOT EXISTS(SELECT 1 FROM reply_account_pacing a WHERE a.account_id=o.account_id AND a.next_ms>?2) AND NOT EXISTS(SELECT 1 FROM outbox older JOIN runs prior ON prior.id=older.run_id WHERE prior.conversation_id=r.conversation_id AND older.rowid<o.rowid AND older.status IN ('queued','sending','unknown')) ORDER BY o.rowid LIMIT 1",params![now(),at],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,Option<i64>>(5)?,r.get::<_,Option<String>>(6)?))).optional()?;
     let Some((id, target, content, owner, conversation, seq, payload)) = item else {
-        tx.execute("UPDATE outbox SET status='expired',error='回复截止时间已过，未发送' WHERE status='queued' AND deadline<?1",[now()])?;
         tx.commit()?;
         return Ok(None);
     };
@@ -111,35 +114,43 @@ async fn send(state: &AppState, item: &Delivery) -> Result<(String, bool), (bool
         .await
         .map(|id| (id, false));
     }
-    let id = part
-        .asset_id
-        .as_ref()
-        .ok_or((false, "媒体制品尚未准备".into()))?;
-    let bytes = if part.kind == "voice" {
-        let (meta, bytes) = crate::speech::read_asset(state, &item.owner, id)
-            .map_err(|_| (false, "语音制品已失效".into()))?;
-        if meta.conversation_id.as_deref() != Some(&item.conversation) {
-            return Err((false, "语音制品会话不匹配".into()));
+    let bytes = (|| {
+        let id = part
+            .asset_id
+            .as_ref()
+            .ok_or((false, "媒体制品尚未准备".into()))?;
+        if part.kind == "voice" {
+            let (meta, bytes) = crate::speech::read_asset(state, &item.owner, id)
+                .map_err(|_| (false, "语音制品已失效".into()))?;
+            if meta.conversation_id.as_deref() != Some(&item.conversation) {
+                return Err((false, "语音制品会话不匹配".into()));
+            }
+            Ok(bytes)
+        } else {
+            let (meta, bytes) =
+                crate::media_assets::read(state, &item.owner, &item.conversation, id)
+                    .map_err(|_| (false, "媒体制品不可用或归属不匹配".into()))?;
+            if meta.kind != part.kind {
+                return Err((false, "媒体类型不匹配".into()));
+            }
+            Ok(bytes)
         }
-        bytes
-    } else {
-        let (meta, bytes) = crate::media_assets::read(state, &item.owner, &item.conversation, id)
-            .map_err(|_| (false, "媒体制品不可用或归属不匹配".into()))?;
-        if meta.kind != part.kind {
-            return Err((false, "媒体类型不匹配".into()));
+    })();
+    let result = match bytes {
+        Ok(bytes) => {
+            crate::qq::send_media_bytes(
+                state,
+                &item.target,
+                &part.kind,
+                &bytes,
+                &part.text,
+                seq as u32,
+            )
+            .await
         }
-        bytes
+        Err(error) => Err(error),
     };
-    match crate::qq::send_media_bytes(
-        state,
-        &item.target,
-        &part.kind,
-        &bytes,
-        &part.text,
-        seq as u32,
-    )
-    .await
-    {
+    match result {
         Ok(id) => Ok((id, false)),
         Err((false, _)) => {
             let text = if part.kind == "voice" {
@@ -220,6 +231,76 @@ pub fn status_in(db: &Connection, run: &str) -> anyhow::Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn expired_predecessor_is_cleared_before_the_same_claim_selects_newer_reply() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState::open(crate::state::Options {
+            data_dir: dir.path().into(),
+            origin: "http://127.0.0.1:18419".into(),
+            allow_private_model: false,
+            cookie_secure: false,
+            web_dir: dir.path().into(),
+        })
+        .unwrap();
+        let target = ReplyTarget {
+            kind: "c2c".into(),
+            target: "user".into(),
+            message_id: "inbound".into(),
+            account_id: "app".into(),
+            credential_ref: "key".into(),
+            deadline: now() + 3600,
+        };
+        state.db(|db|{
+            db.execute("INSERT INTO conversations VALUES('c','owner','fixture',NULL,0)",[])?;
+            for i in 1..=2 {
+                db.execute("INSERT INTO runs(id,conversation_id,owner_id,client_message_id,input,config_json,status,created_at,updated_at) VALUES(?1,'c','owner',?1,'q','{}','completed',0,0)",[format!("r{i}")])?;
+                db.execute("INSERT INTO outbox(id,run_id,account_id,credential_ref,target_json,content,status,deadline,created_at) VALUES(?1,?2,'app','key',?3,'reply','queued',?4,0)",params![format!("b{i}"),format!("r{i}"),serde_json::to_string(&target)?,if i==1 {0}else{target.deadline}])?;
+            }
+            Ok(())
+        }).unwrap();
+        let item = state.db(|db| claim_in(db, now_ms())).unwrap().unwrap();
+        assert_eq!(item.id, "b2");
+        assert_eq!(
+            state
+                .db(|db| Ok(db
+                    .query_row("SELECT status FROM outbox WHERE id='b1'", [], |r| r
+                        .get::<_, String>(0))?))
+                .unwrap(),
+            "expired"
+        );
+    }
+    #[tokio::test]
+    async fn missing_voice_asset_reaches_text_fallback_before_any_platform_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState::open(crate::state::Options {
+            data_dir: dir.path().into(),
+            origin: "http://127.0.0.1:18419".into(),
+            allow_private_model: false,
+            cookie_secure: false,
+            web_dir: dir.path().into(),
+        })
+        .unwrap();
+        let target = ReplyTarget {
+            kind: "c2c".into(),
+            target: "user".into(),
+            message_id: "inbound".into(),
+            account_id: "app".into(),
+            credential_ref: "key".into(),
+            deadline: now() + 3600,
+        };
+        let item=Delivery {id:"outbox".into(),seq:Some(1),target:target.clone(),content:serde_json::json!({"type":"voice","text":"保留可读文字。","delay_ms":0,"asset_id":uuid::Uuid::new_v4().to_string()}).to_string(),owner:"owner".into(),conversation:"c".into()};
+        // QQ is deliberately disabled: its validation is a deterministic
+        // transport sentinel, and no production account or request is used.
+        let expected = crate::qq::send_qq_payload(
+            &state,
+            &target,
+            &serde_json::json!({"type":"text","text":"（语音暂不可用）保留可读文字。"}),
+            1,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(send(&state, &item).await.unwrap_err(), expected);
+    }
     #[test]
     fn actual_send_completion_spaces_parts_and_unknown_fences_following_answers() {
         let dir = tempfile::TempDir::new().unwrap();

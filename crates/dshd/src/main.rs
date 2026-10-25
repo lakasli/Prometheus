@@ -166,6 +166,12 @@ async fn run_app(cli: Cli) -> Result<()> {
                 })
                 .await?;
             let gateway_state = state.clone();
+            let qq_receive_state = state.clone();
+            kernel
+                .mount_task("qq-receive", &[], move |cancel| {
+                    qq::incoming_media::run(qq_receive_state.clone(), cancel)
+                })
+                .await?;
             kernel
                 .mount_task("qq-gateway", &[], move |cancel| {
                     qq::run_gateway(gateway_state.clone(), cancel)

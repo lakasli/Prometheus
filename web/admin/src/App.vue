@@ -24,6 +24,7 @@ import TaskTriggers from "./components/TaskTriggers.vue";
 import SpeechPanel from "./components/SpeechPanel.vue";
 import ReplyMedia from "./components/ReplyMedia.vue";
 import QQPanel from "./components/QQPanel.vue";
+import ReplyDeliveryReview from "./components/ReplyDeliveryReview.vue";
 import type { TriggerDefinition } from "./task-triggers";
 import {
   api,
@@ -1892,7 +1893,7 @@ onUnmounted(() => {
           </div>
         </template>
 
-        <section v-if="page === 'qq'" class="panel"><QQPanel /></section>
+        <section v-if="page === 'qq'" class="panel"><QQPanel /><ReplyDeliveryReview /></section>
         <template v-if="page === 'history'">
           <section class="panel history-panel">
             <div class="panel-heading">

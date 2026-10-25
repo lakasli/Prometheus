@@ -1,9 +1,11 @@
 {
-  "schema_reader": 9,
+  "schema_reader": 10,
+  "media_source_runs": 1,
   "structured_replies": 1,
   "local_piper_speech": 1,
   "conversation_media": 1,
   "qq_non_group_api": 1,
+  "qq_durable_receive": 1,
   "character_snapshot": 1,
   "assistant_memory": 1,
   "memory_context": 1,

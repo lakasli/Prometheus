@@ -21,6 +21,13 @@ def check(data_dir, release_source):
         for table, capability in (("run_reply_plans", "structured_replies"), ("outbox_reply_parts", "structured_replies"), ("speech_assets", "local_piper_speech"), ("conversation_media_assets", "conversation_media")):
             if table in tables and db.execute(f"SELECT EXISTS(SELECT 1 FROM {table})").fetchone()[0] and int(capabilities.get(capability, 0)) < 1:
                 raise RuntimeError(f"Target release lacks {capability} authorization or delivery semantics")
+        if "qq_received_events" in tables and db.execute("SELECT EXISTS(SELECT 1 FROM qq_received_events WHERE status IN ('queued','processing'))").fetchone()[0] and int(capabilities.get("qq_durable_receive", 0)) < 1:
+            raise RuntimeError("Target release lacks durable QQ reception of acknowledged events")
+        for table in ("speech_assets", "conversation_media_assets"):
+            if table in tables:
+                columns = {r[1] for r in db.execute(f"PRAGMA table_info({table})")}
+                if "source_run_id" in columns and db.execute(f"SELECT EXISTS(SELECT 1 FROM {table} WHERE source_run_id IS NOT NULL)").fetchone()[0] and int(capabilities.get("media_source_runs", 0)) < 1:
+                    raise RuntimeError("Target release lacks media source-run cancellation semantics")
         uses_persona = False
         if "conversation_character_bindings" in tables:
             uses_persona = db.execute("SELECT EXISTS(SELECT 1 FROM conversation_character_bindings)").fetchone()[0]

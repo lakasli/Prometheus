@@ -133,7 +133,7 @@ def main():
                     disposable['id'] = str(uuid.uuid4())
                     disposable['audio_url'] = ROOT + '/assets/' + disposable['id']
                     with h.db() as db:
-                        db.execute('INSERT INTO speech_assets VALUES(?,?,NULL,0,?,?,?,?)', (disposable['id'], h.owner, json.dumps(disposable), audio, int(time.time()), int(time.time()) + 60))
+                        db.execute('INSERT INTO speech_assets(id,owner_id,conversation_id,context_floor,metadata_json,audio,created_at,expires_at) VALUES(?,?,NULL,0,?,?,?,?)', (disposable['id'], h.owner, json.dumps(disposable), audio, int(time.time()), int(time.time()) + 60))
                     h.request('DELETE', disposable['audio_url'], expected=403, with_csrf=False)
                     h.request('DELETE', disposable['audio_url'])
                     h.request('GET', disposable['audio_url'], expected=404)
