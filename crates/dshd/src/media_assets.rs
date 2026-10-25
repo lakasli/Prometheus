@@ -100,12 +100,26 @@ fn owns(db: &Connection, owner: &str, conversation: &str) -> anyhow::Result<bool
         |r| r.get(0),
     )?)
 }
+fn upload_allowed_in(db: &Connection, owner: &str, conversation: &str) -> ApiResult<()> {
+    if !owns(db, owner, conversation).map_err(|_| ApiError::internal())? {
+        return Err(ApiError::not_found());
+    }
+    let draft:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM conversation_character_bindings WHERE conversation_id=?1 AND draft_card_json IS NOT NULL)",[conversation],|r|r.get(0)).map_err(|_|ApiError::internal())?;
+    if draft {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "conversation_media_draft_test",
+            "角色草稿测试暂不支持私有媒体附件，请使用普通会话",
+        ));
+    }
+    Ok(())
+}
 pub fn list_in(db: &Connection, owner: &str, conversation: &str) -> anyhow::Result<Vec<Asset>> {
     prune_in(db)?;
     if !owns(db, owner, conversation)? {
         return Ok(Vec::new());
     }
-    let mut query=db.prepare("SELECT id,kind,mime,sha256,length(bytes),expires_at FROM conversation_media_assets a WHERE owner_id=?1 AND conversation_id=?2 AND expires_at>?3 AND (source_run_id IS NULL OR EXISTS(SELECT 1 FROM runs r WHERE r.id=a.source_run_id AND r.owner_id=a.owner_id AND r.conversation_id=a.conversation_id AND r.status='completed')) ORDER BY created_at DESC LIMIT 32")?;
+    let mut query=db.prepare("SELECT id,kind,mime,sha256,length(bytes),expires_at FROM conversation_media_assets a WHERE owner_id=?1 AND conversation_id=?2 AND expires_at>?3 AND (source_run_id IS NULL OR EXISTS(SELECT 1 FROM runs r WHERE r.id=a.source_run_id AND r.owner_id=a.owner_id AND r.conversation_id=a.conversation_id AND r.status='completed')) ORDER BY a.created_at DESC,a.rowid DESC LIMIT 32")?;
     let rows = query.query_map(params![owner, conversation, now()], |r| {
         Ok(Asset {
             id: r.get(0)?,
@@ -137,6 +151,7 @@ pub fn store(
     kind: &str,
     bytes: Vec<u8>,
 ) -> ApiResult<Asset> {
+    state.db(|db| Ok(upload_allowed_in(db, owner, conversation)))??;
     store_inner(state, owner, conversation, kind, bytes, None)
 }
 pub fn store_for_run(
@@ -176,22 +191,20 @@ fn store_inner(
             ))
         }
     };
-    state
-        .db(|db| {
-            let tx = db.transaction()?;
-            if !owns(&tx, owner, conversation)? {
-                return Ok(None);
+    state.db(|db| {
+        let tx = db.transaction()?;
+        if let Err(error) = upload_allowed_in(&tx, owner, conversation) {
+            return Ok(Err(error));
+        }
+        if let Some(source) = source {
+            if !source_active_in(&tx, source, owner, conversation)? {
+                return Ok(Err(ApiError::not_found()));
             }
-            if let Some(source) = source {
-                if !source_active_in(&tx, source, owner, conversation)? {
-                    return Ok(None);
-                }
-            }
-            let asset = store_verified_in(&tx, owner, conversation, kind, mime, &bytes, source)?;
-            tx.commit()?;
-            Ok(Some(asset))
-        })?
-        .ok_or_else(ApiError::not_found)
+        }
+        let asset = store_verified_in(&tx, owner, conversation, kind, mime, &bytes, source)?;
+        tx.commit()?;
+        Ok(Ok(asset))
+    })?
 }
 /// Reuses the existing image validator's typed canonical PNG inside the caller's
 /// Inbox/Run transaction. No nested state lock and no duplicate pixel decoding.
@@ -685,6 +698,53 @@ async fn download(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn same_second_media_order_matches_newest_upload_and_draft_scope_is_enforced() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState::open(crate::state::Options {
+            data_dir: dir.path().into(),
+            origin: "http://127.0.0.1:18419".into(),
+            allow_private_model: false,
+            cookie_secure: false,
+            web_dir: dir.path().into(),
+        })
+        .unwrap();
+        state.db(|db|{
+            db.execute("INSERT INTO conversations(id,owner_id,title,created_at) VALUES('normal','owner','normal',0),('draft','owner','draft',0),('peer-normal','peer','peer',0)",[])?;
+            db.execute("INSERT INTO character_cards(id,created_by,created_at) VALUES('draft-card','owner',0)",[])?;
+            db.execute("INSERT INTO conversation_character_bindings(conversation_id,card_id,revision,draft_card_json) VALUES('draft','draft-card',0,'{}')",[])?;
+            Ok(())
+        }).unwrap();
+        let first = store(&state, "owner", "normal", "image", picture()).unwrap();
+        let second = store(&state, "owner", "normal", "image", picture()).unwrap();
+        state.db(|db|{db.execute("UPDATE conversation_media_assets SET created_at=123 WHERE conversation_id='normal'",[])?;Ok(())}).unwrap();
+        let ordered = state.db(|db| list_in(db, "owner", "normal")).unwrap();
+        assert_eq!(
+            ordered.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
+            vec![second.id.as_str(), first.id.as_str()]
+        );
+        let rejected = store(&state, "owner", "draft", "image", picture()).unwrap_err();
+        assert_eq!(rejected.status, StatusCode::FORBIDDEN);
+        assert_eq!(rejected.code, "conversation_media_draft_test");
+        assert_eq!(
+            store(&state, "peer", "normal", "image", picture())
+                .unwrap_err()
+                .status,
+            StatusCode::NOT_FOUND
+        );
+        let peer = store(&state, "peer", "peer-normal", "image", picture()).unwrap();
+        assert!(read(&state, "peer", "peer-normal", &peer.id).is_ok());
+        assert_eq!(
+            state
+                .db(|db| Ok(db.query_row(
+                    "SELECT count(*) FROM conversation_media_assets WHERE conversation_id='draft'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )?))
+                .unwrap(),
+            0
+        );
+    }
     #[test]
     fn additive_source_columns_preserve_legacy_unbound_assets_and_are_idempotent() {
         let dir = tempfile::tempdir().unwrap();
