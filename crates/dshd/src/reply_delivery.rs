@@ -10,6 +10,8 @@ use serde_json::Value;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio_util::sync::CancellationToken;
 
+type SendResult = Result<(String, Option<String>), (bool, String)>;
+
 pub fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -91,7 +93,7 @@ fn finish_in(
     Ok(())
 }
 
-async fn send(state: &AppState, item: &Delivery) -> Result<(String, bool), (bool, String)> {
+async fn send(state: &AppState, item: &Delivery) -> SendResult {
     let Some(seq) = item.seq else {
         return crate::qq::send_qq_payload(
             state,
@@ -100,7 +102,7 @@ async fn send(state: &AppState, item: &Delivery) -> Result<(String, bool), (bool
             1,
         )
         .await
-        .map(|id| (id, false));
+        .map(|id| (id, None));
     };
     let part: ReplyItem =
         serde_json::from_str(&item.content).map_err(|_| (false, "无效回复对象".into()))?;
@@ -112,7 +114,7 @@ async fn send(state: &AppState, item: &Delivery) -> Result<(String, bool), (bool
             seq as u32,
         )
         .await
-        .map(|id| (id, false));
+        .map(|id| (id, None));
     }
     let bytes = (|| {
         let id = part
@@ -150,32 +152,84 @@ async fn send(state: &AppState, item: &Delivery) -> Result<(String, bool), (bool
         }
         Err(error) => Err(error),
     };
+    media_result(
+        result,
+        &part.kind,
+        &part.text,
+        seq as u32,
+        |payload, seq| async move {
+            crate::qq::send_qq_payload(state, &item.target, &payload, seq).await
+        },
+    )
+    .await
+}
+
+async fn media_result<F, Fut>(
+    result: crate::qq_media::DeliveryResult<String>,
+    kind: &str,
+    text: &str,
+    seq: u32,
+    send_text: F,
+) -> SendResult
+where
+    F: FnOnce(Value, u32) -> Fut,
+    Fut: std::future::Future<Output = crate::qq_media::DeliveryResult<String>>,
+{
     match result {
-        Ok(id) => Ok((id, false)),
-        Err((false, _)) => {
-            let text = if part.kind == "voice" {
-                format!("（语音暂不可用）{}", part.text)
+        Ok(id) => Ok((id, None)),
+        Err((false, cause)) => {
+            let media_kind = match kind {
+                "voice" => "voice",
+                "image" => "image",
+                "video" => "video",
+                _ => "unsupported",
+            };
+            // This chain contains host-defined messages or HTTP/business
+            // integers only. Never log a raw transport error, response or URL.
+            tracing::warn!(
+                channel = "qq",
+                stage = "media_fallback",
+                media_kind,
+                seq,
+                reason = %cause,
+                "QQ media failed; attempting the text fallback"
+            );
+            let text = if kind == "voice" {
+                format!("（语音暂不可用）{text}")
             } else {
                 format!(
                     "{}发送暂不可用。",
-                    if part.kind == "image" {
-                        "图片"
-                    } else {
-                        "视频"
-                    }
+                    if kind == "image" { "图片" } else { "视频" }
                 )
             };
-            crate::qq::send_qq_payload(
-                state,
-                &item.target,
-                &serde_json::json!({"type":"text","text":text}),
-                seq as u32,
-            )
-            .await
-            .map(|id| (id, true))
+            // A failed text submission preserves its own uncertainty. The
+            // earlier known media failure never lowers an unknown delivery.
+            send_text(serde_json::json!({"type":"text","text":text}), seq)
+                .await
+                .map(|id| (id, Some(cause)))
         }
         Err(error) => Err(error),
     }
+}
+
+fn finish_sent_in(
+    db: &mut Connection,
+    item: &Delivery,
+    message: &str,
+    fallback_reason: Option<&str>,
+    at: i64,
+    interval: u64,
+) -> anyhow::Result<()> {
+    let error = fallback_reason.map(|reason| format!("媒体发送失败后已改发文字；原因：{reason}"));
+    finish_in(
+        db,
+        item,
+        "sent",
+        Some(message),
+        error.as_deref(),
+        at,
+        interval,
+    )
 }
 pub async fn run(state: AppState, cancel: CancellationToken) {
     while !cancel.is_cancelled() {
@@ -190,17 +244,12 @@ pub async fn run(state: AppState, cancel: CancellationToken) {
             .map(|(_, c)| c.reply.min_interval_ms)
             .unwrap_or(1500);
         let done = match result {
-            Ok((id, fallback)) => state.db(|db| {
-                finish_in(
+            Ok((id, fallback_reason)) => state.db(|db| {
+                finish_sent_in(
                     db,
                     &item,
-                    "sent",
-                    Some(&id),
-                    if fallback {
-                        Some("媒体发送失败后已改发文字")
-                    } else {
-                        None
-                    },
+                    &id,
+                    fallback_reason.as_deref(),
                     now_ms(),
                     interval,
                 )
@@ -231,6 +280,210 @@ pub fn status_in(db: &Connection, run: &str) -> anyhow::Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
+    use std::sync::{Arc, Mutex};
+
+    struct MockTransport {
+        messages: Mutex<Vec<(String, Value)>>,
+        text_status: StatusCode,
+    }
+    async fn rejected_upload(
+        State(mock): State<Arc<MockTransport>>,
+        Json(body): Json<Value>,
+    ) -> (StatusCode, Json<Value>) {
+        mock.messages.lock().unwrap().push(("upload".into(), body));
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"code":40093001,"message":"SYNTHETIC_PRIVATE_PLATFORM_BODY"})),
+        )
+    }
+    async fn text_response(
+        State(mock): State<Arc<MockTransport>>,
+        Json(body): Json<Value>,
+    ) -> (StatusCode, Json<Value>) {
+        mock.messages.lock().unwrap().push(("text".into(), body));
+        (
+            mock.text_status,
+            Json(serde_json::json!({"id":"synthetic-text-id"})),
+        )
+    }
+    // A local HTTP boundary adapter for this module's result handling. It uses
+    // the real platform response classifier, without replacing the production
+    // QQ base URL or claiming to test the complete media upload implementation.
+    async fn http_result(
+        base: &str,
+        path: &str,
+        body: Value,
+        stage: &str,
+    ) -> crate::qq_media::DeliveryResult<String> {
+        let response = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(4))
+            .build()
+            .unwrap()
+            .post(format!("{base}{path}"))
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        let status = response.status().as_u16();
+        let value: Value = response.json().await.unwrap();
+        let reply = crate::qq_media::PlatformReply {
+            http_status: status,
+            business_code: value["code"].as_i64(),
+            trace_id: None,
+            value,
+        };
+        if reply.accepted() {
+            Ok(reply.value["id"].as_str().unwrap().to_owned())
+        } else {
+            Err((reply.uncertain(), reply.status_text(stage)))
+        }
+    }
+
+    #[tokio::test]
+    async fn local_http_media_rejection_preserves_cause_and_same_seq_without_lowering_text_uncertainty(
+    ) {
+        for text_status in [
+            StatusCode::OK,
+            StatusCode::BAD_GATEWAY,
+            StatusCode::BAD_REQUEST,
+        ] {
+            let mock = Arc::new(MockTransport {
+                messages: Mutex::new(Vec::new()),
+                text_status,
+            });
+            let router = Router::new()
+                .route("/upload", post(rejected_upload))
+                .route("/messages", post(text_response))
+                .with_state(mock.clone());
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let base = format!("http://{}", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move {
+                axum::serve(listener, router).await.unwrap();
+            });
+            let dir = tempfile::tempdir().unwrap();
+            let state = AppState::open(crate::state::Options {
+                data_dir: dir.path().into(),
+                origin: "http://localhost".into(),
+                allow_private_model: false,
+                cookie_secure: false,
+                web_dir: dir.path().into(),
+            })
+            .unwrap();
+            let target = ReplyTarget {
+                kind: "c2c".into(),
+                target: "synthetic-user".into(),
+                message_id: "synthetic-input".into(),
+                account_id: "synthetic-app".into(),
+                credential_ref: "synthetic-key".into(),
+                deadline: now() + 3600,
+            };
+            state.db(|db| {
+                db.execute("INSERT INTO conversations(id,owner_id,title,created_at) VALUES('c','owner','synthetic fallback',0)",[])?;
+                for i in 1..=2 {
+                    let run=format!("r{i}");let outbox=format!("b{i}");
+                    db.execute("INSERT INTO runs(id,conversation_id,owner_id,client_message_id,input,config_json,status,created_at,updated_at) VALUES(?1,'c','owner',?1,'synthetic','{}','completed',0,0)",[&run])?;
+                    db.execute("INSERT INTO outbox(id,run_id,account_id,credential_ref,target_json,content,status,deadline,created_at) VALUES(?1,?2,'synthetic-app','synthetic-key',?3,'synthetic','queued',?4,0)",params![outbox,run,serde_json::to_string(&target)?,target.deadline])?;
+                }
+                db.execute("INSERT INTO outbox_reply_parts(outbox_id,seq,payload_json,delay_ms,status) VALUES('b1',2,'{}',0,'queued')",[])?;
+                Ok(())
+            }).unwrap();
+            let item = state.db(|db| claim_in(db, now_ms())).unwrap().unwrap();
+            assert_eq!(item.id, "b1");
+            assert_eq!(item.seq, Some(2));
+            let media = http_result(
+                &base,
+                "/upload",
+                serde_json::json!({"file_type":2,"file_name":"synthetic.mp4"}),
+                "预上传",
+            )
+            .await;
+            let cause = media.as_ref().unwrap_err().1.clone();
+            assert_eq!(cause, "QQ预上传返回HTTP 400，业务码40093001");
+            let text_base = base.clone();
+            let result = media_result(
+                media,
+                "video",
+                "SYNTHETIC_PRIVATE_CAPTION",
+                2,
+                move |payload, seq| async move {
+                    http_result(
+                        &text_base,
+                        "/messages",
+                        serde_json::json!({"msg_seq":seq,"content":payload["text"]}),
+                        "发送",
+                    )
+                    .await
+                },
+            )
+            .await;
+            let at = now_ms();
+            match result {
+                Ok((id, reason)) => {
+                    assert_eq!(text_status, StatusCode::OK);
+                    assert_eq!(reason.as_deref(), Some(cause.as_str()));
+                    state
+                        .db(|db| finish_sent_in(db, &item, &id, reason.as_deref(), at, 1500))
+                        .unwrap();
+                    let (parent,part)=state.db(|db|Ok(db.query_row("SELECT o.error,p.error FROM outbox o JOIN outbox_reply_parts p ON p.outbox_id=o.id WHERE o.id='b1'",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?)).unwrap();
+                    assert_eq!(parent, format!("媒体发送失败后已改发文字；原因：{cause}"));
+                    assert_eq!(part, parent);
+                    assert!(!part.contains("SYNTHETIC_PRIVATE_PLATFORM_BODY"));
+                }
+                Err((unknown, error)) => {
+                    assert_ne!(text_status, StatusCode::OK);
+                    assert_eq!(unknown, text_status == StatusCode::BAD_GATEWAY);
+                    assert_eq!(
+                        error,
+                        format!("QQ发送返回HTTP {}，业务码未提供", text_status.as_u16())
+                    );
+                    state
+                        .db(|db| {
+                            finish_in(
+                                db,
+                                &item,
+                                if unknown { "unknown" } else { "failed" },
+                                None,
+                                Some(&error),
+                                at,
+                                1500,
+                            )
+                        })
+                        .unwrap();
+                    if unknown {
+                        assert!(state.db(|db| claim_in(db, at + 10000)).unwrap().is_none());
+                    }
+                }
+            }
+            let messages = mock.messages.lock().unwrap();
+            assert_eq!(messages.len(), 2);
+            assert_eq!(messages[0].0, "upload");
+            assert_eq!(messages[1].0, "text");
+            assert_eq!(messages[1].1["msg_seq"], 2);
+            assert_eq!(messages[1].1["content"], "视频发送暂不可用。");
+            server.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn unknown_media_result_never_invokes_text_fallback() {
+        let original = (true, "QQ网络中断，操作结果未知，未自动重试".to_owned());
+        let invoked = std::sync::atomic::AtomicBool::new(false);
+        let result = media_result(
+            Err(original.clone()),
+            "image",
+            "synthetic",
+            2,
+            |_, _| async {
+                invoked.store(true, std::sync::atomic::Ordering::SeqCst);
+                Ok("must-not-send".into())
+            },
+        )
+        .await;
+        assert_eq!(result.unwrap_err(), original);
+        assert!(!invoked.load(std::sync::atomic::Ordering::SeqCst));
+    }
     #[test]
     fn expired_predecessor_is_cleared_before_the_same_claim_selects_newer_reply() {
         let dir = tempfile::tempdir().unwrap();

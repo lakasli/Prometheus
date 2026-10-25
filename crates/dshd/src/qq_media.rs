@@ -336,11 +336,13 @@ pub async fn upload_bytes(
         if parts.len() != expected {
             return Err((false, "QQ预上传分片数量不匹配".into()));
         }
-        for (index, part) in parts.iter().enumerate() {
-            if part["index"].as_u64() != Some(index as u64) {
-                return Err((false, "QQ预上传分片序号无效".into()));
-            }
-            let begin = index * block;
+        // Official examples start at zero, while the live C2C prepare response
+        // also uses one-based indices. Validate the whole sequence before any
+        // PUT, then echo each server index in finish without rebasing it. Byte
+        // ranges continue to use the zero-based array position.
+        let indices = multipart_indices(parts)?;
+        for ((position, part), index) in parts.iter().enumerate().zip(indices) {
+            let begin = position * block;
             let chunk = &bytes[begin..(begin + block).min(bytes.len())];
             let signed = part["presigned_url"]
                 .as_str()
@@ -381,6 +383,27 @@ pub async fn upload_bytes(
         .filter(|s| !s.is_empty() && s.len() <= 32768)
         .map(str::to_string)
         .ok_or((false, "QQ媒体上传缺少file_info".into()))
+}
+
+fn multipart_indices(parts: &[Value]) -> DeliveryResult<Vec<u64>> {
+    let invalid = || (false, "QQ预上传分片序号无效".into());
+    if parts.is_empty() || parts.len() > 128 {
+        return Err(invalid());
+    }
+    let first = parts[0]["index"]
+        .as_u64()
+        .filter(|value| *value <= 1)
+        .ok_or_else(invalid)?;
+    parts
+        .iter()
+        .enumerate()
+        .map(|(position, part)| {
+            part["index"]
+                .as_u64()
+                .filter(|value| *value == first + position as u64)
+                .ok_or_else(invalid)
+        })
+        .collect()
 }
 
 fn number(value: &Value) -> Option<u64> {
@@ -449,6 +472,34 @@ mod tests {
         Router,
     };
     use std::sync::{Arc, Mutex};
+    #[test]
+    fn multipart_accepts_documented_and_live_indices_without_rebasing() {
+        for indices in [vec![0], vec![1], vec![0, 1, 2], vec![1, 2, 3]] {
+            let parts: Vec<_> = indices
+                .iter()
+                .map(|index| json!({"index": index}))
+                .collect();
+            assert_eq!(multipart_indices(&parts).unwrap(), indices);
+        }
+        for parts in [
+            json!([]),
+            json!([{"index": 2}]),
+            json!([{"index": 0}, {"index": 0}]),
+            json!([{"index": 1}, {"index": 1}]),
+            json!([{"index": 0}, {"index": 2}]),
+            json!([{"index": 1}, {"index": 0}]),
+            json!([{"index": "0"}]),
+            json!([{"index": true}]),
+            json!([{"index": -1}]),
+            json!([{"index": 0.0}]),
+            json!([{}]),
+            json!([{"index": 0}, {"index": 18446744073709551615u64}]),
+        ] {
+            assert!(multipart_indices(parts.as_array().unwrap()).is_err());
+        }
+        let too_many: Vec<_> = (0..129).map(|index| json!({"index": index})).collect();
+        assert!(multipart_indices(&too_many).is_err());
+    }
     #[test]
     fn media_signatures_and_caps_are_enforced() {
         assert_eq!(
