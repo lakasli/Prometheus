@@ -119,7 +119,7 @@ pub fn build_request(
         // a slash as a route delimiter. Pre-encoded paths and URLs are denied.
         if value.is_empty()
             || value.len() > 512
-            || value.split('/').any(|part| matches!(part,"."|".."))
+            || value.split('/').any(|part| matches!(part, "." | ".."))
             || value.starts_with("//")
             || !value
                 .bytes()
@@ -130,10 +130,16 @@ pub fn build_request(
                 format!("路径参数{key}格式无效"),
             ));
         }
-        let mut segment=String::with_capacity(value.len());
-        const HEX:&[u8;16]=b"0123456789ABCDEF";
-        for byte in value.bytes(){
-            if byte.is_ascii_alphanumeric()||b"_.-~".contains(&byte){segment.push(byte as char);}else{segment.push('%');segment.push(HEX[(byte>>4)as usize]as char);segment.push(HEX[(byte&15)as usize]as char);}
+        let mut segment = String::with_capacity(value.len());
+        const HEX: &[u8; 16] = b"0123456789ABCDEF";
+        for byte in value.bytes() {
+            if byte.is_ascii_alphanumeric() || b"_.-~".contains(&byte) {
+                segment.push(byte as char);
+            } else {
+                segment.push('%');
+                segment.push(HEX[(byte >> 4) as usize] as char);
+                segment.push(HEX[(byte & 15) as usize] as char);
+            }
         }
         path = path.replace(&format!("{{{key}}}"), &segment);
     }
