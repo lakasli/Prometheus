@@ -212,6 +212,18 @@ def bounded_integer(value, maximum=MEDIA_LIMIT):
 
 def response_shape(response):
     """Only fixed field names, booleans and bounded numbers may escape."""
+    def index_type(part, field='index'):
+        if not isinstance(part, dict):
+            return 'other'
+        if field not in part:
+            return 'missing'
+        value = part[field]
+        if isinstance(value, bool):
+            return 'bool'
+        if isinstance(value, int):
+            return 'integer'
+        return 'string' if isinstance(value, str) else 'other'
+
     def fields(value):
         if not isinstance(value, dict):
             return None
@@ -229,6 +241,19 @@ def response_shape(response):
                 'parts_is_array': parts_array,
                 'parts_count': len(parts) if bounded else None,
                 'parts_within_128_bound': bounded,
+                'part_indices': [bounded_integer(part.get('index'), 128) if isinstance(part, dict)
+                                 else None for part in parts] if bounded else None,
+                'part_indices_present': [isinstance(part, dict) and 'index' in part
+                                         for part in parts] if bounded else None,
+                'part_index_types': [index_type(part) for part in parts] if bounded else None,
+                'part_index_fields_present': [isinstance(part, dict) and 'part_index' in part
+                                              for part in parts] if bounded else None,
+                'part_index_values': [bounded_integer(part.get('part_index'), 128) if isinstance(part, dict)
+                                      else None for part in parts] if bounded else None,
+                'part_index_value_types': [index_type(part, 'part_index') for part in parts]
+                                           if bounded else None,
+                'part_block_sizes': [bounded_integer(part.get('block_size')) if isinstance(part, dict)
+                                     else None for part in parts] if bounded else None,
                 'part_indices_ordered': bounded and all(isinstance(part, dict) and
                     type(part.get('index')) is int and part['index'] == index for index, part in enumerate(parts)),
                 'all_parts_have_presigned_url_field': bounded and bool(parts) and

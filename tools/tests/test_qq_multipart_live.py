@@ -358,6 +358,37 @@ class PrepareOnlyTests(unittest.TestCase):
         excess = MODULE.response_shape({'parts': [{'index': index} for index in range(129)]})
         self.assertIsNone(excess['root_fields']['parts_count'])
         self.assertFalse(excess['root_fields']['parts_within_128_bound'])
+        self.assertIsNone(excess['root_fields']['part_indices'])
+        self.assertIsNone(excess['root_fields']['part_index_types'])
+        self.assertIsNone(excess['root_fields']['part_indices_present'])
+        self.assertIsNone(excess['root_fields']['part_index_fields_present'])
+        self.assertIsNone(excess['root_fields']['part_index_values'])
+        self.assertIsNone(excess['root_fields']['part_index_value_types'])
+        self.assertIsNone(excess['root_fields']['part_block_sizes'])
+        indices = MODULE.response_shape({'parts': [
+            {'index': '0', 'part_index': 0, 'block_size': '6302964', 'presigned_url': secret},
+            {'index': 1, 'block_size': 5}, {'index': False, 'block_size': True},
+            {'part_index': '1'}, {'index': secret, 'part_index': secret, 'block_size': secret},
+            {'index': '000000000000000000000000001', 'block_size': '9999999999999999999'},
+            {'index': -1, 'block_size': MODULE.MEDIA_LIMIT + 1},
+            {'index': 129}, {'index': None}, secret]})
+        self.assertEqual(indices['root_fields']['part_indices'],
+                         [0, 1, None, None, None, None, None, None, None, None])
+        self.assertEqual(indices['root_fields']['part_index_types'],
+                         ['string', 'integer', 'bool', 'missing', 'string', 'string',
+                          'integer', 'integer', 'other', 'other'])
+        self.assertEqual(indices['root_fields']['part_block_sizes'],
+                         [6302964, 5, None, None, None, None, None, None, None, None])
+        self.assertEqual(indices['root_fields']['part_indices_present'],
+                         [True, True, True, False, True, True, True, True, True, False])
+        self.assertEqual(indices['root_fields']['part_index_fields_present'],
+                         [True, False, False, True, True, False, False, False, False, False])
+        self.assertEqual(indices['root_fields']['part_index_values'],
+                         [0, None, None, 1, None, None, None, None, None, None])
+        self.assertEqual(indices['root_fields']['part_index_value_types'],
+                         ['integer', 'missing', 'missing', 'string', 'string', 'missing',
+                          'missing', 'missing', 'missing', 'other'])
+        self.assertNotIn(secret, json.dumps(indices))
         boolean_code = MODULE.safe_prepare_result({'outcome': 'platform_accepted',
             'platform_accepted': True, 'http_status': 200, 'business_code': False})
         self.assertFalse(boolean_code['platform_accepted'])
