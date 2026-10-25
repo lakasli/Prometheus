@@ -9,5 +9,6 @@
   "memory_candidates": 1,
   "standalone_image_analysis": 1,
   "pure_wasm_workbench": 1,
-  "conversation_images": 1
+  "conversation_images": 1,
+  "skills": 1
 }

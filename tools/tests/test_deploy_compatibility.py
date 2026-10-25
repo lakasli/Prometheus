@@ -172,6 +172,56 @@ class CompatibilityTests(unittest.TestCase):
         manifest.write_text(json.dumps({"schema_reader": 8, "conversation_images": 1}))
         compatibility.check(self.data, self.release)
 
+    def test_untouched_skill_seeds_and_empty_snapshots_allow_rollback(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE skills(id TEXT,revision INTEGER,builtin INTEGER); CREATE TABLE run_skills(run_id TEXT,snapshot_json TEXT); INSERT INTO skills VALUES('drawing',1,1),('skill-creator',1,1);")
+        compatibility.check(self.data, self.release)
+
+    def test_used_skill_snapshot_requires_capable_release_even_after_skill_deletion(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE run_skills(run_id TEXT,snapshot_json TEXT); INSERT INTO run_skills VALUES('synthetic','{}');")
+        with self.assertRaisesRegex(RuntimeError, "Skill snapshots"):
+            compatibility.check(self.data, self.release)
+        (self.release / "deploy/release-capabilities.json").write_text(json.dumps({"skills": 1}))
+        compatibility.check(self.data, self.release)
+
+    def test_custom_or_modified_builtin_skill_requires_capable_release(self):
+        with connect(self.data / "dsh.db") as db:
+            db.execute("CREATE TABLE skills(id TEXT,revision INTEGER,builtin INTEGER)")
+        for revision, builtin in ((1, 0), (2, 1)):
+            with self.subTest(revision=revision, builtin=builtin):
+                with connect(self.data / "dsh.db") as db:
+                    db.execute("INSERT INTO skills VALUES('synthetic',?,?)", (revision, builtin))
+                with self.assertRaisesRegex(RuntimeError, "Skill snapshots"):
+                    compatibility.check(self.data, self.release)
+                manifest = self.release / "deploy/release-capabilities.json"
+                manifest.write_text(json.dumps({"skills": 1}))
+                compatibility.check(self.data, self.release)
+                manifest.unlink()
+                with connect(self.data / "dsh.db") as db:
+                    db.execute("DELETE FROM skills")
+
+    def test_native_image_config_in_revision_or_run_requires_capable_release(self):
+        with connect(self.data / "dsh.db") as db:
+            db.execute("CREATE TABLE config_revisions(revision INTEGER,config_json TEXT)")
+            db.execute("ALTER TABLE runs ADD COLUMN config_json TEXT")
+        for table in ("config_revisions", "runs"):
+            with self.subTest(table=table):
+                for value in ({"model": {}}, {"model": {"image_generation": False}}):
+                    with connect(self.data / "dsh.db") as db:
+                        db.execute(f"INSERT INTO {table}(config_json) VALUES(?)", (json.dumps(value),))
+                    compatibility.check(self.data, self.release)
+                with connect(self.data / "dsh.db") as db:
+                    db.execute(f"INSERT INTO {table}(config_json) VALUES(?)", (json.dumps({"model": {"image_generation": True}}),))
+                with self.assertRaisesRegex(RuntimeError, "image generation configuration"):
+                    compatibility.check(self.data, self.release)
+                manifest = self.release / "deploy/release-capabilities.json"
+                manifest.write_text(json.dumps({"skills": 1}))
+                compatibility.check(self.data, self.release)
+                manifest.unlink()
+                with connect(self.data / "dsh.db") as db:
+                    db.execute(f"DELETE FROM {table}")
+
 
 if __name__ == "__main__":
     unittest.main()

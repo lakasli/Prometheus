@@ -56,6 +56,7 @@ function card(): CharacterCard {
 }
 function installBackend(options: { firstPublishFails?: boolean } = {}) {
   let current = card();
+  let publishedName = current.data.name;
   let etag = "draft-1";
   let revision = 1;
   let defaultCard: unknown = null;
@@ -69,7 +70,7 @@ function installBackend(options: { firstPublishFails?: boolean } = {}) {
           items: [
             {
               id: "card-a",
-              name: current.data.name,
+              name: publishedName,
               archived_at: null,
               latest_revision: revision,
               qq_selectable: false,
@@ -89,7 +90,7 @@ function installBackend(options: { firstPublishFails?: boolean } = {}) {
           items: [
             {
               card_id: "card-a",
-              name: current.data.name,
+              name: publishedName,
               revision,
               digest: "digest",
               created_at: 1,
@@ -128,6 +129,7 @@ function installBackend(options: { firstPublishFails?: boolean } = {}) {
         if (options.firstPublishFails && publishCalls === 1)
           throw new TypeError("network result unknown");
         revision = 2;
+        publishedName = current.data.name;
         etag = "draft-3";
         return response({
           card_id: "card-a",
@@ -139,7 +141,7 @@ function installBackend(options: { firstPublishFails?: boolean } = {}) {
       }
       if (path === "/character-cards/default") {
         const body = JSON.parse(String(init?.body));
-        defaultCard = { ...body, name: current.data.name };
+        defaultCard = { ...body, name: publishedName };
         return response({ default: defaultCard, default_etag: "default-2" });
       }
       if (path.endsWith("/test-conversations"))
@@ -190,6 +192,66 @@ async function openCard() {
 }
 
 describe("character card management", () => {
+  it("moves the card list beside the editor and restores the full gallery when closed", async () => {
+    installBackend();
+    wrapper = mount(CharacterCards);
+    await flushPromises();
+    expect(wrapper.get(".character-layout").classes()).not.toContain(
+      "is-editing",
+    );
+    expect(wrapper.find(".character-editor").exists()).toBe(false);
+    await wrapper.get(".character-card-button").trigger("click");
+    await flushPromises();
+    expect(wrapper.get(".character-layout").classes()).toContain("is-editing");
+    expect(wrapper.get(".character-editor").element.parentElement).toBe(
+      wrapper.get(".character-gallery").element.parentElement,
+    );
+    expect(
+      wrapper
+        .findAll(".character-fields details")
+        .every((detail) => detail.attributes("open") !== undefined),
+    ).toBe(true);
+    await button("返回全部角色").trigger("click");
+    expect(wrapper.get(".character-layout").classes()).not.toContain(
+      "is-editing",
+    );
+    expect(wrapper.find(".character-editor").exists()).toBe(false);
+  });
+  it("updates card names and introductions from drafts while keeping published metadata unchanged", async () => {
+    const fetch = installBackend();
+    await openCard();
+    await wrapper!.get(".character-fields input").setValue("草稿新名字");
+    await wrapper!
+      .get(".character-fields textarea")
+      .setValue("修改后的角色介绍");
+    expect(wrapper!.get(".character-card-button strong").text()).toBe(
+      "草稿新名字",
+    );
+    expect(wrapper!.get(".character-card-description").text()).toBe(
+      "修改后的角色介绍",
+    );
+    expect(wrapper!.get(".character-card-button").text()).toContain("未保存");
+    await button("保存草稿").trigger("click");
+    await flushPromises();
+    await button("返回全部角色").trigger("click");
+    expect(wrapper!.get(".character-card-button strong").text()).toBe(
+      "草稿新名字",
+    );
+    expect(wrapper!.get(".character-card-description").text()).toBe(
+      "修改后的角色介绍",
+    );
+    expect(wrapper!.get(".character-card-button").text()).toContain(
+      "已发布 v1 · 展示草稿",
+    );
+    await wrapper!.get(".character-card-button").trigger("click");
+    await flushPromises();
+    await button("设为新会话默认").trigger("click");
+    await flushPromises();
+    expect(wrapper!.get(".character-default").text()).toContain("角色A v1");
+    expect(fetch.mock.calls.some(([url]) => url.endsWith("/publish"))).toBe(
+      false,
+    );
+  });
   it("keeps local edits when the library refreshes and never publishes them implicitly", async () => {
     const fetch = installBackend();
     await openCard();

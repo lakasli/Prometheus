@@ -332,7 +332,7 @@ pub fn ingest(state: &AppState, config: &RuntimeConfig, payload: &Value) -> ApiR
         let command=persona_command(&content);
         let memory_command=crate::memory_commands::is_command(&content);
         let has_binding=tx.query_row("SELECT 1 FROM conversation_character_bindings WHERE conversation_id=?1",[&id],|r|r.get::<_,i64>(0)).optional()?.is_some();
-        let has_model_work=tx.query_row("SELECT 1 FROM runs WHERE conversation_id=?1 AND run_kind='model' LIMIT 1",[&id],|r|r.get::<_,i64>(0)).optional()?.is_some();
+        let has_model_work=tx.query_row("SELECT 1 FROM runs WHERE conversation_id=?1 AND run_kind IN ('model','skill_text','skill_image') LIMIT 1",[&id],|r|r.get::<_,i64>(0)).optional()?.is_some();
         if command.is_none() && !memory_command && (fresh || (!has_binding && !has_model_work)) {character::bind_new_conversation(&tx,&id,None,&active_config)?;}
         let run=uuid::Uuid::new_v4().to_string();
         let command_response=if let Some(command)=command {
@@ -345,9 +345,11 @@ pub fn ingest(state: &AppState, config: &RuntimeConfig, payload: &Value) -> ApiR
         // Local control replies must stay usable when a preferred model mapping expires.
         let snapshot=if command_response.is_some()||memory_command{None}else{character::freeze_for_run(&tx,&id,config_revision,&active_config,"用户")?};
         let status=if command_response.is_some(){"completed"}else{"queued"};
-        let run_kind=if command_response.is_some(){"character_command"}else if memory_command{"memory_command"}else{"model"};
+        let selected=if command_response.is_some()||memory_command {None}else{crate::skills::select(&tx,&content,None,false,false)?};
+        let run_kind=if command_response.is_some(){"character_command"}else if memory_command{"memory_command"}else if selected.is_some(){"skill_text"}else{"model"};
         tx.execute("INSERT INTO runs(id,conversation_id,owner_id,client_message_id,input,config_json,reply_json,status,response,created_at,updated_at,character_snapshot_json,character_digest,compiler_version,run_kind) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10,?11,?12,?13,?14)",params![run,id,owner,message_id,content,serde_json::to_string(&active_config)?,serde_json::to_string(&reply)?,status,command_response,now(),snapshot.as_ref().map(serde_json::to_string).transpose()?,snapshot.as_ref().map(|s|&s.projection_digest),snapshot.as_ref().map(|s|&s.compiler_version),run_kind])?;
         tx.execute("INSERT INTO messages(id,conversation_id,run_id,role,content,created_at) VALUES(?1,?2,?3,'user',?4,?5)",params![uuid::Uuid::new_v4().to_string(),id,run,content,now()])?;
+        if let Some(selected)=selected {crate::skills::store(&tx,&run,&selected)?;}
         if let Some(response)=command_response {
             let pending:i64=tx.query_row("SELECT count(*) FROM outbox WHERE status IN ('queued','sending')",[],|r|r.get(0))?;
             anyhow::ensure!(pending<200,"reply queue full");

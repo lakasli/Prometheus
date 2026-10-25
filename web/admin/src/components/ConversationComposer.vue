@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, useId, watch } from "vue";
 import { api, ApiError, errorMessage } from "../api";
 import type { ChatSubmission, ConversationImageCapabilities } from "../types";
+import type { SkillList, Skill } from "../types";
 import Icon from "./Icon.vue";
 
 const props = defineProps<{
@@ -11,15 +12,44 @@ const props = defineProps<{
   running: boolean;
   blocked: boolean;
   prepareConversation: (title: string, signal: AbortSignal) => Promise<string>;
+  skillId?: string;
 }>();
 const emit = defineEmits<{
   accepted: [submission: ChatSubmission];
   busy: [value: boolean];
   unauthorized: [];
   inspectHistory: [];
+  "update:skillId": [value: string];
 }>();
 const fieldId = useId();
 const content = ref("");
+const skills = ref<Skill[]>([]);
+const skillError = ref("");
+const skillChoice = computed({
+  get: () => props.skillId || "",
+  set: (value: string) => emit("update:skillId", value),
+});
+async function loadSkills() {
+  const pending = request();
+  try {
+    const result = await api<SkillList>("/skills", {
+      signal: pending.controller.signal,
+    });
+    if (disposed) return;
+    skills.value = result.items.filter((item) => item.enabled);
+    if (
+      skillChoice.value &&
+      !skills.value.some((item) => item.id === skillChoice.value)
+    )
+      skillChoice.value = "";
+  } catch (caught) {
+    if (disposed) return;
+    if (caught instanceof ApiError && caught.status === 401) expired();
+    else skillError.value = "Skill 列表读取失败，仍可发送普通消息。";
+  } finally {
+    pending.done();
+  }
+}
 const capabilities = ref<ConversationImageCapabilities | null>(null);
 const capabilitiesLoading = ref(true);
 const imageFile = ref<File | null>(null);
@@ -38,6 +68,7 @@ let attempt: {
   clientId: string;
   content: string;
   imageBase64?: string;
+  skillId?: string;
 } | null = null;
 let fileEpoch = 0;
 let epoch = 0;
@@ -67,6 +98,7 @@ const canSend = computed(
     !checking.value &&
     !!content.value.trim() &&
     contentBytes.value <= 16000 &&
+    !(imageFile.value && skillChoice.value) &&
     (imageFile.value
       ? imageAllowed.value && props.modelConfigured && !imageCommand.value
       : props.modelConfigured || memoryCommand.value),
@@ -264,6 +296,7 @@ async function submit(retry = false) {
         clientId: crypto.randomUUID(),
         content: originalContent,
         imageBase64: base64,
+        skillId: skillChoice.value || undefined,
       };
     }
     const frozen = attempt!;
@@ -274,6 +307,7 @@ async function submit(retry = false) {
       body: {
         content: frozen.content,
         client_message_id: frozen.clientId,
+        ...(frozen.skillId ? { skill_id: frozen.skillId } : {}),
         ...(frozen.imageBase64 === undefined
           ? {}
           : { image_base64: frozen.imageBase64 }),
@@ -294,6 +328,7 @@ async function submit(retry = false) {
     });
     releaseImage();
     content.value = "";
+    skillChoice.value = "";
     attempt = null;
     uncertain.value = false;
   } catch (caught) {
@@ -345,6 +380,7 @@ watch(
   },
 );
 onMounted(() => void loadCapabilities());
+onMounted(() => void loadSkills());
 onUnmounted(() => {
   disposed = true;
   capabilityController?.abort();
@@ -360,6 +396,23 @@ defineExpose({ hasUnconfirmed });
     aria-label="发送对话消息"
     @submit.prevent="submit()"
   >
+    <label class="composer-skill-choice"
+      >本次 Skill
+      <select
+        v-model="skillChoice"
+        aria-label="本次 Skill"
+        :disabled="locked || !!imageFile"
+      >
+        <option value="">普通对话</option>
+        <option v-for="skill in skills" :key="skill.id" :value="skill.id">
+          {{ skill.name }} · v{{ skill.revision }}
+        </option></select
+      ><small>{{
+        skills.find((item) => item.id === skillChoice)?.description ||
+        skillError ||
+        "选择后仅用于本次消息；也可输入 /skill 编号 任务内容。"
+      }}</small></label
+    >
     <p v-if="error" class="composer-alert" role="alert">{{ error }}</p>
     <figure v-if="previewUrl" class="conversation-preview">
       <img :src="previewUrl" alt="本次对话图片的本地预览" />
@@ -449,7 +502,13 @@ defineExpose({ hasUnconfirmed });
           type="file"
           accept="image/png"
           aria-label="附加一张对话 PNG 图片"
-          :disabled="locked || checking || capabilitiesLoading || !imageAllowed"
+          :disabled="
+            locked ||
+            checking ||
+            capabilitiesLoading ||
+            !imageAllowed ||
+            !!skillChoice
+          "
           @change="chooseImage" /></label
       ><span>Enter 发送 · Shift + Enter 换行</span
       ><button class="button primary small" type="submit" :disabled="!canSend">
@@ -475,6 +534,28 @@ defineExpose({ hasUnconfirmed });
 </template>
 
 <style scoped>
+.composer-skill-choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.composer-skill-choice select {
+  min-width: 0;
+  max-width: 100%;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  color: var(--ink);
+}
+.composer-skill-choice small {
+  flex-basis: 100%;
+  line-height: 1.5;
+}
 .conversation-composer,
 .conversation-composer > * {
   min-width: 0;

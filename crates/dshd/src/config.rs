@@ -25,6 +25,14 @@ pub struct ModelConfig {
     pub base_url: String,
     pub model: String,
     pub credential_ref: Option<String>,
+    /// Administrator-confirmed OpenAI-compatible image generation endpoint.
+    /// Model names or prompt claims never enable this capability implicitly.
+    #[serde(skip_serializing_if = "is_false")]
+    pub image_generation: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -52,6 +60,7 @@ impl Default for ModelConfig {
             base_url: "https://api.deepseek.com".into(),
             model: "deepseek-chat".into(),
             credential_ref: None,
+            image_generation: false,
         }
     }
 }

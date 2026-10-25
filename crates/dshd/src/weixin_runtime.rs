@@ -264,7 +264,7 @@ fn enqueue(
             .is_some();
         let has_model_work = db
             .query_row(
-                "SELECT 1 FROM runs WHERE conversation_id=?1 AND run_kind='model' LIMIT 1",
+                "SELECT 1 FROM runs WHERE conversation_id=?1 AND run_kind IN ('model','skill_text','skill_image') LIMIT 1",
                 [conversation],
                 |r| r.get::<_, i64>(0),
             )

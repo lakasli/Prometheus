@@ -7,7 +7,12 @@ export interface RuntimeConfig {
     max_concurrent_runs: number;
     timeout_seconds: number;
   };
-  model: { base_url: string; model: string; credential_ref: string | null };
+  model: {
+    base_url: string;
+    model: string;
+    credential_ref: string | null;
+    image_generation?: boolean;
+  };
   qq: {
     enabled: boolean;
     app_id: string;
@@ -73,6 +78,7 @@ export interface Conversation {
   greeting?: string | null;
 }
 export interface ChatMessage {
+  generated_image_url?: string | null;
   id: string;
   role: string;
   content: string;
@@ -109,6 +115,23 @@ export interface ConversationImageCapabilities {
 export interface ChatSubmission {
   run_id: string;
   conversation_id: string;
+}
+export interface SkillDraft {
+  name: string;
+  description: string;
+  instructions: string;
+  kind: "instruction" | "drawing";
+  enabled: boolean;
+}
+export interface Skill extends SkillDraft {
+  id: string;
+  revision: number;
+  builtin: boolean;
+  updated_at: Timestamp;
+}
+export interface SkillList {
+  items: Skill[];
+  drawing: { native_available: boolean };
 }
 export interface Run {
   id: string;

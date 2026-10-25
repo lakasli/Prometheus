@@ -111,7 +111,6 @@ test("character cards use real local APIs for versioning, import and isolated co
     .getByLabel("稳定性格", { exact: true })
     .fill("平静、简洁，愿意说明不确定性。");
   await page.getByLabel("人格指令").fill("你是隔离测试角色。用中文简洁回复。");
-  await page.getByText("示例与开场白", { exact: true }).click();
   await page
     .getByLabel("首条开场白")
     .fill("这是角色卡开场白，不是模型生成的回复。");
@@ -124,8 +123,14 @@ test("character cards use real local APIs for versioning, import and isolated co
   ).toBeVisible();
   const galleryBounds = await page.locator(".character-gallery").boundingBox();
   const libraryBounds = await page.locator(".character-library").boundingBox();
-  expect(galleryBounds!.x).toBeGreaterThanOrEqual(
-    libraryBounds!.x + libraryBounds!.width,
+  const editorBounds = await page.locator(".character-editor").boundingBox();
+  expect(galleryBounds!.x).toBe(libraryBounds!.x);
+  expect(editorBounds!.x).toBeGreaterThanOrEqual(
+    galleryBounds!.x + galleryBounds!.width,
+  );
+  expect(editorBounds!.y).toBe(libraryBounds!.y);
+  await expect(page.locator(".character-card-description")).toContainText(
+    "浏览器隔离验收使用的原创文本角色。",
   );
   const editorFooter = await page
     .locator(".character-editor")
@@ -173,6 +178,28 @@ test("character cards use real local APIs for versioning, import and isolated co
   };
   expect(published.revision).toBe(1);
   await expect(page.locator(".character-alert")).toContainText("已发布 v1");
+  const draftName = `${name}_草稿修改`;
+  await page.getByLabel("角色名称", { exact: true }).fill(draftName);
+  await page
+    .getByLabel("身份与背景", { exact: true })
+    .fill("修改后的角色介绍立即展示在左侧卡片中。");
+  await expect(page.locator(".character-card-button.active strong")).toHaveText(
+    draftName,
+  );
+  await expect(
+    page.locator(".character-card-button.active .character-card-description"),
+  ).toHaveText("修改后的角色介绍立即展示在左侧卡片中。");
+  await page.getByRole("button", { name: "保存草稿", exact: true }).click();
+  await expect(page.getByText("草稿已保存", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "返回全部角色", exact: true }).click();
+  await expect(page.locator(".character-editor")).toHaveCount(0);
+  await page
+    .locator(".character-card-button")
+    .filter({ has: page.getByText(draftName, { exact: true }) })
+    .click();
+  await expect(page.getByLabel("角色名称", { exact: true })).toHaveValue(
+    draftName,
+  );
   let library = await (
     await page.request.get("/api/admin/v1/character-cards")
   ).json();
@@ -337,9 +364,11 @@ test("character cards use real local APIs for versioning, import and isolated co
   await page.getByRole("button", { name: "角色卡", exact: true }).click();
   await page
     .locator(".character-card-button")
-    .filter({ has: page.getByText(name, { exact: true }) })
+    .filter({ has: page.getByText(draftName, { exact: true }) })
     .click();
-  await expect(page.getByLabel("角色名称", { exact: true })).toHaveValue(name);
+  await expect(page.getByLabel("角色名称", { exact: true })).toHaveValue(
+    draftName,
+  );
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,

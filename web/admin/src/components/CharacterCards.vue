@@ -66,6 +66,15 @@ const selectedPublished = computed(() =>
   ),
 );
 const data = computed(() => edited.value?.data);
+function displayCard(item: CharacterCardSummary) {
+  return item.id === draft.value?.card_id && edited.value
+    ? edited.value.data
+    : item.draft?.card?.data;
+}
+function displayName(item: CharacterCardSummary) {
+  const card = displayCard(item);
+  return (card ? card.name : item.name) || "未命名卡片";
+}
 const tags = computed({
   get: () => data.value?.tags.join("，") || "",
   set: (value: string) => {
@@ -130,6 +139,14 @@ function mayLeave() {
     !hasUnsaved.value ||
     window.confirm("角色卡有未保存的修改，确定放弃这些修改？")
   );
+}
+function closeCard() {
+  if (!mayLeave()) return;
+  draft.value = null;
+  edited.value = null;
+  savedJson.value = "";
+  revisions.value = [];
+  revisionChoice.value = "";
 }
 function setDraft(value: CharacterDraft) {
   draft.value = value;
@@ -466,7 +483,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
         导入确认只创建草稿，不会发布、设为默认或修改全局模型。
       </p>
     </section>
-    <div class="character-layout">
+    <div class="character-layout" :class="{ 'is-editing': !!edited }">
       <aside class="panel character-library">
         <div class="character-heading">
           <h2>角色卡库</h2>
@@ -515,342 +532,351 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
           />
         </div>
       </aside>
-      <div class="character-content">
-        <section class="panel character-gallery" aria-label="角色卡片">
-          <div class="character-heading">
-            <div>
-              <h2>全部角色</h2>
-              <p class="muted">选择一张卡片，查看与编辑角色的表达。</p>
-            </div>
-            <span class="badge neutral">{{ library.items.length }} 张</span>
+      <section class="panel character-gallery" aria-label="角色卡片">
+        <div class="character-heading">
+          <div>
+            <h2>全部角色</h2>
+            <p class="muted">选择一张卡片，查看与编辑角色的表达。</p>
           </div>
-          <div v-if="library.items.length" class="character-grid">
-            <button
-              v-for="item in library.items"
-              :key="item.id"
-              type="button"
-              class="character-card-button"
-              :class="{ active: draft?.card_id === item.id }"
-              :aria-pressed="draft?.card_id === item.id"
-              :disabled="!!working"
-              @click="openCard(item)"
+          <span class="badge neutral">{{ library.items.length }} 张</span>
+        </div>
+        <div v-if="library.items.length" class="character-grid">
+          <button
+            v-for="item in library.items"
+            :key="item.id"
+            type="button"
+            class="character-card-button"
+            :class="{ active: draft?.card_id === item.id }"
+            :aria-pressed="draft?.card_id === item.id"
+            :disabled="!!working"
+            @click="openCard(item)"
+          >
+            <span class="character-card-avatar" aria-hidden="true">{{
+              Array.from(displayName(item))[0]
+            }}</span>
+            <strong>{{ displayName(item) }}</strong>
+            <span
+              v-if="displayCard(item)?.description"
+              class="character-card-description"
+              >{{ displayCard(item)?.description }}</span
             >
-              <span class="character-card-avatar" aria-hidden="true">{{
-                Array.from(item.name || "角色")[0]
-              }}</span>
-              <strong>{{ item.name || "未命名卡片" }}</strong>
-              <small
-                >{{
-                  item.archived_at
-                    ? "已归档"
-                    : item.latest_revision
-                      ? `已发布 v${item.latest_revision}`
-                      : "尚未发布"
-                }}{{ item.draft ? " · 有草稿" : "" }}</small
-              >
-              <span
-                v-if="library.default?.card_id === item.id"
-                class="badge green"
-                >新会话默认 v{{ library.default.revision }}</span
-              >
-              <span class="character-card-open">{{
-                draft?.card_id === item.id ? "正在编辑" : "打开卡片 →"
-              }}</span>
-            </button>
+            <small
+              >{{
+                item.archived_at
+                  ? "已归档"
+                  : item.latest_revision
+                    ? `已发布 v${item.latest_revision}`
+                    : "尚未发布"
+              }}{{ item.draft ? " · 展示草稿" : ""
+              }}{{
+                draft?.card_id === item.id && hasUnsaved ? " · 未保存" : ""
+              }}</small
+            >
+            <span
+              v-if="library.default?.card_id === item.id"
+              class="badge green"
+              >新会话默认 v{{ library.default.revision }}</span
+            >
+            <span class="character-card-open">{{
+              draft?.card_id === item.id ? "正在编辑" : "打开卡片 →"
+            }}</span>
+          </button>
+        </div>
+        <div v-else class="character-empty">
+          <h2>让助手拥有熟悉的表达</h2>
+          <p>从左侧新建或导入一张角色卡。人格、会话记忆和模型配置分别管理。</p>
+        </div>
+      </section>
+      <section v-if="edited && data" class="panel character-editor">
+        <div class="character-heading">
+          <div>
+            <span class="eyebrow">CHARACTER CARD</span>
+            <h2>{{ data.name || "未命名角色" }}</h2>
           </div>
-          <div v-else class="character-empty">
-            <h2>让助手拥有熟悉的表达</h2>
-            <p>
-              从左侧新建或导入一张角色卡。人格、会话记忆和模型配置分别管理。
-            </p>
-          </div>
-        </section>
-        <section v-if="edited && data" class="panel character-editor">
-          <div class="character-heading">
-            <div>
-              <span class="eyebrow">CHARACTER CARD</span>
-              <h2>{{ data.name || "未命名角色" }}</h2>
-            </div>
+          <div class="character-editor-state">
             <span class="badge" :class="hasUnsaved ? 'neutral' : 'green'">{{
               hasUnsaved ? "有未保存修改" : "草稿已保存"
             }}</span>
+            <button
+              class="button secondary small"
+              :disabled="!!working"
+              @click="closeCard"
+            >
+              返回全部角色
+            </button>
           </div>
-          <p class="muted">
-            草稿与已发布版本分开保存。修改草稿不影响运行中的角色。
+        </div>
+        <p class="muted">
+          草稿与已发布版本分开保存。修改草稿不影响运行中的角色。
+        </p>
+        <div v-if="!selectedSummary?.archived_at" class="character-toolbar">
+          <div class="character-actions">
+            <button
+              class="button secondary"
+              :disabled="!!working || !hasUnsaved"
+              @click="save"
+            >
+              保存草稿
+            </button>
+            <button
+              class="button secondary"
+              :disabled="!!working"
+              @click="validate"
+            >
+              校验卡片
+            </button>
+            <button
+              class="button secondary"
+              :disabled="!!working"
+              @click="compilePreview"
+            >
+              编译预览
+            </button>
+            <button
+              class="button secondary"
+              :disabled="!!working"
+              @click="testConversation"
+            >
+              独立测试对话
+            </button>
+            <button
+              class="button primary"
+              :disabled="!!working || hasUnsaved || !validation?.valid"
+              @click="publish"
+            >
+              发布版本
+            </button>
+          </div>
+          <p class="footnote">
+            校验、预览与独立测试会先保存当前草稿；发布版本后才可用于普通新会话。
           </p>
-          <div v-if="!selectedSummary?.archived_at" class="character-toolbar">
-            <div class="character-actions">
-              <button
-                class="button secondary"
-                :disabled="!!working || !hasUnsaved"
-                @click="save"
-              >
-                保存草稿
-              </button>
-              <button
-                class="button secondary"
-                :disabled="!!working"
-                @click="validate"
-              >
-                校验卡片
-              </button>
-              <button
-                class="button secondary"
-                :disabled="!!working"
-                @click="compilePreview"
-              >
-                编译预览
-              </button>
-              <button
-                class="button secondary"
-                :disabled="!!working"
-                @click="testConversation"
-              >
-                独立测试对话
-              </button>
-              <button
-                class="button primary"
-                :disabled="!!working || hasUnsaved || !validation?.valid"
-                @click="publish"
-              >
-                发布版本
-              </button>
-            </div>
-            <p class="footnote">
-              校验、预览与独立测试会先保存当前草稿；发布版本后才可用于普通新会话。
-            </p>
-            <p v-if="working" class="footnote" role="status">{{ working }}…</p>
+          <p v-if="working" class="footnote" role="status">{{ working }}…</p>
+        </div>
+        <fieldset
+          class="character-fields"
+          :disabled="!!working || !!selectedSummary?.archived_at"
+        >
+          <div class="character-field-row">
+            <label>角色名称<input v-model="data.name" maxlength="64" /></label
+            ><label>昵称<input v-model="data.nickname" maxlength="64" /></label>
           </div>
-          <fieldset
-            class="character-fields"
-            :disabled="!!working || !!selectedSummary?.archived_at"
+          <label
+            >身份与背景<textarea
+              v-model="data.description"
+              rows="3"
+              maxlength="8000"
+            ></textarea>
+          </label>
+          <label
+            >稳定性格<textarea
+              v-model="data.personality"
+              rows="3"
+              maxlength="4000"
+            ></textarea>
+          </label>
+          <label
+            >对话场景<textarea
+              v-model="data.scenario"
+              rows="2"
+              maxlength="4000"
+            ></textarea>
+          </label>
+          <label
+            >人格指令<textarea
+              v-model="data.system_prompt"
+              rows="5"
+              maxlength="8000"
+            ></textarea
+            ><small>参与人格编译；宿主工具权限仍由服务端控制。</small></label
           >
-            <div class="character-field-row">
-              <label>角色名称<input v-model="data.name" maxlength="64" /></label
+          <details open>
+            <summary>示例与开场白</summary>
+            <div class="character-detail-fields">
+              <label
+                >虚构风格示例<textarea
+                  v-model="data.mes_example"
+                  rows="5"
+                  maxlength="4000"
+                ></textarea
+                ><small>示例不会写入真实对话历史。</small></label
               ><label
-                >昵称<input v-model="data.nickname" maxlength="64"
-              /></label>
+                >首条开场白<textarea
+                  v-model="data.first_mes"
+                  rows="2"
+                  maxlength="2000"
+                ></textarea
+                ><small
+                  >仅用于 Web 新会话展示，不会自动向 QQ 发消息。</small
+                ></label
+              ><label
+                >备用开场白（每行一条）<textarea
+                  v-model="greetings"
+                  rows="3"
+                ></textarea></label
+              ><label
+                >群聊开场白（首期仅保存）<textarea
+                  v-model="groupGreetings"
+                  rows="2"
+                ></textarea></label
+              ><label
+                >历史后指令（首期不执行）<textarea
+                  v-model="data.post_history_instructions"
+                  rows="2"
+                  maxlength="4000"
+                ></textarea>
+              </label>
             </div>
-            <label
-              >身份与背景<textarea
-                v-model="data.description"
-                rows="3"
-                maxlength="8000"
-              ></textarea>
-            </label>
-            <label
-              >稳定性格<textarea
-                v-model="data.personality"
-                rows="3"
-                maxlength="4000"
-              ></textarea>
-            </label>
-            <label
-              >对话场景<textarea
-                v-model="data.scenario"
-                rows="2"
-                maxlength="4000"
-              ></textarea>
-            </label>
-            <label
-              >人格指令<textarea
-                v-model="data.system_prompt"
-                rows="5"
-                maxlength="8000"
-              ></textarea
-              ><small>参与人格编译；宿主工具权限仍由服务端控制。</small></label
-            >
-            <details>
-              <summary>示例与开场白</summary>
-              <div class="character-detail-fields">
+          </details>
+          <details open>
+            <summary>模块偏好</summary>
+            <div class="character-detail-fields">
+              <p class="muted">
+                当前仅支持宿主文本模型；视觉与语音待对应功能实现后开放。
+              </p>
+              <div class="character-field-row">
                 <label
-                  >虚构风格示例<textarea
-                    v-model="data.mes_example"
-                    rows="5"
-                    maxlength="4000"
-                  ></textarea
-                  ><small>示例不会写入真实对话历史。</small></label
+                  >文本模型<AdminSelect
+                    :model-value="data.extensions.dsh.modules.chat.mode"
+                    aria-label="文本模型"
+                    :options="[
+                      { value: 'inherit', label: '继承当前模型' },
+                      ...(data.extensions.dsh.modules.chat.mode !== 'inherit'
+                        ? [
+                            {
+                              value: data.extensions.dsh.modules.chat.mode,
+                              label: '导入的模型偏好（需改为继承）',
+                              disabled: true,
+                            },
+                          ]
+                        : []),
+                    ]"
+                    @update:model-value="
+                      data.extensions.dsh.modules.chat = { mode: 'inherit' }
+                    " /></label
                 ><label
-                  >首条开场白<textarea
-                    v-model="data.first_mes"
-                    rows="2"
-                    maxlength="2000"
-                  ></textarea
-                  ><small
-                    >仅用于 Web 新会话展示，不会自动向 QQ 发消息。</small
-                  ></label
-                ><label
-                  >备用开场白（每行一条）<textarea
-                    v-model="greetings"
-                    rows="3"
-                  ></textarea></label
-                ><label
-                  >群聊开场白（首期仅保存）<textarea
-                    v-model="groupGreetings"
-                    rows="2"
-                  ></textarea></label
-                ><label
-                  >历史后指令（首期不执行）<textarea
-                    v-model="data.post_history_instructions"
-                    rows="2"
-                    maxlength="4000"
-                  ></textarea>
-                </label>
+                  >视觉与语音<input
+                    :value="`视觉：${data.extensions.dsh.modules.vision.mode === 'disabled' ? '未启用' : '导入偏好待处理'}；语音：${data.extensions.dsh.modules.speech.mode === 'disabled' ? '未启用' : '导入偏好待处理'}`"
+                    readonly
+                /></label>
               </div>
-            </details>
-            <details open>
-              <summary>模块偏好</summary>
-              <div class="character-detail-fields">
-                <p class="muted">
-                  当前仅支持宿主文本模型；视觉与语音待对应功能实现后开放。
-                </p>
-                <div class="character-field-row">
-                  <label
-                    >文本模型<AdminSelect
-                      :model-value="data.extensions.dsh.modules.chat.mode"
-                      aria-label="文本模型"
-                      :options="[
-                        { value: 'inherit', label: '继承当前模型' },
-                        ...(data.extensions.dsh.modules.chat.mode !== 'inherit'
-                          ? [
-                              {
-                                value: data.extensions.dsh.modules.chat.mode,
-                                label: '导入的模型偏好（需改为继承）',
-                                disabled: true,
-                              },
-                            ]
-                          : []),
-                      ]"
-                      @update:model-value="
-                        data.extensions.dsh.modules.chat = { mode: 'inherit' }
-                      " /></label
-                  ><label
-                    >视觉与语音<input
-                      :value="`视觉：${data.extensions.dsh.modules.vision.mode === 'disabled' ? '未启用' : '导入偏好待处理'}；语音：${data.extensions.dsh.modules.speech.mode === 'disabled' ? '未启用' : '导入偏好待处理'}`"
-                      readonly
-                  /></label>
-                </div>
-                <button
-                  v-if="modulesNeedReset"
-                  class="button secondary small"
-                  @click="resetModules()"
-                >
-                  改为当前文本模型，关闭视觉与语音
-                </button>
-              </div>
-            </details>
-            <details>
-              <summary>分享元数据</summary>
-              <div class="character-detail-fields">
-                <div class="character-field-row">
-                  <label
-                    >作者<input v-model="data.creator" maxlength="128" /></label
-                  ><label
-                    >内容版本标签<input
-                      v-model="data.character_version"
-                      maxlength="64"
-                  /></label>
-                </div>
-                <label>标签（逗号分隔）<input v-model="tags" /></label
-                ><label
-                  >作者备注<textarea
-                    v-model="data.creator_notes"
-                    rows="3"
-                    maxlength="4000"
-                  ></textarea
-                  ><small>仅用于管理展示，不进入模型提示。</small></label
-                >
-              </div>
-            </details>
-          </fieldset>
-          <div v-if="validation" class="character-validation" role="status">
-            <strong>{{
-              validation.valid ? "卡片格式校验通过" : "请修复以下问题"
-            }}</strong>
-            <p v-if="validation.valid && validation.bindable === false">
-              卡片可保存，但当前模块偏好未满足运行绑定条件。
-            </p>
-            <ul>
-              <li
-                v-for="(issue, index) in [
-                  ...validation.errors,
-                  ...(validation.warnings || []),
-                ]"
-                :key="index"
-              >
-                {{ issue.field }}：{{ issue.message }}
-              </li>
-            </ul>
-          </div>
-          <div v-if="preview" class="character-preview">
-            <h3>运行人格预览 · {{ preview.bytes }} UTF-8 字节</h3>
-            <pre>{{ preview.system_prompt }}</pre>
-            <p v-if="preview.ignored_fields?.length" class="footnote">
-              未参与编译：{{ preview.ignored_fields.join("、") }}
-            </p>
-            <ul v-if="preview.warnings?.length" class="character-warnings">
-              <li v-for="(warning, index) in preview.warnings" :key="index">
-                {{ warning.field }}：{{ warning.message }}
-              </li>
-            </ul>
-          </div>
-          <div class="character-published">
-            <h3>已发布版本</h3>
-            <div v-if="revisions.length" class="character-actions">
-              <AdminSelect
-                v-model="revisionChoice"
-                aria-label="已发布角色版本"
-                :options="
-                  revisions.map((revision) => ({
-                    value: String(revision.revision),
-                    label: `v${revision.revision} · ${formatDate(revision.created_at)}`,
-                  }))
-                "
-              /><button
+              <button
+                v-if="modulesNeedReset"
                 class="button secondary small"
-                :disabled="!!working"
-                @click="exportCard"
+                @click="resetModules()"
               >
-                导出 JSON</button
-              ><button
-                class="button secondary small"
-                :disabled="!!working || !!selectedSummary?.archived_at"
-                @click="editPublishedVersion"
-              >
-                从此版本建草稿</button
-              ><button
-                class="button secondary small"
-                :disabled="!!working || !!selectedSummary?.archived_at"
-                @click="setDefault"
-              >
-                设为新会话默认</button
-              ><button
-                class="button secondary small"
-                :disabled="!!working || !!selectedSummary?.archived_at"
-                @click="archive"
-              >
-                归档卡片
+                改为当前文本模型，关闭视觉与语音
               </button>
             </div>
-            <p v-else class="muted">
-              尚未发布。请先校验卡片，再发布不可变版本。
-            </p>
-            <label
-              v-if="selectedSummary?.latest_revision"
-              class="character-qq-access"
-              ><input
-                type="checkbox"
-                :checked="!!selectedSummary.qq_selectable"
-                :disabled="!!working || !!selectedSummary.archived_at"
-                @change="setQqAccess"
-              />允许QQ私聊用户选择此角色</label
+          </details>
+          <details open>
+            <summary>分享元数据</summary>
+            <div class="character-detail-fields">
+              <div class="character-field-row">
+                <label
+                  >作者<input v-model="data.creator" maxlength="128" /></label
+                ><label
+                  >内容版本标签<input
+                    v-model="data.character_version"
+                    maxlength="64"
+                /></label>
+              </div>
+              <label>标签（逗号分隔）<input v-model="tags" /></label
+              ><label
+                >作者备注<textarea
+                  v-model="data.creator_notes"
+                  rows="3"
+                  maxlength="4000"
+                ></textarea
+                ><small>仅用于管理展示，不进入模型提示。</small></label
+              >
+            </div>
+          </details>
+        </fieldset>
+        <div v-if="validation" class="character-validation" role="status">
+          <strong>{{
+            validation.valid ? "卡片格式校验通过" : "请修复以下问题"
+          }}</strong>
+          <p v-if="validation.valid && validation.bindable === false">
+            卡片可保存，但当前模块偏好未满足运行绑定条件。
+          </p>
+          <ul>
+            <li
+              v-for="(issue, index) in [
+                ...validation.errors,
+                ...(validation.warnings || []),
+              ]"
+              :key="index"
             >
-            <p class="footnote">
-              发布不自动共享；QQ开关不影响已有会话或实例默认。新版本和默认值不会改变已有会话的人格。换角色请新建对话。
-            </p>
+              {{ issue.field }}：{{ issue.message }}
+            </li>
+          </ul>
+        </div>
+        <div v-if="preview" class="character-preview">
+          <h3>运行人格预览 · {{ preview.bytes }} UTF-8 字节</h3>
+          <pre>{{ preview.system_prompt }}</pre>
+          <p v-if="preview.ignored_fields?.length" class="footnote">
+            未参与编译：{{ preview.ignored_fields.join("、") }}
+          </p>
+          <ul v-if="preview.warnings?.length" class="character-warnings">
+            <li v-for="(warning, index) in preview.warnings" :key="index">
+              {{ warning.field }}：{{ warning.message }}
+            </li>
+          </ul>
+        </div>
+        <div class="character-published">
+          <h3>已发布版本</h3>
+          <div v-if="revisions.length" class="character-actions">
+            <AdminSelect
+              v-model="revisionChoice"
+              aria-label="已发布角色版本"
+              :options="
+                revisions.map((revision) => ({
+                  value: String(revision.revision),
+                  label: `v${revision.revision} · ${formatDate(revision.created_at)}`,
+                }))
+              "
+            /><button
+              class="button secondary small"
+              :disabled="!!working"
+              @click="exportCard"
+            >
+              导出 JSON</button
+            ><button
+              class="button secondary small"
+              :disabled="!!working || !!selectedSummary?.archived_at"
+              @click="editPublishedVersion"
+            >
+              从此版本建草稿</button
+            ><button
+              class="button secondary small"
+              :disabled="!!working || !!selectedSummary?.archived_at"
+              @click="setDefault"
+            >
+              设为新会话默认</button
+            ><button
+              class="button secondary small"
+              :disabled="!!working || !!selectedSummary?.archived_at"
+              @click="archive"
+            >
+              归档卡片
+            </button>
           </div>
-        </section>
-      </div>
+          <p v-else class="muted">尚未发布。请先校验卡片，再发布不可变版本。</p>
+          <label
+            v-if="selectedSummary?.latest_revision"
+            class="character-qq-access"
+            ><input
+              type="checkbox"
+              :checked="!!selectedSummary.qq_selectable"
+              :disabled="!!working || !!selectedSummary.archived_at"
+              @change="setQqAccess"
+            />允许QQ私聊用户选择此角色</label
+          >
+          <p class="footnote">
+            发布不自动共享；QQ开关不影响已有会话或实例默认。新版本和默认值不会改变已有会话的人格。换角色请新建对话。
+          </p>
+        </div>
+      </section>
     </div>
   </div>
 </template>
@@ -866,16 +892,36 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
   gap: 22px;
   align-items: start;
 }
+.character-library {
+  grid-column: 1;
+  grid-row: 1;
+}
+.character-gallery {
+  grid-column: 2;
+  grid-row: 1;
+}
+.character-layout.is-editing {
+  grid-template-rows: auto 1fr;
+}
+.is-editing .character-gallery {
+  grid-column: 1;
+  grid-row: 2;
+}
+.character-editor {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+.is-editing .character-gallery .character-heading {
+  align-items: flex-start;
+}
+.is-editing .character-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
 .character-library,
 .character-gallery,
 .character-editor,
 .character-import {
   padding: 24px;
-  min-width: 0;
-}
-.character-content {
-  display: grid;
-  gap: 22px;
   min-width: 0;
 }
 .character-gallery .character-heading p {
@@ -899,6 +945,13 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
   font-size: 16px;
   font-weight: 600;
   overflow-wrap: anywhere;
+}
+.character-editor-state {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 .character-default {
   margin: 12px 0 16px;
@@ -978,6 +1031,16 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
 }
 .character-card-button small {
   color: var(--muted);
+}
+.character-card-description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
 }
 .character-empty {
   padding: 36px 0;
@@ -1090,6 +1153,13 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
 @media (max-width: 1000px) {
   .character-layout {
     grid-template-columns: 1fr;
+  }
+  .character-library,
+  .character-gallery,
+  .is-editing .character-gallery,
+  .character-editor {
+    grid-column: 1;
+    grid-row: auto;
   }
   .character-library {
     display: grid;

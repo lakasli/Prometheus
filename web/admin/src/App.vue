@@ -18,6 +18,8 @@ import WeixinChannel from "./components/WeixinChannel.vue";
 import ImageAnalysis from "./components/ImageAnalysis.vue";
 import WasmWorkbench from "./components/WasmWorkbench.vue";
 import ConversationComposer from "./components/ConversationComposer.vue";
+import SkillsPanel from "./components/SkillsPanel.vue";
+import SkillOutput from "./components/SkillOutput.vue";
 import {
   api,
   ApiError,
@@ -44,6 +46,7 @@ import type {
   Run,
   SecretMetadata,
   SystemStatus,
+  SkillDraft,
 } from "./types";
 const memoryPanel = ref<InstanceType<typeof MemoryPanel> | null>(null);
 
@@ -51,6 +54,7 @@ type Page =
   | "overview"
   | "assistant"
   | "characters"
+  | "skills"
   | "qq"
   | "weixin"
   | "diagnostics"
@@ -84,6 +88,13 @@ const navigation: {
     title: "角色卡",
     eyebrow: "CHARACTER CARDS",
     description: "设计助手的身份与表达，为新会话选择熟悉的角色。",
+  },
+  {
+    id: "skills",
+    icon: "bolt",
+    title: "Skill 管理",
+    eyebrow: "AGENT SKILLS",
+    description: "管理助手的工作方法，让每次任务都有章可循。",
   },
   {
     id: "qq",
@@ -200,6 +211,7 @@ const config = reactive<RuntimeConfig>({
     base_url: "https://api.deepseek.com",
     model: "deepseek-chat",
     credential_ref: null,
+    image_generation: false,
   },
   qq: {
     enabled: false,
@@ -221,6 +233,17 @@ let replacingConfig = false;
 const revisions = ref<Revision[]>([]);
 const conversations = ref<Conversation[]>([]);
 const characterCards = ref<InstanceType<typeof CharacterCards> | null>(null);
+const skillsPanel = ref<InstanceType<typeof SkillsPanel> | null>(null);
+const skillDraft = ref<SkillDraft | null>(null);
+const skillChoice = ref("");
+function reviewSkill(value: SkillDraft) {
+  skillDraft.value = value;
+  navigate("skills");
+}
+function useSkill(id: string) {
+  skillChoice.value = id;
+  navigate("chat");
+}
 const characterOptions = ref<CharacterCardList | null>(null);
 const characterChoice = ref("");
 const selectedConversation = ref<string | null>(null);
@@ -395,6 +418,12 @@ function navigate(id: Page) {
   if (id !== page.value && !mayLeaveChat()) return;
   if (
     id !== page.value &&
+    skillsPanel.value?.hasUnsaved &&
+    !window.confirm("Skill 有未保存的修改，确定离开？")
+  )
+    return;
+  if (
+    id !== page.value &&
     characterCards.value?.hasUnsaved &&
     !window.confirm("角色卡有未保存的修改，确定离开？")
   )
@@ -424,6 +453,14 @@ function readHash() {
     requested === "images" || requested === "wasm" ? requested : null;
   const id = legacy ? "diagnostics" : requested;
   if (navigation.some((item) => item.id === id)) {
+    if (
+      id !== page.value &&
+      skillsPanel.value?.hasUnsaved &&
+      !window.confirm("Skill 有未保存的修改，确定离开？")
+    ) {
+      location.hash = page.value;
+      return;
+    }
     if (id !== page.value && !mayLeaveChat()) {
       location.hash = page.value;
       return;
@@ -550,6 +587,11 @@ async function authenticate() {
   });
 }
 async function logout() {
+  if (
+    skillsPanel.value?.hasUnsaved &&
+    !window.confirm("Skill 有未保存的修改，确定退出登录？")
+  )
+    return;
   if (
     characterCards.value?.hasUnsaved &&
     !window.confirm("角色卡有未保存的修改，确定退出登录？")
@@ -1537,6 +1579,24 @@ onUnmounted(() => {
                   ></label
                 >
               </section>
+              <section v-if="page === 'assistant'" class="panel">
+                <h2>绘画能力</h2>
+                <label class="field"
+                  ><span
+                    ><input
+                      v-model="config.model.image_generation"
+                      type="checkbox"
+                    />
+                    当前模型支持原生生图接口</span
+                  ><small
+                    >仅在服务商确认当前模型支持兼容的 images/generations 接口和
+                    Base64 PNG
+                    返回时启用。与上面的模型共用地址、标识和凭证；未启用时，绘画
+                    Skill 自动使用 HTML /
+                    SVG。勾选本身不代表连接测试通过。</small
+                  ></label
+                >
+              </section>
               <section v-if="page === 'qq'" class="panel">
                 <div class="panel-heading">
                   <div>
@@ -1849,6 +1909,15 @@ onUnmounted(() => {
           @auth-expired="expireSession"
         />
 
+        <SkillsPanel
+          v-if="page === 'skills'"
+          ref="skillsPanel"
+          :initial-draft="skillDraft"
+          @consumed="skillDraft = null"
+          @unauthorized="expireSession"
+          @use="useSkill"
+        />
+
         <template v-if="page === 'chat'">
           <section class="chat-workspace">
             <aside class="conversation-sidebar">
@@ -1986,7 +2055,15 @@ onUnmounted(() => {
                           : message.role
                     }}
                   </div>
-                  <div class="message-content">{{ message.content }}</div>
+                  <SkillOutput
+                    v-if="message.role === 'assistant'"
+                    :content="message.content"
+                    :generated-image-url="message.generated_image_url"
+                    @review="reviewSkill"
+                  />
+                  <div v-else class="message-content">
+                    {{ message.content }}
+                  </div>
                   <div
                     v-if="message.image"
                     class="message-image-metadata"
@@ -2030,6 +2107,7 @@ onUnmounted(() => {
               </div>
               <ConversationComposer
                 ref="conversationComposer"
+                v-model:skill-id="skillChoice"
                 :conversation-id="selectedConversation"
                 :is-test="
                   !!(

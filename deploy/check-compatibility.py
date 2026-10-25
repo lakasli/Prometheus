@@ -1,4 +1,4 @@
-"""Read-only deployment gate for durable persona and memory semantics."""
+"""Read-only deployment gate for durable assistant feature semantics."""
 import json
 from contextlib import closing
 import pathlib
@@ -72,6 +72,28 @@ def check(data_dir, release_source):
         )
         if uses_wasm and int(capabilities.get("pure_wasm_workbench", 0)) < 1:
             raise RuntimeError("Target release lacks pure WASM approval and revocation support")
+        # Empty additive tables and the two untouched seeds permit rollback
+        # before the first user action. Used snapshots and user management
+        # changes must retain a reader that understands Skill semantics.
+        uses_skills = "run_skills" in tables and db.execute("SELECT EXISTS(SELECT 1 FROM run_skills)").fetchone()[0]
+        if "skills" in tables:
+            columns = {r[1] for r in db.execute("PRAGMA table_info(skills)")}
+            if {"revision", "builtin"} <= columns:
+                uses_skills |= db.execute("SELECT EXISTS(SELECT 1 FROM skills WHERE revision>1 OR builtin=0)").fetchone()[0]
+        for table in ("config_revisions", "runs"):
+            if table not in tables:
+                continue
+            columns = {r[1] for r in db.execute(f"PRAGMA table_info({table})")}
+            if "config_json" not in columns:
+                continue
+            for (text,) in db.execute(f"SELECT config_json FROM {table} WHERE config_json IS NOT NULL"):
+                config = json.loads(text)
+                model = config.get("model", {}) if isinstance(config, dict) else {}
+                if isinstance(model, dict) and model.get("image_generation") is True:
+                    uses_skills = True
+                    break
+        if uses_skills and int(capabilities.get("skills", 0)) < 1:
+            raise RuntimeError("Target release lacks Skill snapshots or image generation configuration support")
 
 
 if __name__ == "__main__":
