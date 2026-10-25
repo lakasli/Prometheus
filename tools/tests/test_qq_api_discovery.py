@@ -64,6 +64,12 @@ class OwnershipTests(unittest.TestCase):
         self.assertFalse(RESOURCE.owned_resource('panel', 'fresh-id', set(), journal, 'account-b'))
         self.assertFalse(RESOURCE.owned_resource('panel', 'other-run-id', set(), journal, 'account-a'))
 
+    def test_an_uncertain_delete_is_never_automatically_submitted_again(self):
+        journal = {'panel': {'id': 'new-panel', 'created_by_this_invocation': True}}
+        self.assertTrue(RESOURCE.cleanup_needed(journal, 'panel'))
+        journal['panel']['delete_intent_recorded'] = True
+        self.assertFalse(RESOURCE.cleanup_needed(journal, 'panel'))
+
 
 if __name__ == '__main__':
     unittest.main()
