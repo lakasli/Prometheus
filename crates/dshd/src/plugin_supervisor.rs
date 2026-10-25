@@ -375,7 +375,11 @@ pub async fn execute(
                     verified = true;
                     break;
                 }
-                if observed && matches!(prop(&values, "ActiveState"), Some("failed" | "inactive")) {
+                // StartTransientUnit can expose a loaded but initially
+                // inactive unit before its start job creates the cgroup. That
+                // is not an exited worker. Keep polling; request bytes are
+                // withheld until the kernel cgroup values are verified.
+                if observed && prop(&values, "ActiveState") == Some("failed") {
                     break;
                 }
             }

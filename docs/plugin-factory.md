@@ -29,7 +29,7 @@ world plugin {
 
 `invoke` 的字符串为 JSON；宿主在调用前、返回后分别校验 schema，输出作为不可信数据处理。当前 schema 子集支持明确 `type`、`properties`、`required`、布尔 `additionalProperties`、`items`、`enum` 和说明文字。未实现的关键字明确拒绝，避免假称检查通过。
 
-每个版本绑定需求 / 测试 / Schema、生成函数体 SHA-256、Component SHA-256、构建环境摘要、WIT / 模板摘要、Host API、Wasmtime 版本、隔离策略、空权限集及状态 schema。构建环境记录实际 `rustc --version` 和编译器 SHA-256，不记录用户目录或任何凭据。制品保存在当前实例的私有 SQLite 中；Web 只向其所属管理账户返回源码、摘要及测试结果，不公开 Component 下载或秘密配置。
+每个版本绑定需求 / 测试 / Schema、生成函数体 SHA-256、Component SHA-256、构建环境摘要、WIT / 模板摘要、Host API、Wasmtime 版本、隔离策略、空权限集及状态 schema。构建环境记录实际 `rustc --version`、编译器与链接器 SHA-256，不记录用户目录或任何凭据。编译器显式使用固定 sysroot 内绝对 `rust-lld` 路径，避免 Rust 1.88 相对 PATH 启动回退所需的匿名 socketpair；不为此开放 socket / IPC。制品保存在当前实例的私有 SQLite 中；Web 只向其所属管理账户返回源码、摘要及测试结果，不公开 Component 下载或秘密配置。
 
 每个管理者最多 100 个版本、2,000 个工厂任务；函数体最多 64 KiB，规格最多 48 KiB，Component 最多 4 MiB，每次输入最多 16 KiB、输出最多 64 KiB。版本不可覆盖；修改需求或源码应创建新版本。
 

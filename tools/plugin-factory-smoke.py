@@ -204,10 +204,26 @@ def main():
                     harness.call('POST', ROOT + '/check', {}, with_csrf=False, expected=403)
                     harness.call('POST', ROOT + '/check', {}, authenticated=False, expected=401)
                     harness.call('POST', ROOT + '/check', {}, headers={'Origin': 'https://example.invalid'}, expected=403)
-                    isolated = harness.call('POST', ROOT + '/check', {})[0]
+                    # Repeat actual start/verify/stop cycles: systemd may
+                    # expose a loaded but initially inactive unit before its
+                    # cgroup exists. Never turn that scheduling window into a
+                    # false failure, or send guest bytes before enforcement.
+                    observed_units = set()
+                    report['isolation_probe_repetitions'] = 0
+                    for repetition in range(32):
+                        isolated = harness.call('POST', ROOT + '/check', {}, expected={200, 409, 503})[0]
+                        if 'error' in isolated:
+                            report['isolation_failure_code'] = isolated['error'].get('code')
+                            raise AssertionError('actual isolated worker lifecycle probe failed')
+                        if (not isolated['passed'] or not all(isolated['probes'].values())
+                                or isolated['isolation']['landlock_abi'] < 4
+                                or not isolated['isolation']['rlimits_enforced']):
+                            raise AssertionError('actual isolated worker enforcement probe failed')
+                        observed_units.add(isolated['isolation']['unit'])
+                        report['isolation_probe_repetitions'] = repetition + 1
                     report['isolation_policy'] = isolated['isolation']['policy']
-                    check('actual worker verifies cgroup Landlock seccomp closed FDs and all eight canary checks',
-                          isolated['passed'] and all(isolated['probes'].values()) and isolated['isolation']['landlock_abi'] >= 4)
+                    check('thirty two fresh actual workers verify cgroup Landlock seccomp FDs and eight canaries then confirm exact exit',
+                          len(observed_units) == 32 and harness.call('GET', ROOT)[0]['available'])
                     request = {'client_request_id': str(uuid.uuid4()), 'specification': specification(), 'body': None}
                     first = harness.call('POST', ROOT, request, expected=201)[0]
                     duplicate = harness.call('POST', ROOT, request, expected=201)[0]

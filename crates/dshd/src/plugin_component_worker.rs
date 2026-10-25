@@ -26,6 +26,22 @@ pub const FUEL: u64 = 5_000_000;
 pub const WIT: &str = include_str!("../plugin-template/world.wit");
 pub const TEMPLATE: &str = include_str!("../plugin-template/guest.rs");
 
+fn file_sha256(path: &Path) -> Result<String, &'static str> {
+    let mut file = std::fs::File::open(path).map_err(|_| "plugin_compiler_unavailable")?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0u8; 65536];
+    loop {
+        let count = file
+            .read(&mut buffer)
+            .map_err(|_| "plugin_compiler_unavailable")?;
+        if count == 0 {
+            break;
+        }
+        digest.update(&buffer[..count]);
+    }
+    Ok(hex::encode(digest.finalize()))
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Case {
@@ -109,6 +125,9 @@ fn build(work: &Path, rustc: &Path, body: &str) -> Result<Vec<u8>, &'static str>
         return Err("plugin_source_invalid");
     }
     let source = TEMPLATE.replace("/* DSH_GENERATED_BODY */", body);
+    let linker = plugin_sandbox::linker(rustc)?;
+    let mut linker_argument = std::ffi::OsString::from("-Clinker=");
+    linker_argument.push(linker);
     std::fs::write(work.join("guest.rs"), source).map_err(|_| "plugin_build_workspace")?;
     let status = Command::new(rustc)
         .args([
@@ -126,6 +145,7 @@ fn build(work: &Path, rustc: &Path, body: &str) -> Result<Vec<u8>, &'static str>
             "-o",
             "guest.wasm",
         ])
+        .arg(linker_argument)
         .current_dir(work)
         .env_clear()
         .env("TMPDIR", work)
@@ -314,9 +334,9 @@ pub fn run_stdio(work: &Path, rustc: &Path) -> i32 {
             if !version.status.success() || version.stdout.len() > 512 {
                 return Err("plugin_compiler_unavailable");
             }
-            let compiler = std::fs::read(rustc).map_err(|_| "plugin_compiler_unavailable")?;
+            let linker = plugin_sandbox::linker(rustc)?;
             Some(
-                json!({"rustc_version":String::from_utf8(version.stdout).map_err(|_|"plugin_compiler_unavailable")?.trim(),"rustc_sha256":hex::encode(Sha256::digest(&compiler)),"template_sha256":hex::encode(Sha256::digest(TEMPLATE.as_bytes())),"wit_sha256":hex::encode(Sha256::digest(WIT.as_bytes())),"target":"wasm32-unknown-unknown","dependencies":[],"cargo_build_scripts":false,"network":false,"policy":plugin_sandbox::POLICY}),
+                json!({"rustc_version":String::from_utf8(version.stdout).map_err(|_|"plugin_compiler_unavailable")?.trim(),"rustc_sha256":file_sha256(rustc)?,"linker_sha256":file_sha256(&linker)?,"absolute_sysroot_linker":true,"template_sha256":hex::encode(Sha256::digest(TEMPLATE.as_bytes())),"wit_sha256":hex::encode(Sha256::digest(WIT.as_bytes())),"target":"wasm32-unknown-unknown","dependencies":[],"cargo_build_scripts":false,"network":false,"policy":plugin_sandbox::POLICY}),
             )
         } else {
             None

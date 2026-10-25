@@ -45,6 +45,33 @@ pub fn toolchain() -> Result<PathBuf, &'static str> {
     if !root.join("lib/rustlib/wasm32-unknown-unknown/lib").is_dir() {
         return Err("plugin_wasm_target_unavailable");
     }
+    linker(&path)?;
+    Ok(path)
+}
+
+/// An absolute sysroot linker avoids Rust 1.88's relative-PATH fork/socketpair
+/// fallback. The compiler's external socket/IPC restrictions stay unchanged.
+pub fn linker(rustc: &Path) -> Result<PathBuf, &'static str> {
+    let host = match std::env::consts::ARCH {
+        "aarch64" => "aarch64-unknown-linux-gnu",
+        "x86_64" => "x86_64-unknown-linux-gnu",
+        _ => return Err("plugin_linker_unavailable"),
+    };
+    let root = rustc
+        .parent()
+        .and_then(Path::parent)
+        .ok_or("plugin_rustc_invalid")?
+        .canonicalize()
+        .map_err(|_| "plugin_rustc_invalid")?;
+    let path = root
+        .join("lib/rustlib")
+        .join(host)
+        .join("bin/rust-lld")
+        .canonicalize()
+        .map_err(|_| "plugin_linker_unavailable")?;
+    if !path.starts_with(&root) || !path.is_file() {
+        return Err("plugin_linker_unavailable");
+    }
     Ok(path)
 }
 
