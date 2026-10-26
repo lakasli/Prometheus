@@ -8,6 +8,9 @@ use std::collections::HashSet;
 
 pub const COMPILER_VERSION: &str = "dsh-character-v1";
 pub const DEFAULT_KEY: &str = "character.default.v1";
+pub const PERSONALITY_KEY: &str = "assistant.personality.v1";
+pub const PERSONALITY_HISTORY_KEY: &str = "assistant.personality.history.v1";
+pub const PERSONALITY_ID: &str = "assistant-personality";
 pub type CharacterResult<T> = Result<T, CharacterError>;
 #[derive(Debug)]
 pub struct CharacterError {
@@ -714,23 +717,213 @@ fn check_published_binding(
         ))
     }
 }
+/// New conversations use the single instance personality. Historical bindings stay intact.
 pub fn bind_new_conversation(
-    db: &Connection,
-    conversation_id: &str,
+    _db: &Connection,
+    _conversation_id: &str,
     selected: Option<&CardRef>,
-    config: &RuntimeConfig,
+    _config: &RuntimeConfig,
 ) -> CharacterResult<Option<CardRef>> {
-    let reference = selected
-        .cloned()
-        .map(Some)
-        .unwrap_or(default_reference(db)?);
-    if let Some(reference) = &reference {
-        let card = revision_card(db, reference, false)?;
-        check_published_binding(db, reference, &card, config)?;
-        db.execute("INSERT INTO conversation_character_bindings(conversation_id,card_id,revision) VALUES(?1,?2,?3)",params![conversation_id,reference.card_id,reference.revision])?;
-        mark_feature(db)?;
+    if selected.is_some() {
+        return Err(single_personality_only());
     }
-    Ok(reference)
+    Ok(None)
+}
+
+pub fn single_personality_only() -> CharacterError {
+    CharacterError {
+        code: "single_personality_only",
+        message: "本助手仅使用一个性格，请在助手与模型中编辑；不再支持角色卡切换".into(),
+        status: StatusCode::GONE,
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Personality {
+    pub name: String,
+    pub description: String,
+    pub personality: String,
+    pub scenario: String,
+    pub system_prompt: String,
+    pub mes_example: String,
+}
+impl Personality {
+    fn from_card(card: &Value) -> CharacterResult<Self> {
+        let data = &card["data"];
+        Ok(Self {
+            name: data["name"].as_str().unwrap_or("DSH").into(),
+            description: data["description"].as_str().unwrap_or("").into(),
+            personality: data["personality"].as_str().unwrap_or("").into(),
+            scenario: data["scenario"].as_str().unwrap_or("").into(),
+            system_prompt: data["system_prompt"].as_str().unwrap_or("").into(),
+            mes_example: data["mes_example"].as_str().unwrap_or("").into(),
+        })
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PersonalityHistoryItem {
+    revision: i64,
+    personality: Personality,
+    created_at: i64,
+}
+fn read_personality_history(db: &Connection) -> CharacterResult<Vec<PersonalityHistoryItem>> {
+    let text: Option<String> = db
+        .query_row(
+            "SELECT value FROM settings WHERE key=?1",
+            [PERSONALITY_HISTORY_KEY],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let mut items: Vec<PersonalityHistoryItem> = text
+        .map(|text| serde_json::from_str(&text))
+        .transpose()?
+        .unwrap_or_default();
+    items.sort_by(|a, b| b.revision.cmp(&a.revision));
+    items.truncate(20);
+    Ok(items)
+}
+pub fn personality_history(db: &Connection) -> CharacterResult<Value> {
+    Ok(json!({"items":read_personality_history(db)?}))
+}
+
+fn personality_card(
+    db: &Connection,
+    config: &RuntimeConfig,
+) -> CharacterResult<(Value, i64, bool)> {
+    let stored: Option<String> = db
+        .query_row(
+            "SELECT value FROM settings WHERE key=?1",
+            [PERSONALITY_KEY],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if let Some(text) = stored {
+        let value: Value = serde_json::from_str(&text)?;
+        return Ok((
+            value["card"].clone(),
+            value["revision"].as_i64().unwrap_or(0),
+            true,
+        ));
+    }
+    let card = if let Some(reference) = default_reference(db)? {
+        revision_card(db, &reference, true)?
+    } else {
+        template(&config.assistant.name, &config.assistant.system_prompt)
+    };
+    Ok((card, 0, false))
+}
+
+pub fn personality_state(db: &Connection, config: &RuntimeConfig) -> CharacterResult<Value> {
+    let (card, revision, saved) = personality_card(db, config)?;
+    let etag = card_digest(&json!({"card":card,"revision":revision}))?;
+    Ok(
+        json!({"etag":etag,"revision":revision,"personality":Personality::from_card(&card)?,"saved":saved,"applied":true,"effective_from":"next_run"}),
+    )
+}
+
+pub fn save_personality(
+    db: &Connection,
+    config: &RuntimeConfig,
+    expected: &str,
+    personality: Personality,
+) -> CharacterResult<Value> {
+    let current = personality_state(db, config)?;
+    if current["etag"] != expected {
+        return Err(CharacterError::conflict());
+    }
+    let (mut card, revision, _) = personality_card(db, config)?;
+    let fields = serde_json::to_value(personality)?;
+    for field in [
+        "name",
+        "description",
+        "personality",
+        "scenario",
+        "system_prompt",
+        "mes_example",
+    ] {
+        card["data"][field] = fields[field].clone();
+    }
+    // Model routing belongs to the instance configuration, never to personality content.
+    card["data"]["extensions"] = template("DSH", "")["data"]["extensions"].clone();
+    require_valid(&card)?;
+    let stamp = now();
+    let prior_created: Option<i64> = db
+        .query_row(
+            "SELECT json_extract(value,'$.created_at') FROM settings WHERE key=?1",
+            [PERSONALITY_KEY],
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten();
+    let mut history = read_personality_history(db)?;
+    history.retain(|item| item.revision != revision);
+    let previous_card = personality_card(db, config)?.0;
+    history.push(PersonalityHistoryItem {
+        revision,
+        personality: Personality::from_card(&previous_card)?,
+        created_at: prior_created.unwrap_or(stamp),
+    });
+    history.sort_by(|a, b| b.revision.cmp(&a.revision));
+    history.truncate(20);
+    let history = serde_json::to_string(&history)?;
+    let value = json!({"card":card,"revision":revision+1,"created_at":stamp});
+    // This savepoint also protects callers already inside the authenticated API
+    // transaction: a failed history/current write can never save half a version.
+    db.execute_batch("SAVEPOINT assistant_personality_save")?;
+    let result = (|| -> CharacterResult<Value> {
+        db.execute("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![PERSONALITY_HISTORY_KEY,history])?;
+        db.execute("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![PERSONALITY_KEY,value.to_string()])?;
+        personality_state(db, config)
+    })();
+    match result {
+        Ok(saved) => {
+            db.execute_batch("RELEASE assistant_personality_save")?;
+            Ok(saved)
+        }
+        Err(error) => {
+            let _ = db.execute_batch(
+                "ROLLBACK TO assistant_personality_save; RELEASE assistant_personality_save",
+            );
+            Err(error)
+        }
+    }
+}
+
+pub fn freeze_personality(
+    db: &Connection,
+    config_revision: i64,
+    config: &RuntimeConfig,
+    user_name: &str,
+) -> CharacterResult<StaticSnapshot> {
+    let (card, revision, saved) = personality_card(db, config)?;
+    let system_prompt = if !saved && default_reference(db)?.is_none() {
+        // The original instance configuration accepts up to 32,000 UTF-8 bytes.
+        // Keep its exact prompt semantics until a personality is explicitly saved;
+        // wrapping it in card labels/guards could reject a previously valid prompt.
+        config.assistant.system_prompt.clone()
+    } else {
+        compile(&card, user_name)?.0
+    };
+    let module_digest = model_digest(config)?;
+    let projection_digest = card_digest(
+        &json!({"compiler_version":COMPILER_VERSION,"module_digest":module_digest,"system_prompt":system_prompt,"is_test":false}),
+    )?;
+    Ok(StaticSnapshot {
+        card_id: PERSONALITY_ID.into(),
+        revision,
+        name: card["data"]["name"].as_str().unwrap_or("DSH").into(),
+        card_digest: card_digest(&card)?,
+        projection_digest,
+        compiler_version: COMPILER_VERSION.into(),
+        system_prompt,
+        config_revision,
+        module_digest,
+        is_test: false,
+        draft_etag: None,
+    })
 }
 pub fn bind_test_conversation(
     db: &Connection,
@@ -764,50 +957,20 @@ pub fn freeze_for_run(
     config: &RuntimeConfig,
     user_name: &str,
 ) -> CharacterResult<Option<StaticSnapshot>> {
-    type BindingRow = (String, i64, Option<String>, Option<String>, Option<String>);
-    let row:Option<BindingRow>=db.query_row("SELECT card_id,revision,draft_card_json,draft_etag,chat_binding_digest FROM conversation_character_bindings WHERE conversation_id=?1",[conversation_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).optional()?;
-    let Some((card_id, revision, draft, draft_etag, binding)) = row else {
-        return Ok(None);
-    };
-    let reference = CardRef {
-        card_id: card_id.clone(),
-        revision,
-    };
-    let is_test = draft.is_some();
-    let card = if let Some(text) = draft {
-        let card: Value = serde_json::from_str(&text)?;
-        if !binding_errors(&card, config, binding.as_deref()).is_empty() {
-            return Err(CharacterError::new("module_unmapped", "测试模型映射已失效"));
-        }
-        card
-    } else {
-        let card = revision_card(db, &reference, true)?;
-        check_published_binding(db, &reference, &card, config)?;
-        card
-    };
-    let (system_prompt, _) = compile(&card, user_name)?;
-    let module_digest = model_digest(config)?;
-    let projection_digest = card_digest(&json!({
-        "compiler_version": COMPILER_VERSION,
-        "module_digest": module_digest,
-        "system_prompt": system_prompt,
-        "is_test": is_test,
-        "draft_etag": draft_etag
-    }))?;
-    Ok(Some(StaticSnapshot {
-        card_id,
-        revision,
-        name: card["data"]["name"].as_str().unwrap_or("DSH").into(),
-        card_digest: card_digest(&card)?,
-        projection_digest,
-        compiler_version: COMPILER_VERSION.into(),
-        system_prompt,
-        config_revision,
-        module_digest,
-        is_test,
-        draft_etag,
-    }))
+    let mut snapshot = freeze_personality(db, config_revision, config, user_name)?;
+    // Keep legacy draft-test conversations excluded from long-term memory.
+    let is_test: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM conversation_character_bindings WHERE conversation_id=?1 AND draft_card_json IS NOT NULL)",
+        [conversation_id], |r| r.get(0),
+    )?;
+    snapshot.is_test = is_test;
+    if is_test {
+        snapshot.projection_digest =
+            card_digest(&json!({"base":snapshot.projection_digest,"is_test":true}))?;
+    }
+    Ok(Some(snapshot))
 }
+
 pub fn connection_character(db: &Connection, conversation_id: &str) -> CharacterResult<Value> {
     let row:Option<(String,i64,Option<String>,Option<String>)>=db.query_row("SELECT card_id,revision,draft_card_json,draft_etag FROM conversation_character_bindings WHERE conversation_id=?1",[conversation_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
     let Some((id, revision, draft, etag)) = row else {
@@ -1100,33 +1263,178 @@ mod tests {
         );
     }
     #[test]
-    fn default_does_not_change_existing_bindings_or_legacy() {
+    fn single_personality_preserves_history_and_updates_future_runs_with_conflict_detection() {
         let db = database();
-        let (_, r) = published(&db, "旧角色", "old");
-        let (_, next) = published(&db, "新角色", "new");
-        let config = RuntimeConfig::default();
+        let (_, previous) = published(&db, "历史会话角色", "old");
+        let (_, active) = published(&db, "当前助手", "active");
+        let mut config = RuntimeConfig::default();
         conversation(&db, "legacy");
         conversation(&db, "bound");
-        set_default(&db, &r, "none", &config).unwrap();
-        bind_new_conversation(&db, "bound", None, &config).unwrap();
-        let etag = default_state(&db).unwrap()["default_etag"]
-            .as_str()
+        db.execute("INSERT INTO conversation_character_bindings(conversation_id,card_id,revision) VALUES('bound',?1,1)", [&previous.card_id]).unwrap();
+        set_default(&db, &active, "none", &config).unwrap();
+        let initial = personality_state(&db, &config).unwrap();
+        assert_eq!(initial["personality"]["name"], "当前助手");
+        assert_eq!(initial["saved"], false);
+        let frozen = freeze_for_run(&db, "bound", 1, &config, "用户")
             .unwrap()
-            .to_string();
-        set_default(&db, &next, &etag, &config).unwrap();
-        assert!(freeze_for_run(&db, "legacy", 1, &config, "用户")
-            .unwrap()
-            .is_none());
+            .unwrap();
+        assert_eq!(frozen.name, "当前助手");
+        let mut changed: Personality =
+            serde_json::from_value(initial["personality"].clone()).unwrap();
+        changed.name = "唯一助手".into();
+        changed.personality = "沉着耐心".into();
+        let saved = save_personality(
+            &db,
+            &config,
+            initial["etag"].as_str().unwrap(),
+            changed.clone(),
+        )
+        .unwrap();
+        assert_eq!(saved["revision"], 1);
         assert_eq!(
-            freeze_for_run(&db, "bound", 1, &config, "用户")
+            save_personality(&db, &config, initial["etag"].as_str().unwrap(), changed)
+                .unwrap_err()
+                .status,
+            StatusCode::CONFLICT
+        );
+        config.assistant.name = "遗留配置不得覆盖".into();
+        for chat in ["legacy", "bound"] {
+            let next = freeze_for_run(&db, chat, 2, &config, "用户")
                 .unwrap()
-                .unwrap()
-                .name,
-            "旧角色"
+                .unwrap();
+            assert_eq!(next.name, "唯一助手");
+            assert_eq!(next.card_id, PERSONALITY_ID);
+            assert!(next.system_prompt.contains("沉着耐心"));
+        }
+        assert_eq!(frozen.name, "当前助手");
+        assert_eq!(
+            connection_character(&db, "bound").unwrap()["card_id"],
+            previous.card_id
+        );
+        assert_eq!(
+            bind_new_conversation(&db, "legacy", Some(&previous), &config)
+                .unwrap_err()
+                .status,
+            StatusCode::GONE
         );
     }
     #[test]
-    fn draft_test_is_frozen_and_export_has_only_card_fields() {
+    fn invalid_personality_does_not_replace_last_saved_version() {
+        let db = database();
+        let config = RuntimeConfig::default();
+        let initial = personality_state(&db, &config).unwrap();
+        let mut invalid: Personality =
+            serde_json::from_value(initial["personality"].clone()).unwrap();
+        invalid.name = String::new();
+        assert!(
+            save_personality(&db, &config, initial["etag"].as_str().unwrap(), invalid).is_err()
+        );
+        assert_eq!(personality_state(&db, &config).unwrap(), initial);
+    }
+    #[test]
+    fn personality_history_is_bounded_and_restoring_an_old_value_creates_a_new_revision() {
+        let db = database();
+        let config = RuntimeConfig::default();
+        let initial = personality_state(&db, &config).unwrap();
+        assert!(personality_history(&db).unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        let mut current = initial.clone();
+        for revision in 1..=22 {
+            let mut personality: Personality =
+                serde_json::from_value(current["personality"].clone()).unwrap();
+            personality.personality = format!("revision-{revision}");
+            current =
+                save_personality(&db, &config, current["etag"].as_str().unwrap(), personality)
+                    .unwrap();
+            if revision == 1 {
+                let history = personality_history(&db).unwrap();
+                assert_eq!(history["items"][0]["revision"], 0);
+                assert_eq!(history["items"][0]["personality"], initial["personality"]);
+                assert!(history["items"][0]["created_at"].as_i64().unwrap() > 0);
+            }
+        }
+        let history = personality_history(&db).unwrap();
+        let items = history["items"].as_array().unwrap();
+        assert_eq!(items.len(), 20);
+        assert_eq!(items[0]["revision"], 21);
+        assert_eq!(items[19]["revision"], 2);
+        let restored: Personality =
+            serde_json::from_value(items[19]["personality"].clone()).unwrap();
+        let saved =
+            save_personality(&db, &config, current["etag"].as_str().unwrap(), restored).unwrap();
+        assert_eq!(saved["revision"], 23);
+        assert_eq!(saved["personality"]["personality"], "revision-2");
+        assert_eq!(
+            freeze_personality(&db, 1, &config, "用户")
+                .unwrap()
+                .revision,
+            23
+        );
+        let latest = personality_history(&db).unwrap();
+        assert_eq!(latest["items"][0]["revision"], 22);
+        assert_eq!(latest["items"][0]["personality"], current["personality"]);
+        assert_eq!(latest["items"].as_array().unwrap().len(), 20);
+    }
+    #[test]
+    fn failed_current_write_rolls_back_personality_history_in_the_same_transaction() {
+        let db = database();
+        let config = RuntimeConfig::default();
+        let initial = personality_state(&db, &config).unwrap();
+        db.execute_batch("CREATE TRIGGER reject_personality BEFORE INSERT ON settings WHEN NEW.key='assistant.personality.v1' BEGIN SELECT RAISE(ABORT,'fixture'); END;").unwrap();
+        let personality: Personality =
+            serde_json::from_value(initial["personality"].clone()).unwrap();
+        assert!(
+            save_personality(&db, &config, initial["etag"].as_str().unwrap(), personality).is_err()
+        );
+        assert_eq!(personality_state(&db, &config).unwrap(), initial);
+        assert!(personality_history(&db).unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+    }
+    #[test]
+    fn unsaved_legacy_prompts_keep_their_full_valid_byte_budget_without_truncation() {
+        let db = database();
+        conversation(&db, "legacy-budget");
+        for bytes in [31_999, 32_000] {
+            let mut config = RuntimeConfig::default();
+            config.assistant.system_prompt = "x".repeat(bytes);
+            assert!(config.validate(true).is_empty());
+            let initial = personality_state(&db, &config).unwrap();
+            assert_eq!(
+                initial["personality"]["system_prompt"],
+                config.assistant.system_prompt
+            );
+            let frozen = freeze_for_run(&db, "legacy-budget", 1, &config, "用户")
+                .unwrap()
+                .unwrap();
+            assert_eq!(frozen.card_id, PERSONALITY_ID);
+            assert_eq!(frozen.revision, 0);
+            assert_eq!(frozen.system_prompt, config.assistant.system_prompt);
+            assert_eq!(frozen.system_prompt.len(), bytes);
+            // The narrower editable-card contract fails clearly and leaves the
+            // accepted legacy configuration untouched, instead of truncating it.
+            let unchanged: Personality =
+                serde_json::from_value(initial["personality"].clone()).unwrap();
+            let error =
+                save_personality(&db, &config, initial["etag"].as_str().unwrap(), unchanged)
+                    .unwrap_err();
+            assert_eq!(error.code, "invalid_character_card");
+            assert_eq!(personality_state(&db, &config).unwrap(), initial);
+        }
+        let mut config = RuntimeConfig::default();
+        config.assistant.system_prompt = "Preserve literal {{user}} and {{char}}.".into();
+        assert_eq!(
+            freeze_personality(&db, 1, &config, "甲")
+                .unwrap()
+                .system_prompt,
+            config.assistant.system_prompt
+        );
+    }
+    #[test]
+    fn historical_draft_tests_keep_memory_exclusion_without_an_alternate_personality() {
         let db = database();
         let draft = create(&db, "admin", template("测试卡", "原始人格")).unwrap();
         conversation(&db, "test");
@@ -1156,7 +1464,7 @@ mod tests {
             .unwrap();
         assert!(
             snapshot.is_test
-                && snapshot.system_prompt.contains("原始人格")
+                && !snapshot.system_prompt.contains("原始人格")
                 && !snapshot.system_prompt.contains("另一个人格")
         );
         assert!(!draft.card.to_string().contains("credential_ref"));
@@ -1227,7 +1535,8 @@ mod tests {
             revision: result["revision"].as_i64().unwrap(),
         };
         conversation(&db, "bound");
-        bind_new_conversation(&db, "bound", Some(&reference), &RuntimeConfig::default()).unwrap();
+        set_default(&db, &reference, "none", &RuntimeConfig::default()).unwrap();
+        bind_new_conversation(&db, "bound", None, &RuntimeConfig::default()).unwrap();
         let a = freeze_for_run(&db, "bound", 1, &RuntimeConfig::default(), "甲")
             .unwrap()
             .unwrap();

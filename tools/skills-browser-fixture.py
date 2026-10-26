@@ -77,7 +77,11 @@ def main():
                                for item in payload.get('messages', [])
                                if item.get('role') == 'system')
             question = self.question(payload)
-            if 'task_trigger_draft' in system and '设置触发任务' in system:
+            if question.startswith('runtime-browser-'):
+                # This explicit synthetic probe is an ordinary text turn. Its
+                # personality examples must not accidentally select a Skill.
+                text = json.dumps([{'type': 'text', 'text': '合成运行日志回复。', 'delay_ms': 0}], ensure_ascii=False)
+            elif 'task_trigger_draft' in system and '设置触发任务' in system:
                 proposal = json.loads((pathlib.Path(__file__).resolve().parents[1] / 'docs/examples/task-triggers/once-after.json').read_text(encoding='utf-8'))
                 proposal['task_trigger_draft']['title'] = '合成模型生成的触发任务'
                 proposal['task_trigger_draft']['trigger']['after_seconds'] = 2

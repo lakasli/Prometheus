@@ -837,6 +837,70 @@ pub async fn invoke_active(
     input: Value,
     cancel: &CancellationToken,
 ) -> ApiResult<Value> {
+    invoke_active_with_run(state, owner, plugin_id, input, cancel, None).await
+}
+pub async fn invoke_active_with_run(
+    state: &AppState,
+    owner: &str,
+    plugin_id: &str,
+    input: Value,
+    cancel: &CancellationToken,
+    run: Option<&str>,
+) -> ApiResult<Value> {
+    let operation = uuid::Uuid::new_v4().to_string();
+    let conversation = if let Some(run) = run {
+        state.db(|db| {
+            Ok(db
+                .query_row(
+                    "SELECT conversation_id FROM runs WHERE id=?1 AND owner_id=?2",
+                    params![run, owner],
+                    |r| r.get::<_, String>(0),
+                )
+                .optional()?)
+        })?
+    } else {
+        None
+    };
+    crate::runtime_logs::record(
+        state,
+        owner,
+        "tool",
+        "running",
+        run,
+        conversation.as_deref(),
+        "插件工具调用",
+        json!({"operation_id":operation,"plugin_id":plugin_id,"input_bytes":input.to_string().len(),"input_sha256":hash(input.to_string().as_bytes())}),
+    );
+    let result = invoke_active_operation(state, owner, plugin_id, input, cancel).await;
+    let (status, details) = match &result {
+        Ok(value) => (
+            "completed",
+            json!({"operation_id":operation,"plugin_id":plugin_id,"output_bytes":value.to_string().len(),"output_sha256":hash(value.to_string().as_bytes())}),
+        ),
+        Err(error) => (
+            "failed",
+            json!({"operation_id":operation,"plugin_id":plugin_id,"error_code":error.code}),
+        ),
+    };
+    crate::runtime_logs::record(
+        state,
+        owner,
+        "tool",
+        status,
+        run,
+        conversation.as_deref(),
+        "插件工具结果",
+        details,
+    );
+    result
+}
+async fn invoke_active_operation(
+    state: &AppState,
+    owner: &str,
+    plugin_id: &str,
+    input: Value,
+    cancel: &CancellationToken,
+) -> ApiResult<Value> {
     if !state.db(|db| Ok(runtime_available(db)))?? {
         return Err(ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,

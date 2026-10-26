@@ -9,7 +9,7 @@ M0/M1原始部署与真实Harness / QQ联调已通过，历史证据见 [M0/M1�
 ## 当前功能范围
 
 - 管理员一次性初始化、密码哈希、可撤销会话、Origin / CSRF 检查。
-- Skill 管理、版本冻结和显式对话调用，默认「制作 Skill」「绘画」与「设置触发任务」；生成草稿经审核保存，绘画按已配置能力走原生 PNG 或隔离 HTML / SVG。角色卡选中后左侧列表、右侧完整详情，草稿名称与介绍同步显示。契约与验证边界见 [Skill 说明](docs/skills.md)。
+- Skill 管理、版本冻结和显式对话调用，默认「制作 Skill」「绘画」与「设置触发任务」；生成草稿经审核保存，绘画按已配置能力走原生 PNG 或隔离 HTML / SVG。契约与验证边界见 [Skill 说明](docs/skills.md)。
 - 模型与 QQ 配置、受限密钥存储、配置草稿 / 校验 / 连接测试 / 版本应用 / 回退。
 - 浏览器和 CLI 文本对话、独立会话历史、全局最多两个活跃 Run。
 - Rust / WIT / Wasmtime Component 插件工厂：生成函数体、隔离构建、独立测试、摘要审批、版本启用 / 回滚与显式 `/plugin` 调用。当前只开放空权限无状态工具；完整 broker 与模型自动调用循环仍按原架构推进。见 [插件工厂](docs/plugin-factory.md) 与 [实机 / 单次真实模型验收](docs/plugin-factory-validation.md)。
@@ -18,14 +18,14 @@ M0/M1原始部署与真实Harness / QQ联调已通过，历史证据见 [M0/M1�
 - SQLite 入站去重、持久队列与回复 Outbox；排队任务重启可恢复，在途结果未知时明确标记，不盲目重发。
 - QQ 官方 WebSocket（默认）和签名 Webhook（可选），实际平台能力需由已授权账号联调。
 - M0 的真实 Cordis 四组生命周期实验与真实 Harness ACP 探针。M1 生产聊天使用 NativeBackend，尚不启用完整 Harness 执行环境。
-- 角色卡库、草稿 / 不可变发布版本、编译预览、独立测试、默认角色及会话固定绑定；JSON / 受限AIRI ZIP导入、JSON导出，QQ私聊按显式共享角色切换。
+- 唯一助手性格在“助手与模型”编辑，带版本冲突检测，对后续 Run 生效；历史角色卡与快照保留，不再支持多角色切换。
 - 助手自身的稳定身份与显式长期记忆：共享 / 来源域私有、中文全文检索、版本纠正、遗忘、来源、JSON导出及Web管理；Web / CLI / QQ复用记忆命令和有界对话召回。实际验收见 [记忆记录](docs/memory-validation.md)。
 - 同来源长会话增量摘要：复用现有任务槽、来源与覆盖水位、敏感资料省略、超长轮次明确摘录、取消恢复和遗忘联动；管理页可查看并重建派生摘要。独立验收见 [摘要记录](docs/summary-validation.md)。
 - 会话记忆候选：明确勾选来源消息、模型提取、审核后私有入库，拒绝 / 到期 / 遗忘清除候选正文，不自动共享或覆盖事实。当前发布与验证状态见 [候选记录](docs/memory-candidate-validation.md)。
 - 微信 iLink 单账号文字私聊适配：管理页扫码、本人来源限制、原子游标 / 入站去重、冻结回复上下文、凭据失效与不确定发送处理。实现与模拟验证见 [微信说明](docs/weixin.md) 和 [验收边界](docs/weixin-validation.md)；真实手机扫码与收发仍待验收。
-- PNG视觉底层已验证格式校验、实际解码、去元数据及DeepSeek-flash调用。单PNG已接入Web普通对话：VisionProvider先生成可追溯描述，再由现有Native角色与会话上下文回答；本轮已通过独立的 [图片对话验收](docs/conversation-images-validation.md)，不引用旧独立分析测试替代。见 [图片对话契约](docs/image-analysis.md) 和 [历史图片记录](docs/image-analysis-validation.md)。
+- PNG 视觉后端保留格式校验、实际解码、去元数据、DeepSeek-flash 与 Native 上下文回答；原 Web 单 PNG 对话界面验收见 [历史图片对话记录](docs/conversation-images-validation.md)。当前 Web 工作台已改为日志，相关运行与视觉事件在日志查看。见 [图片对话契约](docs/image-analysis.md)。
 
-管理页面按 [架构的信息架构](docs/architecture.md#143-页面与用户操作) 组织。图片从普通会话输入区发送，不设独立“图片分析”主导航；已存在的纯整数WAT原型收进“任务与诊断 → 开发诊断”默认折叠区域，入口调整已完成浏览器与远端验证，见 [本轮记录](docs/conversation-images-validation.md)。该原型仅供开发诊断，不是原架构的Rust / WIT插件工厂，也不注册聊天工具。见 [诊断原型边界](docs/wasm-workbench.md) 与 [历史验收状态](docs/wasm-workbench-validation.md)。
+管理页面按 [架构的信息架构](docs/architecture.md#143-页面与用户操作) 组织。“角色卡”并入“助手与模型”，“对话工作台”改为只读“日志记录”，删除“任务与诊断”入口。日志展示输入 / 输出、Run、工具、视觉、语音合成与投递等实际运行事件；ASR / subagent 尚未接入。旧 WAT 与独立图片诊断 API 保留原权限边界，不再挂页面入口。契约与本轮验收见 [单助手与运行日志](docs/assistant-runtime-logs.md)。
 
 ACP 通知属于已提交的语义输出，不承诺模型 token 流。M0 在途取消由临时回环 HTTP 代理确认真实上游请求仍未完成，再经私有 IPC 触发 ACP cancel；不以排队成功或已经结束的文本输出作为取消证据。代理不记录凭证、请求或回复正文。
 
@@ -35,9 +35,9 @@ ACP 通知属于已提交的语义输出，不承诺模型 token 流。M0 在途
 
 角色卡根据AIRI源码研究独立实现，采用CCv3文本内容与DSH模块偏好扩展；服务端版本、会话绑定和入队快照按本项目设计。见 [角色卡契约](docs/character-cards.md)、[Schema](docs/schemas/dsh-character-card-v1.schema.json) 与 [原创示例](docs/examples/campanus.character-card.json)。未引入AIRI依赖。临时源码尚在忽略目录中，删除操作被工具策略拒绝；实际状态见 [研究记录](docs/research/airi-character-card-review.md)。
 
-在Web“角色卡”中新建或导入卡，保存草稿后校验 / 预览，发布版本；“设为新会话默认”与发布分别操作。QQ使用前勾选“允许QQ私聊用户选择此角色”，再私聊发送 `/角色`、`/角色 当前` 或 `/角色 切换 <角色名称或完整ID>`。同名卡须使用完整ID；群聊和频道不开放切换。换角色会开始新会话并保留旧记录，不改变其他用户或实例默认。
+在 Web“助手与模型”中编辑唯一性格，保存后下一个入队的 Run 使用新版本，已有会话也遵循该规则。首次沿用原默认角色内容；没有默认卡时使用原助手设置。旧角色卡写入 / 选择 API 已停用，QQ `/角色` 仅提示使用单一助手。
 
-CLI新建指定人格会话可使用 `dshd chat --character-card <UUID> --character-revision <N> --message "你好"`；两个角色参数必须同时提供，不能和 `--conversation` 混用。无角色参数时，新会话使用当前默认，已有会话保留原绑定。
+CLI 使用 `dshd chat --message "你好"`，或用 `--conversation <ID>` 续接历史，均使用当前助手性格，不再提供角色选择参数。CLI 与渠道对话后端保留；Web 管理页专注配置与日志。
 
 在“助手记忆”中管理属于助手的经历与事实；共享条目需明确确认，可跨Web / CLI / QQ使用，私有条目仅在来源账号域内使用，无需把人的跨平台账号绑定。私聊或Web可用 `/memory remember <内容>`、`/memory list`、`/memory show <ID>`、`/memory correct <ID>@<版本> <新内容>`、`/memory forget <ID>@<版本>`；命令不调用模型，群聊和频道只读，角色草稿测试会话不写记忆。遗忘会清空记忆正文 / 旧版 / 索引并停止后续上下文使用相关旧历史，原始聊天消息和离线备份按独立策略保留。详见 [记忆使用与边界](docs/memory.md)。
 

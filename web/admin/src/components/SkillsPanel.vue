@@ -191,7 +191,7 @@ defineExpose({ hasUnsaved });
         还没有 Skill，创建一个开始使用。
       </p>
       <p class="muted">
-        Skill 提供任务指令。启用后在对话中选择，或发送 /skill 编号
+        Skill 提供任务指令。启用后可在已连接渠道发送 /skill 编号
         任务内容。它不会授予系统、文件或插件权限。
       </p>
     </section>
@@ -264,9 +264,9 @@ defineExpose({ hasUnsaved });
               class="button secondary"
               type="button"
               :disabled="busy || hasUnsaved || !selected.enabled"
-              @click="emit('use', selected.id)"
+              @click="notice = `/skill ${selected.id} 任务内容`"
             >
-              在对话中使用</button
+              查看调用命令</button
             ><button
               v-if="selected"
               class="button secondary"

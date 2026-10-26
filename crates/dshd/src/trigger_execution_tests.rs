@@ -93,6 +93,57 @@ fn approved_skill_and_instance_persona_are_pinned_while_live_skill_edits_do_not_
 }
 
 #[test]
+fn trigger_runs_share_the_current_personality_and_freeze_it_at_enqueue() {
+    let (_temp, state) = fixture();
+    state
+        .db(|db| {
+            let value = definition(None, "text");
+            let snapshot = trigger_execution::trigger_snapshot_in(db, "owner", &value)?;
+            let (_, config) = crate::character::current_config_in(db)?;
+            let initial = crate::character::personality_state(db, &config)?;
+            let mut personality: crate::character::Personality =
+                serde_json::from_value(initial["personality"].clone())?;
+            personality.personality = "CURRENT_SINGLE_PERSONALITY".into();
+            crate::character::save_personality(
+                db,
+                &config,
+                initial["etag"].as_str().unwrap(),
+                personality,
+            )?;
+            let tx = db.transaction()?;
+            let run = trigger_execution::enqueue_trigger_in(
+                &tx,
+                "owner",
+                "single-personality-occ",
+                &value,
+                &snapshot,
+            )?;
+            attach(&tx, &run, "single-personality-occ", &value, &snapshot)?;
+            let messages = trigger_execution::prepare_messages_in(&tx, &run)?;
+            assert!(messages[0]["content"]
+                .as_str()
+                .unwrap()
+                .contains("CURRENT_SINGLE_PERSONALITY"));
+            let frozen: String = tx.query_row(
+                "SELECT character_snapshot_json FROM runs WHERE id=?1",
+                [&run],
+                |r| r.get(0),
+            )?;
+            assert_eq!(
+                serde_json::from_str::<Value>(&frozen)?["card_id"],
+                crate::character::PERSONALITY_ID
+            );
+            tx.commit()?;
+            let mut invalid = value.clone();
+            invalid["action"]["persona"] =
+                json!({"mode":"character_revision","card_id":"unused","revision":1});
+            assert!(trigger_execution::trigger_snapshot_in(db, "owner", &invalid).is_err());
+            Ok(())
+        })
+        .unwrap();
+}
+
+#[test]
 fn dependency_and_owner_revocation_block_future_dispatch_even_with_approved_snapshots() {
     let (_temp, state) = fixture();
     state
@@ -216,7 +267,7 @@ fn each_occurrence_has_an_independent_readonly_conversation() {
 }
 
 #[test]
-fn automatic_prompt_uses_approved_context_and_keeps_real_private_memory_and_normal_chat_out() {
+fn automatic_prompt_uses_current_personality_and_approved_task_context_without_private_chat() {
     let (_temp, state) = fixture();
     state.db(|db| {
         let stamp = now();
@@ -235,7 +286,7 @@ fn automatic_prompt_uses_approved_context_and_keeps_real_private_memory_and_norm
         let messages = trigger_execution::prepare_messages_in(&tx, &run)?;
         assert_eq!(messages.len(), 3);
         assert_eq!(messages[0]["role"], "system");
-        assert!(messages[0]["content"].as_str().unwrap().contains("PINNED_INSTANCE_PROMPT"));
+        assert!(messages[0]["content"].as_str().unwrap().contains("LATER_INSTANCE_PROMPT"));
         assert!(messages[0]["content"].as_str().unwrap().contains("PINNED_SKILL_INSTRUCTIONS"));
         assert!(!messages[0]["content"].as_str().unwrap().contains("EVENT_UNTRUSTED_CANARY"));
         assert_eq!(messages[1]["role"], "user");
@@ -244,7 +295,7 @@ fn automatic_prompt_uses_approved_context_and_keeps_real_private_memory_and_norm
         let serialized = serde_json::to_string(&messages)?;
         assert!(!serialized.contains("PRIVATE_MEMORY_CANARY"));
         assert!(!serialized.contains("NORMAL_CHAT_CANARY"));
-        assert!(!serialized.contains("LATER_INSTANCE_PROMPT"));
+        assert!(!serialized.contains("PINNED_INSTANCE_PROMPT"));
         assert_eq!(trigger_execution::prepare_messages_in(&tx, &run)?, messages);
         let uses: i64 = tx.query_row("SELECT count(*) FROM memory_run_uses WHERE run_id=?1", [&run], |row|row.get(0))?;
         assert_eq!(uses, 0);

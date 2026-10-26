@@ -68,20 +68,21 @@ pub async fn execute(
     }
     let value =
         serde_json::from_str(args.trim()).map_err(|_| "插件参数必须是有效JSON".to_owned())?;
-    let result = plugin_factory::invoke_active(state, &owner, id, value, cancel)
-        .await
-        .map_err(|error| {
-            match error.code {
-                "plugin_revision_conflict" => "插件版本已变化，请重新调用",
-                "plugin_input_contract_invalid" => "插件输入不符合已启用工具的契约",
-                "plugin_worker_busy" => "插件工作器繁忙，请稍后重试",
-                "plugin_call_failed" | "plugin_output_contract_invalid" => {
-                    "插件执行失败，此版本已隔离"
+    let result =
+        plugin_factory::invoke_active_with_run(state, &owner, id, value, cancel, Some(run_id))
+            .await
+            .map_err(|error| {
+                match error.code {
+                    "plugin_revision_conflict" => "插件版本已变化，请重新调用",
+                    "plugin_input_contract_invalid" => "插件输入不符合已启用工具的契约",
+                    "plugin_worker_busy" => "插件工作器繁忙，请稍后重试",
+                    "plugin_call_failed" | "plugin_output_contract_invalid" => {
+                        "插件执行失败，此版本已隔离"
+                    }
+                    _ => "当前聊天身份无此可用插件，或插件工作器不可用",
                 }
-                _ => "当前聊天身份无此可用插件，或插件工作器不可用",
-            }
-            .to_owned()
-        })?;
+                .to_owned()
+            })?;
     Ok(Some(format!("插件 {id} 的不可信数据输出：{}", result)))
 }
 

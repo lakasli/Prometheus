@@ -1,6 +1,6 @@
 //! Trusted execution bridge. Only approved server-side task revisions enter here.
 use crate::{
-    character::{self, CardRef, StaticSnapshot},
+    character::{self, StaticSnapshot},
     config::RuntimeConfig,
     skills::{self, RunSkill, Skill},
     state::now,
@@ -17,42 +17,13 @@ fn published_persona(
     config: &RuntimeConfig,
     user: &str,
 ) -> anyhow::Result<Option<StaticSnapshot>> {
-    if action["persona"]["mode"] == "instance_snapshot" {
-        return Ok(None);
-    }
     ensure!(
-        action["persona"]["mode"] == "character_revision",
-        "invalid task persona"
+        action["persona"]["mode"] == "instance_snapshot",
+        "本助手不再支持任务角色切换，请使用当前助手性格"
     );
-    let selected: CardRef = serde_json::from_value(json!({
-        "card_id":action["persona"]["card_id"],"revision":action["persona"]["revision"]
-    }))?;
-    let card = character::revision_card(db, &selected, false)?;
-    let binding: Option<String> = db.query_row(
-        "SELECT model_digest FROM character_module_bindings WHERE card_id=?1 AND revision=?2 AND module='chat'",
-        params![selected.card_id,selected.revision], |r|r.get(0),
-    ).optional()?;
-    ensure!(
-        character::binding_errors(&card, config, binding.as_deref()).is_empty(),
-        "task character model mapping unavailable"
-    );
-    let (system_prompt, _) = character::compile(&card, user)?;
-    let module_digest = character::model_digest(config)?;
-    Ok(Some(StaticSnapshot {
-        card_id: selected.card_id,
-        revision: selected.revision,
-        name: card["data"]["name"].as_str().unwrap_or("DSH").into(),
-        card_digest: character::card_digest(&card)?,
-        projection_digest: character::card_digest(
-            &json!({"system_prompt":system_prompt,"module_digest":module_digest,"compiler_version":character::COMPILER_VERSION,"is_test":false}),
-        )?,
-        compiler_version: character::COMPILER_VERSION.into(),
-        system_prompt,
-        config_revision: revision,
-        module_digest,
-        is_test: false,
-        draft_etag: None,
-    }))
+    Ok(Some(character::freeze_personality(
+        db, revision, config, user,
+    )?))
 }
 
 pub fn trigger_snapshot_in(
@@ -176,39 +147,17 @@ pub fn validate_dependencies_in(
         ),
         _ => bail!("invalid task output mode"),
     }
+    // Historical approved task snapshots are retained for provenance. Every newly
+    // queued Run freezes the current instance personality instead of selecting a card.
     if !snapshot["persona"].is_null() {
-        let pinned: StaticSnapshot = serde_json::from_value(snapshot["persona"].clone())?;
-        ensure!(
-            definition["action"]["persona"]["mode"] == "character_revision"
-                && definition["action"]["persona"]["card_id"].as_str()
-                    == Some(pinned.card_id.as_str())
-                && definition["action"]["persona"]["revision"].as_i64() == Some(pinned.revision),
-            "task persona approval mismatch"
-        );
-        let card = character::revision_card(
-            db,
-            &CardRef {
-                card_id: pinned.card_id.clone(),
-                revision: pinned.revision,
-            },
-            false,
-        )?;
-        let binding:Option<String>=db.query_row("SELECT model_digest FROM character_module_bindings WHERE card_id=?1 AND revision=?2 AND module='chat'",params![pinned.card_id,pinned.revision],|r|r.get(0)).optional()?;
-        ensure!(
-            character::binding_errors(&card, &config, binding.as_deref()).is_empty(),
-            "task persona mapping changed"
-        );
-    } else {
-        ensure!(
-            definition["action"]["persona"]["mode"] == "instance_snapshot",
-            "task persona snapshot missing"
-        );
+        let _: StaticSnapshot = serde_json::from_value(snapshot["persona"].clone())?;
     }
     if mode == "native_image" {
-        let persona = snapshot["persona"]["system_prompt"]
-            .as_str()
-            .or_else(|| snapshot["instance_prompt"].as_str())
-            .unwrap_or("");
+        let user: String =
+            db.query_row("SELECT username FROM admins WHERE id=?1", [owner], |r| {
+                r.get(0)
+            })?;
+        let persona = character::freeze_personality(db, 0, &config, &user)?.system_prompt;
         let instructions = skill
             .as_ref()
             .map(|s| {
@@ -251,7 +200,7 @@ pub fn enqueue_trigger_in(
     ensure!(pending < 500, "native queue capacity");
     let conversation = uuid::Uuid::new_v4().to_string();
     let run = uuid::Uuid::new_v4().to_string();
-    let (_, mut config) = character::current_config_in(db)?;
+    let (config_revision, mut config) = character::current_config_in(db)?;
     config.assistant.timeout_seconds = config.assistant.timeout_seconds.min(
         definition["budget"]["run_timeout_seconds"]
             .as_u64()
@@ -264,11 +213,15 @@ pub fn enqueue_trigger_in(
         !prompt.trim().is_empty() && prompt.len() <= 16000,
         "task prompt limit"
     );
-    let persona: Option<StaticSnapshot> = if snapshot["persona"].is_null() {
-        None
-    } else {
-        Some(serde_json::from_value(snapshot["persona"].clone())?)
-    };
+    let user: String = db.query_row("SELECT username FROM admins WHERE id=?1", [owner], |r| {
+        r.get(0)
+    })?;
+    let persona = Some(character::freeze_personality(
+        db,
+        config_revision,
+        &config,
+        &user,
+    )?);
     let native = snapshot["output_mode"] == "native_image";
     db.execute(
         "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?1,?2,?3,?4)",
@@ -319,11 +272,21 @@ pub fn prepare_messages_in(db: &Connection, run_id: &str) -> anyhow::Result<Vec<
     {
         return Ok(serde_json::from_str(&text)?);
     }
-    let mut system = context.snapshot["persona"]["system_prompt"]
-        .as_str()
-        .or_else(|| context.snapshot["instance_prompt"].as_str())
-        .unwrap_or("你是 DSH。完成当前任务。")
-        .to_owned();
+    let frozen: Option<String> = db.query_row(
+        "SELECT character_snapshot_json FROM runs WHERE id=?1",
+        [run_id],
+        |r| r.get(0),
+    )?;
+    let mut system = if let Some(text) = frozen {
+        serde_json::from_str::<StaticSnapshot>(&text)?.system_prompt
+    } else {
+        // Runs queued by an earlier binary keep their already-approved snapshot.
+        context.snapshot["persona"]["system_prompt"]
+            .as_str()
+            .or_else(|| context.snapshot["instance_prompt"].as_str())
+            .unwrap_or("你是 DSH。完成当前任务。")
+            .to_owned()
+    };
     system.push_str(TASK_GUARD);
     if let Some(selected) = skills::for_run(db, run_id)? {
         system.push_str(&skills::prompt(&selected));

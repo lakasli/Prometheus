@@ -9,6 +9,7 @@ use axum::{
     body::to_bytes,
     extract::{DefaultBodyLimit, Path, Request, State},
     http::{header, HeaderMap, StatusCode},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post, put},
     Json, Router,
@@ -79,7 +80,71 @@ pub fn router() -> Router<AppState> {
             put(qq_access),
         )
         .layer(DefaultBodyLimit::max(character_import::JSON_LIMIT))
+        .layer(middleware::from_fn(retired_card_writes))
+        .route(
+            "/api/admin/v1/assistant/personality",
+            get(get_personality).put(put_personality),
+        )
+        .route(
+            "/api/admin/v1/assistant/personality/history",
+            get(get_personality_history),
+        )
 }
+async fn retired_card_writes(request: Request, next: Next) -> Response {
+    if !request.method().is_safe() {
+        return ApiError::from(character::single_personality_only()).into_response();
+    }
+    next.run(request).await
+}
+async fn get_personality(State(state): State<AppState>, _admin: Admin) -> ApiResult<Json<Value>> {
+    Ok(Json(db(&state, |conn| {
+        let (_, config) = current(conn)?;
+        character::personality_state(conn, &config)
+    })?))
+}
+async fn get_personality_history(
+    State(state): State<AppState>,
+    _admin: Admin,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(db(&state, character::personality_history)?))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PersonalityBody {
+    personality: character::Personality,
+}
+async fn put_personality(
+    State(state): State<AppState>,
+    admin: Admin,
+    headers: HeaderMap,
+    Json(body): Json<PersonalityBody>,
+) -> ApiResult<Json<Value>> {
+    let expected = headers
+        .get(header::IF_MATCH)
+        .and_then(|h| h.to_str().ok())
+        .filter(|s| !s.is_empty() && s.len() <= 128)
+        .map(|s| s.trim_matches('"').to_owned())
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::PRECONDITION_REQUIRED,
+                "if_match_required",
+                "请提供当前助手性格版本If-Match",
+            )
+        })?;
+    Ok(Json(tx(&state, |conn| {
+        let (_, config) = current(conn)?;
+        let result = character::save_personality(conn, &config, &expected, body.personality)?;
+        audit(
+            conn,
+            &admin.id,
+            "assistant.personality.update",
+            character::PERSONALITY_ID,
+        )?;
+        Ok(result)
+    })?))
+}
+
 fn db<T>(state: &AppState, f: impl FnOnce(&Connection) -> CharacterResult<T>) -> ApiResult<T> {
     let conn = state.0.db.lock().map_err(|_| ApiError::internal())?;
     f(&conn).map_err(Into::into)

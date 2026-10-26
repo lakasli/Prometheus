@@ -146,6 +146,7 @@ impl AppState {
         crate::trigger_store::initialize(&db)?;
         crate::trigger_retention::initialize(&db)?;
         crate::skills::initialize_trigger_setup(&db)?;
+        crate::runtime_logs::initialize(&db)?;
         Ok(Self(Arc::new(Inner {
             db: Mutex::new(db),
             options,

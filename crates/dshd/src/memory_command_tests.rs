@@ -487,7 +487,7 @@ fn expired_persona_model_preferences_do_not_block_web_or_fresh_qq_memory_command
     let (_temporary, state) = open();
     let chat = conversation(&state, "web-owner");
     expire_preferred_model(&state);
-    // A normal new persona binding fails, establishing the fixture really expired.
+    // Old card model preferences no longer select or block the instance model.
     assert!(state
         .db(|db| {
             let tx = db.transaction()?;
@@ -496,7 +496,7 @@ fn expired_persona_model_preferences_do_not_block_web_or_fresh_qq_memory_command
             tx.commit()?;
             Ok(())
         })
-        .is_err());
+        .is_ok());
     let (_, response) = command(
         &state,
         &chat,
@@ -534,10 +534,10 @@ fn expired_persona_model_preferences_do_not_block_web_or_fresh_qq_memory_command
             "ordinary",
             "ordinary",
             "new_qq_user",
-            "普通聊天仍应明确拒绝过期模型绑定"
+            "普通聊天统一使用当前实例模型"
         )
     )
-    .is_err());
+    .is_ok());
     assert_eq!(
         scalar(
             &state,

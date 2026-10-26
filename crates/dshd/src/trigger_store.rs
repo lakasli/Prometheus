@@ -249,7 +249,7 @@ pub fn capabilities_in(db: &Connection, owner: &str, stamp: i64) -> anyhow::Resu
     let _ = owner;
     let utc = DateTime::<Utc>::from_timestamp(stamp, 0)
         .ok_or_else(|| fail("invalid_clock", "服务器时间无效"))?;
-    let characters=db.prepare("SELECT c.id,r.revision,json_extract(r.canonical_json,'$.data.name') FROM character_cards c JOIN character_card_revisions r ON r.card_id=c.id WHERE c.archived_at IS NULL AND r.revision=(SELECT max(revision) FROM character_card_revisions WHERE card_id=c.id) ORDER BY c.created_at DESC,c.id LIMIT 256")?.query_map([],|r|Ok(json!({"card_id":r.get::<_,String>(0)?,"revision":r.get::<_,i64>(1)?,"name":r.get::<_,String>(2)?})))?.collect::<Result<Vec<_>,_>>()?;
+    let characters: Vec<Value> = vec![];
     Ok(
         json!({"available":true,"spec_version":"1","now":stamp,"now_iso":utc.to_rfc3339(),"now_local":utc.with_timezone(&chrono_tz::Asia::Shanghai).to_rfc3339(),"time_zone":"Asia/Shanghai","calendars":trigger_calendar::list(db)?,"event_types":event_catalog(),"skills":skills,"characters":characters,"retention":{"result_days":30,"event_body_days":7},"limits":{"jobs":256,"enabled":64,"pending":128,"model_interval_seconds":60,"notification_interval_seconds":1,"scheduled_model_concurrency":1,"global_daily_model_runs":500,"max_output_tokens":4096},"delivery":["web_inbox"]}),
     )

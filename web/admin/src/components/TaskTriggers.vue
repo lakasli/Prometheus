@@ -43,7 +43,6 @@ const eventDayClass = ref<"any" | "workday" | "restday">("any");
 const calendarDayClass = ref<"any" | "workday" | "restday">("any");
 const actionText = ref("");
 const skillChoice = ref("");
-const personaChoice = ref("");
 const outputMode = ref<"text" | "html_drawing" | "native_image">("text");
 const preview = ref<TriggerPreview | null>(null);
 const occurrences = ref<TriggerOccurrence[]>([]);
@@ -149,7 +148,6 @@ function serializeForm() {
     calendarDayClass: calendarDayClass.value,
     actionText: actionText.value,
     skillChoice: skillChoice.value,
-    personaChoice: personaChoice.value,
     outputMode: outputMode.value,
   });
 }
@@ -187,10 +185,6 @@ function hydrate(value: TriggerDefinition, imported = false) {
   calendarDayClass.value = rule.day_class || "any";
   actionText.value = value.action.content ?? value.action.prompt ?? "";
   skillChoice.value = value.action.skill?.id || "";
-  personaChoice.value =
-    value.action.persona?.mode === "character_revision"
-      ? `${value.action.persona.card_id}|${value.action.persona.revision}`
-      : "";
   outputMode.value = value.action.output_mode || "text";
   baseline.value = imported ? "" : serializeForm();
   preview.value = null;
@@ -274,22 +268,11 @@ function makeDefinition(): TriggerDefinition {
     );
     if (skillChoice.value && !skill)
       throw new Error("所选 Skill 已不可用，请重新选择。");
-    const persona = capabilities.value?.characters.find(
-      (item) => `${item.card_id}|${item.revision}` === personaChoice.value,
-    );
-    if (personaChoice.value && !persona)
-      throw new Error("所选角色版本已不可用，请重新选择。");
     value.action = {
       type: "assistant_run",
       prompt: actionText.value,
       skill: skill ? { id: skill.id, revision: skill.revision } : null,
-      persona: persona
-        ? {
-            mode: "character_revision",
-            card_id: persona.card_id,
-            revision: persona.revision,
-          }
-        : { mode: "instance_snapshot" },
+      persona: { mode: "instance_snapshot" },
       output_mode: outputMode.value,
       context_policy: "isolated",
     };
@@ -1109,18 +1092,6 @@ defineExpose({ hasUnsaved });
                     :value="skill.id"
                   >
                     {{ skill.name }} · v{{ skill.revision }}
-                  </option>
-                </select></label
-              ><label class="field"
-                ><span>执行角色</span
-                ><select v-model="personaChoice">
-                  <option value="">实例人格快照</option>
-                  <option
-                    v-for="character in capabilities?.characters || []"
-                    :key="`${character.card_id}-${character.revision}`"
-                    :value="`${character.card_id}|${character.revision}`"
-                  >
-                    {{ character.name }} · v{{ character.revision }}
                   </option>
                 </select></label
               >

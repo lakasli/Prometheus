@@ -116,7 +116,7 @@ describe("QQ live status", () => {
     wrapper = mount(App);
     await flushPromises();
     await wrapper
-      .get('input[placeholder="例如：我的日常助手"]')
+      .get('input[placeholder="填写服务商提供的模型名称"]')
       .setValue("Unsaved change");
     state.connection = "connected";
     await vi.advanceTimersByTimeAsync(5000);
@@ -125,7 +125,7 @@ describe("QQ live status", () => {
     expect(state.configCalls).toBe(1);
     expect(
       (
-        wrapper.get('input[placeholder="例如：我的日常助手"]')
+        wrapper.get('input[placeholder="填写服务商提供的模型名称"]')
           .element as HTMLInputElement
       ).value,
     ).toBe("Unsaved change");

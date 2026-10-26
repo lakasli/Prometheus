@@ -10,24 +10,18 @@ import {
 } from "vue";
 import Icon from "./components/Icon.vue";
 import AdminSelect from "./components/AdminSelect.vue";
-import CharacterCards from "./components/CharacterCards.vue";
+import AssistantPersonality from "./components/AssistantPersonality.vue";
+import RuntimeLogs from "./components/RuntimeLogs.vue";
 import MemoryPanel from "./components/MemoryPanel.vue";
 import ConversationSummary from "./components/ConversationSummary.vue";
 import MemoryCandidates from "./components/MemoryCandidates.vue";
 import WeixinChannel from "./components/WeixinChannel.vue";
-import ImageAnalysis from "./components/ImageAnalysis.vue";
-import WasmWorkbench from "./components/WasmWorkbench.vue";
-import ConversationComposer from "./components/ConversationComposer.vue";
 import SkillsPanel from "./components/SkillsPanel.vue";
-import SkillOutput from "./components/SkillOutput.vue";
 import TaskTriggers from "./components/TaskTriggers.vue";
 import SpeechPanel from "./components/SpeechPanel.vue";
-import ReplyMedia from "./components/ReplyMedia.vue";
-import ConversationMedia from "./components/ConversationMedia.vue";
 import QQPanel from "./components/QQPanel.vue";
 import ReplyDeliveryReview from "./components/ReplyDeliveryReview.vue";
 import PluginFactoryPanel from "./components/PluginFactoryPanel.vue";
-import type { TriggerDefinition } from "./task-triggers";
 import {
   api,
   ApiError,
@@ -40,10 +34,7 @@ import { describeQqConnection } from "./connection";
 import type {
   AuthResponse,
   AuthUser,
-  ChatMessage,
-  ChatSubmission,
   Check,
-  CharacterCardList,
   ConfigResponse,
   Conversation,
   Draft,
@@ -51,7 +42,6 @@ import type {
   Operation,
   Revision,
   RuntimeConfig,
-  Run,
   SecretMetadata,
   SystemStatus,
   SkillDraft,
@@ -61,15 +51,13 @@ const memoryPanel = ref<InstanceType<typeof MemoryPanel> | null>(null);
 type Page =
   | "overview"
   | "assistant"
-  | "characters"
   | "skills"
   | "triggers"
   | "qq"
   | "speech"
   | "plugins"
   | "weixin"
-  | "diagnostics"
-  | "chat"
+  | "logs"
   | "history"
   | "memory";
 const navigation: {
@@ -92,13 +80,6 @@ const navigation: {
     title: "助手与模型",
     eyebrow: "ASSISTANT & MODELS",
     description: "为你的助手选择模型、个性和工作节奏。",
-  },
-  {
-    id: "characters",
-    icon: "sparkles",
-    title: "角色卡",
-    eyebrow: "CHARACTER CARDS",
-    description: "设计助手的身份与表达，为新会话选择熟悉的角色。",
   },
   {
     id: "skills",
@@ -143,18 +124,11 @@ const navigation: {
     description: "生成、验证和管理受限 Rust / WIT 插件。",
   },
   {
-    id: "chat",
+    id: "logs",
     icon: "chat",
-    title: "对话工作台",
-    eyebrow: "CONVERSATIONS",
-    description: "直接与助手对话，验证模型配置。",
-  },
-  {
-    id: "diagnostics",
-    icon: "cpu",
-    title: "任务与诊断",
-    eyebrow: "TASKS & DIAGNOSTICS",
-    description: "查看任务状态和脱敏运行信息。",
+    title: "日志记录",
+    eyebrow: "AGENT RUNTIME LOGS",
+    description: "追踪助手的输入、输出、工具调用与语音处理。",
   },
   {
     id: "memory",
@@ -172,9 +146,6 @@ const navigation: {
   },
 ];
 const page = ref<Page>("overview");
-const developmentOpen = ref(false);
-const wasmDiagnosticOpen = ref(false);
-const imageDiagnosticOpen = ref(false);
 const activePage = computed(() =>
   navigation.find((item) => item.id === page.value)!,
 );
@@ -264,56 +235,13 @@ const dirty = ref(false);
 let replacingConfig = false;
 const revisions = ref<Revision[]>([]);
 const conversations = ref<Conversation[]>([]);
-const characterCards = ref<InstanceType<typeof CharacterCards> | null>(null);
+const personalityPanel = ref<InstanceType<typeof AssistantPersonality> | null>(
+  null,
+);
 const skillsPanel = ref<InstanceType<typeof SkillsPanel> | null>(null);
 const skillDraft = ref<SkillDraft | null>(null);
-const skillChoice = ref("");
 const taskTriggers = ref<InstanceType<typeof TaskTriggers> | null>(null);
-const triggerDraft = ref<TriggerDefinition | null>(null);
-function reviewTask(value: TriggerDefinition) {
-  triggerDraft.value = value;
-  navigate("triggers");
-}
-function reviewSkill(value: SkillDraft) {
-  skillDraft.value = value;
-  navigate("skills");
-}
-function useSkill(id: string) {
-  skillChoice.value = id;
-  navigate("chat");
-}
-const characterOptions = ref<CharacterCardList | null>(null);
-const characterChoice = ref("");
-const selectedConversation = ref<string | null>(null);
-const selectedConversationData = computed(() =>
-  conversations.value.find((item) => item.id === selectedConversation.value),
-);
-const conversationAssistantName = computed(
-  () =>
-    selectedConversationData.value?.character?.name || config.assistant.name,
-);
-const conversationCharacterLabel = computed(() =>
-  selectedConversationData.value?.test ||
-  selectedConversationData.value?.is_test ||
-  selectedConversationData.value?.character?.is_test
-    ? "草稿测试会话"
-    : selectedConversationData.value?.character
-      ? `角色 v${selectedConversationData.value.character.revision}`
-      : "原有助手",
-);
-const messages = ref<ChatMessage[]>([]);
-const conversationComposer = ref<InstanceType<
-  typeof ConversationComposer
-> | null>(null);
-const chatSubmitting = ref(false);
-const chatRunning = ref(false);
-const chatRun = ref<Run | null>(null);
-const messageList = ref<HTMLElement | null>(null);
 let disposed = false;
-let chatEpoch = 0;
-let chatController: AbortController | null = null;
-let lastChatRun: ChatSubmission | null = null;
-
 const configuredModel = computed(() => Boolean(config.model.credential_ref));
 const configuredQq = computed(() => Boolean(config.qq.credential_ref));
 const qqConnection = computed(() =>
@@ -386,7 +314,6 @@ watch(
 );
 
 function expireSession() {
-  stopChatPolling();
   authState.value = "login";
   user.value = null;
   clearCsrfToken();
@@ -396,9 +323,7 @@ function expireSession() {
   status.value = null;
   statusSampledAt.value = null;
   statusError.value = "";
-  messages.value = [];
   conversations.value = [];
-  selectedConversation.value = null;
 }
 
 function scheduleStatusPoll() {
@@ -452,107 +377,57 @@ function refreshStatus(quiet = false): Promise<void> {
   return statusRequest;
 }
 
-function navigate(id: Page) {
-  if (id !== page.value && !mayLeaveChat()) return;
+function mayLeavePage() {
   if (
-    id !== page.value &&
+    personalityPanel.value?.hasUnsaved &&
+    !window.confirm("助手性格有未保存的修改，确定离开？")
+  )
+    return false;
+  if (
     taskTriggers.value?.hasUnsaved &&
     !window.confirm("任务有未保存修改或结果未确认的操作，确定离开？")
   )
-    return;
+    return false;
   if (
-    id !== page.value &&
     skillsPanel.value?.hasUnsaved &&
     !window.confirm("Skill 有未保存的修改，确定离开？")
   )
-    return;
-  if (
-    id !== page.value &&
-    characterCards.value?.hasUnsaved &&
-    !window.confirm("角色卡有未保存的修改，确定离开？")
-  )
-    return;
-  if (id !== "chat") stopChatPolling();
-  if (id === "diagnostics") {
-    developmentOpen.value = false;
-    wasmDiagnosticOpen.value = false;
-    imageDiagnosticOpen.value = false;
-  }
+    return false;
+  return true;
+}
+function navigate(id: Page) {
+  if (id !== page.value && !mayLeavePage()) return;
   page.value = id;
   if (sidebarExtras.value) sidebarExtras.value.open = false;
   location.hash = id;
   mobileMenu.value = false;
   error.value = "";
   if (id === "history") void task("读取历史", loadHistory);
-  if (id === "chat")
-    void task("读取会话", async () => {
-      await loadConversations();
-      await loadCharacterOptions();
-      if (selectedConversation.value) await refreshChatHistory();
-    });
 }
 function readHash() {
   const requested = location.hash.slice(1);
-  const legacy =
-    requested === "images" || requested === "wasm" ? requested : null;
-  const id = legacy ? "diagnostics" : requested;
-  if (navigation.some((item) => item.id === id)) {
-    if (
-      id !== page.value &&
-      taskTriggers.value?.hasUnsaved &&
-      !window.confirm("任务有未保存修改或结果未确认的操作，确定离开？")
-    ) {
-      location.hash = page.value;
-      return;
-    }
-    if (
-      id !== page.value &&
-      skillsPanel.value?.hasUnsaved &&
-      !window.confirm("Skill 有未保存的修改，确定离开？")
-    ) {
-      location.hash = page.value;
-      return;
-    }
-    if (id !== page.value && !mayLeaveChat()) {
-      location.hash = page.value;
-      return;
-    }
-    if (
-      id !== page.value &&
-      characterCards.value?.hasUnsaved &&
-      !window.confirm("角色卡有未保存的修改，确定离开？")
-    ) {
-      location.hash = page.value;
-      return;
-    }
-    if (id !== "chat") stopChatPolling();
-    page.value = id as Page;
-    if (legacy) {
-      developmentOpen.value = true;
-      wasmDiagnosticOpen.value = legacy === "wasm";
-      imageDiagnosticOpen.value = legacy === "images";
-      history.replaceState(
-        null,
-        "",
-        `${location.pathname}${location.search}#diagnostics`,
-      );
-    }
+  const mapped =
+    requested === "characters"
+      ? "assistant"
+      : ["chat", "diagnostics", "images", "wasm"].includes(requested)
+        ? "logs"
+        : requested;
+  if (!navigation.some((item) => item.id === mapped)) return;
+  if (mapped !== page.value && !mayLeavePage()) {
+    history.replaceState(
+      null,
+      "",
+      `${location.pathname}${location.search}#${page.value}`,
+    );
+    return;
   }
-}
-function mayLeaveChat() {
-  return (
-    !conversationComposer.value?.hasUnconfirmed ||
-    window.confirm(
-      "上一条消息提交结果未确认。离开会清除本地草稿，不会重发；可稍后查看会话历史。确认离开？",
-    )
-  );
-}
-function stopChatPolling() {
-  chatEpoch++;
-  chatController?.abort();
-  chatController = null;
-  chatRunning.value = false;
-  chatSubmitting.value = false;
+  page.value = mapped as Page;
+  if (mapped !== requested)
+    history.replaceState(
+      null,
+      "",
+      `${location.pathname}${location.search}#${mapped}`,
+    );
 }
 async function task(label: string, fn: () => Promise<unknown>) {
   if (busy.value) return;
@@ -650,8 +525,8 @@ async function logout() {
   )
     return;
   if (
-    characterCards.value?.hasUnsaved &&
-    !window.confirm("角色卡有未保存的修改，确定退出登录？")
+    personalityPanel.value?.hasUnsaved &&
+    !window.confirm("助手性格有未保存的修改，确定退出登录？")
   )
     return;
   await task("退出登录", async () => {
@@ -817,219 +692,6 @@ async function loadConversations() {
   const result = await api<{ items: Conversation[] }>("/conversations");
   conversations.value = result.items;
 }
-async function loadCharacterOptions() {
-  characterOptions.value = await api<CharacterCardList>("/character-cards");
-}
-function newConversationCharacter() {
-  if (!characterChoice.value) return undefined;
-  const selected = characterOptions.value?.items.find(
-    (item) => item.id === characterChoice.value,
-  );
-  return selected?.latest_revision
-    ? { card_id: selected.id, revision: selected.latest_revision }
-    : undefined;
-}
-async function openTestConversation(conversation: Conversation) {
-  if (!mayLeaveChat()) return;
-  stopChatPolling();
-  await task("读取测试会话", async () => {
-    await loadConversations();
-    await loadCharacterOptions();
-    messages.value = (
-      await api<{ items: ChatMessage[] }>(
-        `/conversations/${encodeURIComponent(conversation.id)}/messages`,
-      )
-    ).items;
-    selectedConversation.value = conversation.id;
-    chatRun.value = null;
-    page.value = "chat";
-    location.hash = "chat";
-    mobileMenu.value = false;
-    notice.value =
-      "独立草稿测试会话。普通消息会请求模型，不会投递 QQ 或自动写入助手长期记忆。";
-  });
-}
-async function createConversation() {
-  if (!mayLeaveChat()) return;
-  stopChatPolling();
-  await task("新建会话", async () => {
-    const conversation = await api<Conversation>("/conversations", {
-      method: "POST",
-      body: {
-        title: `新对话 ${conversations.value.length + 1}`,
-        character: newConversationCharacter(),
-      },
-    });
-    await loadConversations();
-    selectedConversation.value = conversation.id;
-    messages.value = [];
-    chatRun.value = null;
-    lastChatRun = null;
-  });
-}
-async function selectConversation(id: string) {
-  if (
-    chatRunning.value ||
-    chatSubmitting.value ||
-    busy.value ||
-    !mayLeaveChat()
-  )
-    return;
-  stopChatPolling();
-  await task("读取消息", async () => {
-    const result = await api<{ items: ChatMessage[] }>(
-      `/conversations/${encodeURIComponent(id)}/messages`,
-    );
-    selectedConversation.value = id;
-    messages.value = result.items;
-    chatRun.value = null;
-    lastChatRun = null;
-    await scrollMessages();
-  });
-}
-async function scrollMessages() {
-  await nextTick();
-  messageList.value?.scrollTo({
-    top: messageList.value.scrollHeight,
-    behavior: "smooth",
-  });
-}
-async function prepareChatConversation(title: string, signal: AbortSignal) {
-  if (selectedConversation.value) return selectedConversation.value;
-  const conversation = await api<Conversation>("/conversations", {
-    method: "POST",
-    body: { title, character: newConversationCharacter() },
-    signal,
-  });
-  selectedConversation.value = conversation.id;
-  messages.value = [];
-  chatRun.value = null;
-  lastChatRun = null;
-  await nextTick();
-  await loadConversations();
-  return conversation.id;
-}
-async function refreshChatHistory() {
-  const id = selectedConversation.value;
-  if (!id) return;
-  const token = chatEpoch;
-  const result = await api<{ items: ChatMessage[] }>(
-    `/conversations/${encodeURIComponent(id)}/messages`,
-  );
-  if (
-    disposed ||
-    token !== chatEpoch ||
-    selectedConversation.value !== id ||
-    authState.value !== "ready" ||
-    page.value !== "chat"
-  )
-    return;
-  messages.value = result.items;
-  await scrollMessages();
-}
-async function inspectChatHistory() {
-  if (
-    lastChatRun?.conversation_id === selectedConversation.value &&
-    !chatRunning.value
-  ) {
-    await followChatRun(lastChatRun);
-  } else {
-    await task("刷新会话历史", refreshChatHistory);
-  }
-}
-async function followChatRun(submitted: ChatSubmission) {
-  stopChatPolling();
-  const id = submitted.conversation_id;
-  lastChatRun = submitted;
-  const token = chatEpoch;
-  const controller = new AbortController();
-  chatController = controller;
-  chatRunning.value = true;
-  chatRun.value = { id: submitted.run_id, status: "queued" };
-  error.value = "";
-  notice.value = "";
-  const current = () =>
-    !disposed &&
-    token === chatEpoch &&
-    selectedConversation.value === id &&
-    page.value === "chat" &&
-    authState.value === "ready";
-  const read = async <T,>(path: string) => {
-    const timer = setTimeout(() => controller.abort(), 10000);
-    try {
-      return await api<T>(path, { signal: controller.signal });
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-  const pause = () =>
-    new Promise<void>((resolve) => {
-      const done = () => {
-        clearTimeout(timer);
-        controller.signal.removeEventListener("abort", done);
-        resolve();
-      };
-      const timer = setTimeout(done, 2000);
-      controller.signal.addEventListener("abort", done, { once: true });
-      if (controller.signal.aborted) done();
-    });
-  const terminal = [
-    "completed",
-    "failed",
-    "cancelled",
-    "interrupted",
-    "outcome_unknown",
-  ];
-  try {
-    const initial = await read<{ items: ChatMessage[] }>(
-      `/conversations/${encodeURIComponent(id)}/messages`,
-    );
-    if (!current()) return;
-    messages.value = initial.items;
-    await scrollMessages();
-    for (
-      let index = 0;
-      index < 180 && current() && !controller.signal.aborted;
-      index++
-    ) {
-      const result = await read<Run>(
-        `/runs/${encodeURIComponent(submitted.run_id)}`,
-      );
-      if (!current()) return;
-      chatRun.value = result;
-      if (terminal.includes(result.status)) break;
-      await pause();
-    }
-    if (!current() || controller.signal.aborted) return;
-    const result = await read<{ items: ChatMessage[] }>(
-      `/conversations/${encodeURIComponent(id)}/messages`,
-    );
-    if (!current()) return;
-    messages.value = result.items;
-    if (
-      ["failed", "interrupted", "outcome_unknown"].includes(
-        chatRun.value?.status || "",
-      )
-    )
-      error.value =
-        chatRun.value?.error || "任务未完成，可刷新会话与任务核对状态。";
-    else if (!terminal.includes(chatRun.value?.status || ""))
-      notice.value = "任务仍在后台处理，可稍后刷新会话与任务；不会重发消息。";
-    await scrollMessages();
-    await refreshStatus();
-  } catch (caught) {
-    if (!current()) return;
-    if (caught instanceof ApiError && caught.status === 401) expireSession();
-    else
-      error.value =
-        "消息任务已创建，状态查询未完成。请刷新会话与任务，不要再次发送同一消息。";
-  } finally {
-    if (token === chatEpoch && !disposed) {
-      chatRunning.value = false;
-      chatController = null;
-    }
-  }
-}
 onMounted(() => {
   navigationMedia = window.matchMedia("(max-width: 720px)");
   syncNavigationSize();
@@ -1038,14 +700,10 @@ onMounted(() => {
   window.addEventListener("hashchange", readHash);
   document.addEventListener("pointerdown", dismissSidebarExtras);
   document.addEventListener("keydown", dismissSidebarExtras);
-  void initialize().then(() => {
-    if (authState.value === "ready" && page.value === "chat")
-      void task("读取角色", loadCharacterOptions);
-  });
+  void initialize();
 });
 onUnmounted(() => {
   disposed = true;
-  stopChatPolling();
   if (statusTimer !== undefined) clearTimeout(statusTimer);
   statusController?.abort();
   window.removeEventListener("hashchange", readHash);
@@ -1358,15 +1016,15 @@ onUnmounted(() => {
               <p>
                 {{
                   configuredModel
-                    ? `${config.assistant.name || "DSH"} 的模型已配置，随时开启新的对话。`
+                    ? "助手的模型已配置，可在日志中查看助手运行情况。"
                     : "连接一个模型，让你的专属助手从这里启航。"
                 }}
               </p>
               <button
                 class="button white"
-                @click="navigate(configuredModel ? 'chat' : 'assistant')"
+                @click="navigate(configuredModel ? 'logs' : 'assistant')"
               >
-                {{ configuredModel ? "开始一段对话" : "配置第一个模型"
+                {{ configuredModel ? "查看运行日志" : "配置第一个模型"
                 }}<Icon name="arrow" :size="17" />
               </button>
             </div>
@@ -1467,7 +1125,7 @@ onUnmounted(() => {
                     ><strong>连接 AI 模型</strong
                     ><small>填写模型地址、名称与 API Key</small></span
                   ><Icon name="chevron" :size="18" /></button
-                ><button @click="navigate('chat')">
+                ><button @click="navigate('logs')">
                   <span
                     class="step-number"
                     :class="{ done: conversations.length > 0 }"
@@ -1477,8 +1135,8 @@ onUnmounted(() => {
                       :size="16"
                     /><template v-else>02</template></span
                   ><span
-                    ><strong>发起一段对话</strong
-                    ><small>验证配置，查看真实模型回复</small></span
+                    ><strong>查看运行日志</strong
+                    ><small>查看渠道输入、模型输出与执行过程</small></span
                   ><Icon name="chevron" :size="18" /></button
                 ><button @click="navigate('qq')">
                   <span
@@ -1538,7 +1196,8 @@ onUnmounted(() => {
                 </div>
               </dl>
               <p class="runtime-note">
-                支持逐句回复、长期记忆、图片理解和本地 Piper 语音；渠道实际收发结果以联调记录为准。
+                支持逐句回复、长期记忆、图片理解和本地 Piper
+                语音；渠道实际收发结果以联调记录为准。
               </p>
             </section>
           </div>
@@ -1547,36 +1206,47 @@ onUnmounted(() => {
         <template v-if="page === 'assistant' || page === 'qq'">
           <div class="settings-layout">
             <div class="settings-main">
+              <AssistantPersonality
+                v-if="page === 'assistant'"
+                ref="personalityPanel"
+                @unauthorized="expireSession"
+              />
               <section v-if="page === 'assistant'" class="panel">
                 <div class="panel-heading">
                   <div>
-                    <h2>助手身份</h2>
-                    <p>
-                      这里的名称与提示词用于未绑定角色卡的对话。角色人格请在“角色卡”中配置。
-                    </p>
+                    <h2>工作节奏</h2>
+                    <p>设置回复间隔、并发和超时。</p>
                   </div>
-                  <span class="soft-icon"><Icon name="settings" /></span>
                 </div>
-                <label class="field"
-                  ><span>助手名称</span
-                  ><input
-                    v-model="config.assistant.name"
-                    maxlength="100"
-                    placeholder="例如：我的日常助手" /></label
-                ><label class="field"
-                  ><span>系统提示词</span
-                  ><textarea
-                    v-model="config.assistant.system_prompt"
-                    rows="5"
-                    maxlength="16000"
-                    placeholder="描述助手的职责、语气与行为要求…"
-                  ></textarea
-                  ><small>提示词不会授予额外权限。</small></label
-                >
                 <div v-if="config.reply" class="field-row">
-                  <label class="field"><span>回复最小间隔（毫秒）</span><input v-model.number="config.reply.min_interval_ms" type="number" min="1000" max="10000" /><small>逐句发送，从上一条实际发送完成时开始计时。</small></label>
-                  <label class="field"><span>回复最大间隔（毫秒）</span><input v-model.number="config.reply.max_interval_ms" type="number" :min="config.reply.min_interval_ms" max="30000" /></label>
-                  <label class="field"><span>每轮最多消息</span><input v-model.number="config.reply.max_items" type="number" min="1" max="4" /><small>QQ C2C 被动回复最多 4 条。</small></label>
+                  <label class="field"
+                    ><span>回复最小间隔（毫秒）</span
+                    ><input
+                      v-model.number="config.reply.min_interval_ms"
+                      type="number"
+                      min="1000"
+                      max="10000"
+                    /><small
+                      >逐句发送，从上一条实际发送完成时开始计时。</small
+                    ></label
+                  >
+                  <label class="field"
+                    ><span>回复最大间隔（毫秒）</span
+                    ><input
+                      v-model.number="config.reply.max_interval_ms"
+                      type="number"
+                      :min="config.reply.min_interval_ms"
+                      max="30000"
+                  /></label>
+                  <label class="field"
+                    ><span>每轮最多消息</span
+                    ><input
+                      v-model.number="config.reply.max_items"
+                      type="number"
+                      min="1"
+                      max="4"
+                    /><small>QQ C2C 被动回复最多 4 条。</small></label
+                  >
                 </div>
                 <div class="field-row">
                   <label class="field"
@@ -1903,7 +1573,9 @@ onUnmounted(() => {
           </div>
         </template>
 
-        <section v-if="page === 'qq'" class="panel"><QQPanel /><ReplyDeliveryReview /></section>
+        <section v-if="page === 'qq'" class="panel">
+          <QQPanel /><ReplyDeliveryReview />
+        </section>
         <template v-if="page === 'history'">
           <section class="panel history-panel">
             <div class="panel-heading">
@@ -1964,337 +1636,32 @@ onUnmounted(() => {
           </section>
         </template>
 
-        <CharacterCards
-          v-if="page === 'characters'"
-          ref="characterCards"
-          @changed="task('读取角色', loadCharacterOptions)"
-          @test-conversation="openTestConversation"
-          @auth-expired="expireSession"
-        />
-
         <SkillsPanel
           v-if="page === 'skills'"
           ref="skillsPanel"
           :initial-draft="skillDraft"
           @consumed="skillDraft = null"
           @unauthorized="expireSession"
-          @use="useSkill"
         />
         <TaskTriggers
           v-if="page === 'triggers'"
           ref="taskTriggers"
-          :initial-draft="triggerDraft"
-          @consumed="triggerDraft = null"
           @unauthorized="expireSession"
         />
 
-        <template v-if="page === 'chat'">
-          <section class="chat-workspace">
-            <aside class="conversation-sidebar">
-              <label class="chat-character-choice"
-                >新对话角色
-                <AdminSelect
-                  v-model="characterChoice"
-                  :disabled="chatRunning || chatSubmitting || !!busy"
-                  aria-label="新对话角色"
-                  :options="[
-                    {
-                      value: '',
-                      label: characterOptions?.default
-                        ? `默认：${characterOptions.default.name} v${characterOptions.default.revision}`
-                        : '默认：原有助手',
-                    },
-                    ...(characterOptions?.items
-                      .filter(
-                        (item) => !item.archived_at && item.latest_revision,
-                      )
-                      .map((card) => ({
-                        value: card.id,
-                        label: `${card.name} v${card.latest_revision}`,
-                      })) || []),
-                  ]"
-                />
-                <small>仅影响新建对话；换角色请新建会话。</small>
-              </label>
-              <button
-                class="button primary full"
-                :disabled="!!busy || chatRunning || chatSubmitting"
-                @click="createConversation"
-              >
-                <Icon name="plus" :size="17" />新建对话
-              </button>
-              <div class="conversation-label">
-                最近对话 <span>{{ conversations.length }}</span>
-              </div>
-              <button
-                v-for="conversation in conversations"
-                :key="conversation.id"
-                class="conversation-button"
-                :class="{ active: selectedConversation === conversation.id }"
-                :disabled="chatRunning || chatSubmitting || !!busy"
-                @click="selectConversation(conversation.id)"
-              >
-                <Icon name="chat" :size="17" /><span
-                  ><strong>{{ conversation.title || "未命名对话" }}</strong
-                  ><small>{{
-                    formatDate(conversation.created_at)
-                  }}</small></span
-                >
-              </button>
-              <p v-if="!conversations.length" class="conversation-empty">
-                你的对话会保存在设备上。<br />从第一条消息开始。
-              </p>
-            </aside>
-            <div class="chat-main">
-              <div class="chat-heading">
-                <div class="assistant-avatar">
-                  <img :src="brandMarkUrl" alt="" width="33" height="33" />
-                </div>
-                <div>
-                  <strong>{{ conversationAssistantName }}</strong
-                  ><span
-                    >{{ conversationCharacterLabel }} ·
-                    {{ status?.model?.model || config.model.model }}</span
-                  >
-                </div>
-                <span
-                  class="badge"
-                  :class="configuredModel ? 'green' : 'neutral'"
-                  >{{ configuredModel ? "文本模型" : "需要模型凭证" }}</span
-                >
-                <button
-                  type="button"
-                  class="button secondary small"
-                  :disabled="
-                    chatRunning || chatSubmitting || !selectedConversation
-                  "
-                  @click="inspectChatHistory"
-                >
-                  刷新会话与任务
-                </button>
-              </div>
-              <div ref="messageList" class="message-list" aria-live="polite">
-                <div v-if="!messages.length" class="chat-welcome">
-                  <img
-                    class="mascot-image chat-mascot"
-                    :src="mascotUrl"
-                    alt="等待与你对话的 DSH 助手"
-                    width="128"
-                    height="144"
-                  />
-                  <h2>开始一段新的对话</h2>
-                  <template
-                    v-if="
-                      selectedConversationData?.greeting ||
-                      selectedConversationData?.character?.greeting
-                    "
-                  >
-                    <p class="character-greeting">
-                      {{
-                        selectedConversationData.greeting ||
-                        selectedConversationData.character?.greeting
-                      }}
-                    </p>
-                    <small class="muted">角色开场白 · 尚未生成模型回复</small>
-                  </template>
-                  <p v-else>
-                    今天有什么想和我分享？<br />回复将使用你配置的模型。
-                  </p>
-                  <button
-                    v-if="!configuredModel"
-                    class="button secondary"
-                    @click="navigate('assistant')"
-                  >
-                    配置模型<Icon name="arrow" :size="16" />
-                  </button>
-                </div>
-                <article
-                  v-for="message in messages"
-                  :key="message.id"
-                  class="message"
-                  :class="
-                    message.role === 'user' ? 'from-user' : 'from-assistant'
-                  "
-                >
-                  <div class="message-author">
-                    {{
-                      message.role === "user"
-                        ? "你"
-                        : message.role === "assistant"
-                          ? conversationAssistantName
-                          : message.role
-                    }}
-                  </div>
-                  <SkillOutput
-                    v-if="message.role === 'assistant' && !message.reply_plan"
-                    :content="message.content"
-                    :generated-image-url="message.generated_image_url"
-                    @review="reviewSkill"
-                    @review-task="reviewTask"
-                  />
-                  <ReplyMedia v-else-if="message.role === 'assistant' && message.reply_plan && selectedConversation" :items="message.reply_plan.items" :conversation-id="selectedConversation" />
-                  <div v-else class="message-content">
-                    {{ message.content }}
-                  </div>
-                  <div
-                    v-if="message.image"
-                    class="message-image-metadata"
-                    aria-label="历史图片信息"
-                  >
-                    <strong
-                      >PNG 图片 · {{ message.image.width }} ×
-                      {{ message.image.height }}</strong
-                    >
-                    <span>{{
-                      ["queued", "running"].includes(message.image.status)
-                        ? "图片处理中"
-                        : message.image.status === "described"
-                          ? "视觉描述已生成，处理图片已清理"
-                          : "图片处理已结束，处理图片已清理"
-                    }}</span>
-                    <small>原始上传文件不留存；历史仅保留图片信息。</small>
-                    <details>
-                      <summary>查看图片 SHA-256</summary>
-                      <code>{{ message.image.sha256 }}</code>
-                    </details>
-                  </div>
-                  <span
-                    v-if="
-                      message.role === 'assistant' &&
-                      message.basis === 'vision_description'
-                    "
-                    class="message-vision-basis"
-                    >基于图片视觉描述的回答</span
-                  >
-                  <time>{{ formatDate(message.created_at) }}</time>
-                </article>
-                <div v-if="chatRunning" class="chat-pending">
-                  <span class="typing-dots"><i></i><i></i><i></i></span
-                  >{{
-                    chatRun?.status === "queued"
-                      ? "任务排队中…"
-                      : "助手正在处理…"
-                  }}
-                </div>
-              </div>
-              <ConversationComposer
-                ref="conversationComposer"
-                v-model:skill-id="skillChoice"
-                :conversation-id="selectedConversation"
-                :is-test="
-                  !!(
-                    selectedConversationData?.test ||
-                    selectedConversationData?.is_test ||
-                    selectedConversationData?.character?.is_test
-                  )
-                "
-                :model-configured="configuredModel"
-                :running="chatRunning"
-                :blocked="!!busy"
-                :prepare-conversation="prepareChatConversation"
-                @busy="chatSubmitting = $event"
-                @accepted="followChatRun"
-                @unauthorized="expireSession"
-                @inspect-history="inspectChatHistory"
-              />
-              <ConversationMedia
-                v-if="selectedConversation && !selectedConversationData?.test && !selectedConversationData?.is_test && !selectedConversationData?.character?.is_test"
-                :conversation-id="selectedConversation"
-                :disabled="chatRunning || !!busy"
-                @unauthorized="expireSession"
-              />
-            </div>
-          </section>
-        </template>
+        <RuntimeLogs v-if="page === 'logs'" @unauthorized="expireSession" />
         <div v-if="page === 'memory'" class="memory-page">
           <MemoryPanel ref="memoryPanel" />
           <MemoryCandidates @accepted="memoryPanel?.refresh()" />
           <ConversationSummary />
         </div>
         <WeixinChannel v-if="page === 'weixin'" />
-        <section v-if="page === 'speech'" class="panel"><SpeechPanel /></section>
-        <section v-if="page === 'plugins'" class="panel"><PluginFactoryPanel @unauthorized="expireSession" /></section>
-        <div v-if="page === 'diagnostics'" class="diagnostics-page">
-          <section class="panel" aria-label="任务与诊断概览">
-            <div class="panel-heading">
-              <div>
-                <h2>运行与任务状态</h2>
-                <p>仅展示脱敏状态；不会执行系统命令或发起模型任务。</p>
-              </div>
-              <button
-                type="button"
-                class="button secondary small"
-                :disabled="statusRefreshing"
-                @click="refreshStatus()"
-              >
-                刷新诊断状态
-              </button>
-            </div>
-            <dl class="diagnostics-metrics">
-              <div>
-                <dt>等待处理</dt>
-                <dd>{{ status?.queue?.queued ?? "—" }}</dd>
-              </div>
-              <div>
-                <dt>处理中</dt>
-                <dd>{{ status?.queue?.running ?? "—" }}</dd>
-              </div>
-              <div>
-                <dt>失败任务</dt>
-                <dd>{{ status?.queue?.failed ?? "—" }}</dd>
-              </div>
-              <div>
-                <dt>待投递回复</dt>
-                <dd>{{ status?.queue?.outbox_pending ?? "—" }}</dd>
-              </div>
-              <div>
-                <dt>结果未知的投递</dt>
-                <dd>{{ status?.queue?.outbox_unknown ?? "—" }}</dd>
-              </div>
-              <div>
-                <dt>运行环境</dt>
-                <dd>Ubuntu 24.04 LTS 64 位 / aarch64</dd>
-              </div>
-            </dl>
-          </section>
-          <details
-            class="panel development-diagnostics"
-            :open="developmentOpen"
-            @toggle="
-              developmentOpen = ($event.target as HTMLDetailsElement).open
-            "
-          >
-            <summary>开发诊断 / 实验验证，非正式插件能力</summary>
-            <p>
-              以下保留实验工具与旧记录，默认收起。它们不是已接入对话的正式插件，打开区域不会自动发送需求、图片或执行代码。
-            </p>
-            <details
-              :open="wasmDiagnosticOpen"
-              @toggle="
-                wasmDiagnosticOpen = ($event.target as HTMLDetailsElement).open
-              "
-            >
-              <summary>受限计算工坊实验</summary>
-              <WasmWorkbench v-if="developmentOpen && wasmDiagnosticOpen" />
-            </details>
-            <details
-              :open="imageDiagnosticOpen"
-              @toggle="
-                imageDiagnosticOpen = ($event.target as HTMLDetailsElement).open
-              "
-            >
-              <summary>旧独立图片分析与兼容记录</summary>
-              <p>
-                正常图片对话请使用“对话工作台”的附件入口。此处仅保留旧独立任务记录与诊断。
-              </p>
-              <ImageAnalysis v-if="developmentOpen && imageDiagnosticOpen" />
-            </details>
-            <p class="footnote">
-              清除图片任务是应用内的逻辑清理；数据库/WAL
-              和离线备份采用独立保留策略。
-            </p>
-          </details>
-        </div>
+        <section v-if="page === 'speech'" class="panel">
+          <SpeechPanel />
+        </section>
+        <section v-if="page === 'plugins'" class="panel">
+          <PluginFactoryPanel @unauthorized="expireSession" />
+        </section>
         <footer class="page-footer">
           <span>DSH · 你的助手，你来掌控</span
           ><span title="前端构建提交"

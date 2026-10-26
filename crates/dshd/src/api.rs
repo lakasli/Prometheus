@@ -23,6 +23,7 @@ pub fn router(state: AppState) -> Router {
     let web = state.0.options.web_dir.clone();
     Router::new()
         .merge(crate::character_api::router())
+        .merge(crate::runtime_logs::router())
         .merge(crate::conversation_images_api::router())
         .merge(crate::skills_api::router())
         .merge(crate::trigger_api::router())
@@ -132,10 +133,16 @@ async fn capabilities(_admin: Admin) -> Json<Value> {
         json!({"api_version":"v1","milestone":"M2-memory","backends":["native"],"channels":["web","cli","qq-c2c","qq-group","qq-channel","weixin-ilink-c2c"],"weixin_ilink":{"text_private":true,"linked_owner_only":true,"groups":false,"media":false,"max_accounts":1},"text":true,"character_cards":true,"character_card_profile":1,"qq_persona_switch":"private_only","memory":true,"assistant_memory":{"identity":"stable-instance","visibility":["shared","private"],"explicit_commands":true,"full_text_search":true,"automatic_extraction":false,"candidate_extraction":{"mode":"explicit_sources","review_required":true,"visibility":"private","max_sources":12,"max_candidates":3},"summaries":true,"summary_policy":{"keep_recent_turns":4,"max_batch_turns":8,"timeout_seconds":20,"max_concurrent":1},"source_tracing":true,"context_invalidation":true},"harness_runtime":false,"image_analysis":{"standalone":true,"formats":["png"],"max_images":1,"max_image_bytes":1048576,"conversation_integration":false},"vision":false,"asr":false,"tts":false,"pure_wasm_workbench":{"abi":"calc(i32,i32)->i32","manual_approval":true,"manual_execution":true,"host_imports":false,"chat_tool_registration":false},"generated_plugins":false,"runtime_limits":{"max_concurrent_runs":2},"configuration":{"hot_reload":true,"restart_required_fields":[]}}),
     );
     result.0["vision"] = json!(true);
+    result.0["character_cards"] = json!(false);
+    result.0["qq_persona_switch"] = json!(false);
+    result.0["assistant_personality"] =
+        json!({"mode":"single","versioned":true,"effective_from":"next_run"});
+    result.0["runtime_logs"] =
+        json!({"persistent":true,"authenticated":true,"subagent":false,"asr":false});
     result.0["conversation_images"] = json!({"channels":["web"],"formats":["png"],"max_images":1,"max_image_bytes":1048576,"provider":"deepseek","model":"deepseek-flash","basis":"vision_description","role_vision_module":false,"draft_tests":false});
     result.0["image_analysis"]["conversation_integration"] = json!(true);
-    result.0["image_analysis"]["placement"] = json!("development_diagnostics");
-    result.0["pure_wasm_workbench"]["placement"] = json!("development_diagnostics");
+    result.0["image_analysis"]["placement"] = json!("api_only");
+    result.0["pure_wasm_workbench"]["placement"] = json!("api_only");
     result.0["pure_wasm_workbench"]["experimental"] = json!(true);
     result.0["skills"] = json!({"management":true,"explicit_selection":true,"text_command":"/skill <id> <需求>","native_drawing_channels":["web"],"html_fallback":true,"grants_tool_permissions":false});
     result

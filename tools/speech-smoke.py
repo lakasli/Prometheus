@@ -92,6 +92,11 @@ def main():
                 h.request('POST', ROOT + '/syntheses', {'text': '```code```'}, expected=400)
                 h.request('POST', ROOT + '/syntheses', {'text': '合成测试。', 'executable': '/bin/sh'}, expected=422)
                 check('missing runtime limits code-only text and arbitrary executable input fail closed', True)
+                journal, raw, _ = h.request('GET', PREFIX + '/runtime-logs?kind=tts')
+                check('TTS attempts and failures appear in authenticated runtime logs without spoken text',
+                      any(item['status'] == 'running' for item in journal['items'])
+                      and any(item['status'] == 'failed' for item in journal['items'])
+                      and '合成测试。'.encode() not in raw)
                 current, _, _ = h.request('GET', PREFIX + '/config')
                 invalid = copy.deepcopy(current['config'])
                 invalid['speech']['voice'] = '../../untrusted'
@@ -114,6 +119,10 @@ def main():
                     with wave.open(io.BytesIO(audio), 'rb') as reader:
                         channels, width, rate, frames = reader.getnchannels(), reader.getsampwidth(), reader.getframerate(), reader.getnframes()
                     check('real Piper returns complete mono PCM Chinese speech with matching digest', (channels, width, rate) == (1, 2, 22050) and frames > 2205 and hashlib.sha256(audio).hexdigest() == asset['sha256'] and len(audio) == asset['bytes'])
+                    journal, raw, _ = h.request('GET', PREFIX + '/runtime-logs?kind=tts')
+                    check('real Piper synthesis completion is recorded with artifact identity in runtime logs',
+                          any(item['status'] == 'completed' and item['details'].get('asset_id', item['details'].get('id')) == asset['id'] for item in journal['items'])
+                          and '你好，这是树莓派上的本地中文语音测试。'.encode() not in raw)
                     check('private audio is no-store WAV and requires authentication', headers.get('Content-Type') == 'audio/wav' and 'no-store' in headers.get('Cache-Control', ''))
                     h.request('GET', asset['audio_url'], expected=401, authenticated=False)
                     token = secrets.token_hex(32)

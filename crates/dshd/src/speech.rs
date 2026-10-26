@@ -292,6 +292,51 @@ async fn synthesize_inner(
     text: &str,
     source: Option<crate::media_assets::MaterializationSource>,
 ) -> ApiResult<SpeechAsset> {
+    let run = source.as_ref().map(|s| s.run_id.clone());
+    let operation = uuid::Uuid::new_v4().to_string();
+    crate::runtime_logs::record(
+        state,
+        owner,
+        "tts",
+        "running",
+        run.as_deref(),
+        conversation,
+        "语音合成请求",
+        json!({"operation_id":operation,"provider":"piper","voice":config.voice,"text_chars":text.chars().count()}),
+    );
+    let result =
+        synthesize_operation(state, config, owner, conversation, text, source, &operation).await;
+    let (status, details) = match &result {
+        Ok(asset) => (
+            "completed",
+            json!({"operation_id":operation,"provider":"piper","asset_id":asset.id,"bytes":asset.bytes,"duration_ms":asset.duration_ms,"synthesis_ms":asset.synthesis_ms}),
+        ),
+        Err(error) => (
+            "failed",
+            json!({"operation_id":operation,"provider":"piper","error_code":error.code}),
+        ),
+    };
+    crate::runtime_logs::record(
+        state,
+        owner,
+        "tts",
+        status,
+        run.as_deref(),
+        conversation,
+        "语音合成结果",
+        details,
+    );
+    result
+}
+async fn synthesize_operation(
+    state: &AppState,
+    config: &SpeechConfig,
+    owner: &str,
+    conversation: Option<&str>,
+    text: &str,
+    source: Option<crate::media_assets::MaterializationSource>,
+    operation: &str,
+) -> ApiResult<SpeechAsset> {
     if !source_active(state, source.as_ref(), owner, conversation)? {
         return Err(ApiError::conflict());
     }
@@ -319,8 +364,11 @@ async fn synthesize_inner(
     let config = config.clone();
     let owner = owner.to_owned();
     let conversation = conversation.map(str::to_owned);
+    let operation = operation.to_owned();
     tokio::spawn(async move {
         let _permit = permit;
+        let run = source.as_ref().map(|s|s.run_id.clone());
+        let outcome: ApiResult<SpeechAsset> = async {
         let verification = runtime.clone();
         tokio::task::spawn_blocking(move || verification.verify())
             .await
@@ -360,6 +408,13 @@ async fn synthesize_inner(
             &audio,
         )?;
         Ok(asset)
+        }.await;
+        let details = match &outcome {
+            Ok(asset) => json!({"operation_id":operation,"provider":"piper","asset_id":asset.id,"bytes":asset.bytes,"duration_ms":asset.duration_ms}),
+            Err(error) => json!({"operation_id":operation,"provider":"piper","error_code":error.code}),
+        };
+        crate::runtime_logs::record(&state,&owner,"tts",if outcome.is_ok(){"completed"}else{"failed"},run.as_deref(),conversation.as_deref(),"语音工作器结束",details);
+        outcome
     })
     .await
     .map_err(|_| ApiError::internal())?

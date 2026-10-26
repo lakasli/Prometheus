@@ -40,6 +40,14 @@ class CompatibilityTests(unittest.TestCase):
     def test_legacy_database_can_use_legacy_release(self):
         compatibility.check(self.data, self.release)
 
+    def test_saved_single_personality_requires_compatible_release(self):
+        with connect(self.data / "dsh.db") as db:
+            db.execute("INSERT INTO settings VALUES('assistant.personality.v1','{}')")
+        with self.assertRaisesRegex(RuntimeError, "single assistant personality"):
+            compatibility.check(self.data, self.release)
+        (self.release / "deploy/release-capabilities.json").write_text(json.dumps({"single_assistant_personality":1}))
+        compatibility.check(self.data, self.release)
+
     def test_plugin_registry_approval_and_route_state_cannot_silently_disappear_on_rollback(self):
         with connect(self.data / "dsh.db") as db:
             db.executescript("CREATE TABLE plugin_factory_versions(id TEXT); INSERT INTO plugin_factory_versions VALUES('approved-version');")

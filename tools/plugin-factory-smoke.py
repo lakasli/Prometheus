@@ -261,6 +261,10 @@ def main():
                     command = harness.wait_run(command_run)
                     check('explicit chat command invokes the owners active Component through the normal conversation path',
                           command['status'] == 'completed' and 'user.synthetic-sum' in command['response'] and '9' in command['response'])
+                    journal = harness.call('GET', helpers.PREFIX + '/runtime-logs?kind=tool&run_id=' + command_run)[0]
+                    check('actual chat tool invocation records linked start and completion in runtime logs',
+                          any(item['status'] == 'running' for item in journal['items'])
+                          and any(item['status'] == 'completed' and item['details'].get('output_bytes', 0) > 0 for item in journal['items']))
                     harness.call('POST', ROOT + '/plugins/user.synthetic-sum/invoke', {'input': {'owner': 'forged'}}, expected=400)
                     with helpers.other_admin(harness):
                         harness.call('POST', ROOT + '/plugins/user.synthetic-sum/invoke', {'input': [4, 5]}, expected=404)

@@ -383,7 +383,7 @@ pub fn ingest_prepared(
         if command.is_none() && !memory_command && (fresh || (!has_binding && !has_model_work)) {character::bind_new_conversation(&tx,&id,None,&active_config)?;}
         let run=uuid::Uuid::new_v4().to_string();
         let command_response=if let Some(notice)=media_notice{Some(notice.to_string())}else if let Some(command)=command {
-            if kind!="c2c" {Some("角色命令仅支持私聊。群聊和频道的角色仍由管理员设置。".to_string())}
+            if kind!="c2c" {Some("本助手仅使用一个性格，请在 Web 助手与模型中编辑。".to_string())}
             else {let(next,response)=handle_persona_command(&tx,&id,&source_key,&owner,command,&active_config)?;id=next;Some(response)}
         }else{None};
         let pending:i64=tx.query_row("SELECT count(*) FROM runs WHERE status='queued'",[],|r|r.get(0))?;
@@ -437,75 +437,19 @@ fn persona_command(content: &str) -> Option<&str> {
 fn handle_persona_command(
     tx: &rusqlite::Transaction<'_>,
     conversation: &str,
-    source_key: &str,
-    owner: &str,
-    command: &str,
+    _source_key: &str,
+    _owner: &str,
+    _command: &str,
     config: &RuntimeConfig,
 ) -> anyhow::Result<(String, String)> {
-    if command == "当前" || command == "current" {
-        let current = character::connection_character(tx, conversation)?;
-        let text = if current.is_null() {
-            "当前使用原有助手（legacy）。发送 /角色 查看管理员开放的角色。".into()
-        } else {
-            format!(
-                "当前角色：{} · v{}。切换将新建会话，保留原会话记录。",
-                current["name"].as_str().unwrap_or("角色"),
-                current["revision"]
-            )
-        };
-        return Ok((conversation.into(), text));
-    }
-    let selector = command
-        .strip_prefix("切换 ")
-        .or_else(|| command.strip_prefix("switch "))
-        .map(str::trim);
-    if let Some(selector) = selector.filter(|s| !s.is_empty()) {
-        let selected = match character::find_published(tx, selector) {
-            Ok(v) => v,
-            Err(e) => return Ok((conversation.into(), e.message)),
-        };
-        let next = uuid::Uuid::new_v4().to_string();
-        tx.execute_batch("SAVEPOINT persona_switch")?;
-        tx.execute("INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?1,?2,'QQ私聊 · 角色切换',?3)",params![next,owner,now()])?;
-        if let Err(error) = character::bind_new_conversation(tx, &next, Some(&selected), config) {
-            tx.execute_batch("ROLLBACK TO persona_switch; RELEASE persona_switch")?;
-            return Ok((conversation.into(), error.message));
-        }
-        tx.execute(
-            "UPDATE conversations SET source_key=NULL WHERE id=?1 AND source_key=?2",
-            params![conversation, source_key],
-        )?;
-        tx.execute(
-            "UPDATE conversations SET source_key=?1 WHERE id=?2",
-            params![source_key, next],
-        )?;
-        tx.execute("INSERT INTO audit_events(actor,action,resource,created_at) VALUES(?1,'character.qq_switch',?2,?3)",params![owner,selected.card_id,now()])?;
-        let current = character::connection_character(tx, &next)?;
-        tx.execute_batch("RELEASE persona_switch")?;
-        return Ok((
-            next,
-            format!(
-                "已切换为 {} · v{}，已开始新会话。原会话记录保留。",
-                current["name"].as_str().unwrap_or("角色"),
-                selected.revision
-            ),
-        ));
-    }
-    let cards = character::list_published(tx)?;
-    let mut text = String::from("可选角色（由管理员开放）：");
-    for card in cards.iter().take(8) {
-        text.push_str(&format!(
-            "\n{} · v{}\n{}",
-            card["name"].as_str().unwrap_or("角色"),
-            card["revision"],
-            card["card_id"].as_str().unwrap_or("")
-        ));
-    }
-    if cards.is_empty() {
-        text.push_str("\n暂无。请管理员在 Web 角色卡页面发布并开启 QQ 可选。");
-    }
-    text.push_str("\n发送 /角色 切换 <角色名称或完整ID>；/角色 当前 查看当前角色。切换只影响本人的私聊新会话。");
-    Ok((conversation.into(), text))
+    let current = character::personality_state(tx, config)?;
+    Ok((
+        conversation.into(),
+        format!(
+            "当前助手：{}。本助手仅有一个性格，不再支持角色切换；请在 Web 助手与模型中编辑性格。",
+            current["personality"]["name"].as_str().unwrap_or("DSH")
+        ),
+    ))
 }
 
 fn strip_mentions(input: &str) -> String {

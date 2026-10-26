@@ -38,6 +38,9 @@ def check(data_dir, release_source):
             if "character_snapshot_json" in columns:
                 uses_persona |= db.execute("SELECT EXISTS(SELECT 1 FROM runs WHERE character_snapshot_json IS NOT NULL)").fetchone()[0]
         if "settings" in tables:
+            saved_personality = db.execute("SELECT EXISTS(SELECT 1 FROM settings WHERE key='assistant.personality.v1')").fetchone()[0]
+            if saved_personality and int(capabilities.get("single_assistant_personality", 0)) < 1:
+                raise RuntimeError("Target release lacks single assistant personality semantics; saved personality must not be ignored")
             uses_persona |= db.execute("SELECT EXISTS(SELECT 1 FROM settings WHERE key='character.default.v1' AND value NOT IN ('null',''))").fetchone()[0]
         if uses_persona and int(capabilities.get("character_snapshot", 0)) < 1:
             raise RuntimeError("Target release lacks character snapshots; persona bindings/work must not be downgraded silently")

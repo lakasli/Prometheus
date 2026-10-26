@@ -59,10 +59,6 @@ enum Command {
         username: String,
         #[arg(long)]
         conversation: Option<String>,
-        #[arg(long, requires = "character_revision", conflicts_with = "conversation")]
-        character_card: Option<String>,
-        #[arg(long, requires = "character_card", conflicts_with = "conversation")]
-        character_revision: Option<i64>,
         #[arg(long)]
         message: String,
     },
@@ -248,15 +244,8 @@ async fn run_app(cli: Cli) -> Result<()> {
             url,
             username,
             conversation,
-            character_card,
-            character_revision,
             message,
-        } => {
-            let character = character_card
-                .zip(character_revision)
-                .map(|(card_id, revision)| dshd::character::CardRef { card_id, revision });
-            chat(&url, &username, conversation, character, &message).await?
-        }
+        } => chat(&url, &username, conversation, &message).await?,
     }
     Ok(())
 }
@@ -278,7 +267,6 @@ async fn chat(
     base: &str,
     username: &str,
     conversation: Option<String>,
-    character: Option<dshd::character::CardRef>,
     message: &str,
 ) -> Result<()> {
     let endpoint = url::Url::parse(base)?;
@@ -335,7 +323,7 @@ async fn chat(
             let response = client
                 .post(format!("{api}/conversations"))
                 .headers(headers.clone())
-                .json(&json!({"title":"CLI对话","character":character}))
+                .json(&json!({"title":"CLI对话"}))
                 .send()
                 .await?;
             anyhow::ensure!(response.status().is_success(), "cannot create conversation");
