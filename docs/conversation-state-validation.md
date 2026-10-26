@@ -195,3 +195,10 @@ bash /home/campanus/apps/dsh/releases/1a754b29c21171d5d718b983247712405450cdae/s
 普通对话在历史与可选性格资料之后、完整当前输入之前追加一个 required 的宿主 system block。它计入原预算，明确整轮对象和完整句总数均不超过已配置的 1–4 项，详细解题仍须在这些句子内给出完整核心过程；不截断、不扩大发送额度、不新增模型重试。临时偏好只从宿主已核验的 brief / detailed 枚举产生，缺省时不沿用另一题的详细要求；不将原始来源文字提升为 system。Skill 草稿保持原专用 Schema，不注入这份普通回复协议。
 
 实际 loopback worker 检查确认该规则以 system role 紧邻完整当前输入，且预算证据中 required / selected、字节均计入；不是仅检查静态 prompt 字符串。本地库 **556 / 556，22.18 秒，退出 0**；`cargo fmt --all --check` 与 diff 检查通过。严格 Clippy 仍退出 **101**、既有 48 条诊断，新增 0；记录 `.local/conversation-state/local-final-contract-library.log`、`clippy-final-contract-comparison.json`。这只证明协议位置、预算与原宿主回归，不能保证真实模型一定服从；新固定 SHA 和真实定向复测仍待后续记录。
+
+
+### 定向验收脚本的独立版本
+
+原 live 工具没有场景选择入口；仅把额度改为 6 会运行清单开头的其它场景，不能用于定向证明 S05 / GROUP。后续工具增加闭集 `--cases`：空项、未知或重复 ID、显式选择超过 hard cap 均在读取生产配置或凭据前拒绝。`--cases GROUP,S05 --max-real-requests 6` 按原清单顺序执行两个场景、**仅计划 5 次**，不会补满第六次；默认不选择场景时仍保留原 12 场景 / 24 次及 budget_limited 行为。
+
+新增 `--expected-script-commit` 可核验独立干净 Git validation 工作树的精确 SHA，报告单列测试脚本 SHA、runner / helper hash 和实际程序 expected commit；不改写已发布 source，也不把测试脚本提交冒充程序重新部署。本地 **15 项离线测试、自测 13 项（含原 9 项 gate）通过**，日志 `.local/conversation-state/live-selection-unit.log`、`live-selection-self-test.json`。此改动没有 Rust / 前端运行行为变化，不为它另行重启服务。真实定向调用仍须等 ac9 程序部署 ready 后，从新固定脚本工作树执行并另存报告；本段不预记调用或功能通过。

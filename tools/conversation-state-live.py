@@ -20,6 +20,7 @@ import re
 import secrets
 import socket
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import threading
@@ -55,6 +56,65 @@ SCENARIOS = [
     ('E06', 2, 'Management-reviewed confirmed proposal remains unscheduled; review is not source assent or contact permission.'),
     ('FTS', 2, 'Retrieval unavailable is not forgotten/not_found; answer only from independently verified current history.'),
 ]
+
+
+def select_scenarios(raw, request_limit):
+    """Validate before opening any source/credential; execute stable manifest order.
+
+    The original default may intentionally be budget-limited. An explicit
+    selection must fit its hard cap so a mistyped limit cannot silently replace
+    the requested acceptance cohort with a partial one.
+    """
+    if type(request_limit) is not int or not 1 <= request_limit <= MAX_REQUESTS:
+        raise ValueError('max_real_requests_must_be_1_to_24')
+    if raw is None:
+        return list(SCENARIOS)
+    requested = [value.strip() for value in raw.split(',')]
+    if not all(requested):
+        raise ValueError('case_selection_must_not_be_empty')
+    if len(requested) != len(set(requested)):
+        raise ValueError('case_selection_must_not_repeat_IDs')
+    known = {case[0] for case in SCENARIOS}
+    if not set(requested).issubset(known):
+        raise ValueError('case_selection_contains_unknown_ID')
+    selected = [case for case in SCENARIOS if case[0] in requested]
+    if sum(case[1] for case in selected) > request_limit:
+        raise ValueError('selected_planned_requests_exceed_hard_limit')
+    return selected
+
+
+def script_source_metadata(expected_commit=None, script_path=None):
+    """Local Git evidence is separate from the binary/frontend expected SHA.
+
+    A formal independent validation checkout can require an exact clean commit.
+    Exported scripts remain supported without that option; their complete file
+    hashes are still recorded, and unavailable Git evidence is never invented.
+    """
+    script = pathlib.Path(script_path or __file__).resolve()
+    directory = str(script.parent)
+    try:
+        def git(*arguments):
+            value = subprocess.run(['git', '-C', directory, *arguments],
+                                   capture_output=True, text=True, timeout=10, check=True)
+            return value.stdout.strip()
+        # A script copied into an ignored directory is not proven to belong to
+        # HEAD merely because its parent happens to be inside a clean checkout.
+        if git('ls-files', '--error-unmatch', '--', script.name) != script.name:
+            raise ValueError('script_source_commit_unavailable')
+        actual = git('rev-parse', 'HEAD')
+        if not re.fullmatch('[0-9a-f]{40}', actual):
+            raise ValueError('script_source_commit_unavailable')
+        clean = not git('status', '--porcelain')
+    except (OSError, subprocess.SubprocessError, ValueError):
+        if expected_commit:
+            raise ValueError('script_source_commit_unavailable') from None
+        return {'commit': None, 'clean': None, 'verification': 'runner_hash_only_git_unavailable'}
+    if expected_commit and actual != expected_commit:
+        raise ValueError('script_source_commit_does_not_match_expected')
+    if expected_commit and not clean:
+        raise ValueError('script_source_worktree_is_not_clean')
+    return {'commit': actual, 'clean': clean,
+            'verification': 'exact_expected_clean_commit' if expected_commit else 'observed_git_commit_only'}
 
 
 def sha(value):
@@ -560,7 +620,25 @@ def self_test():
             pass
         assert len(attempts) == 1 and failure_gate.reserved == 1 and failure_gate.records[0]['status'] == 'failed'
         assert len(SCENARIOS) == 12 and sum(case[1] for case in SCENARIOS) == MAX_REQUESTS
-        return {'status': 'passed', 'checks': 9, 'external_model_requests': 0,
+        assert select_scenarios(None, 24) == SCENARIOS
+        assert select_scenarios(None, 1) == SCENARIOS  # preserve default budget-limited mode
+        selected = select_scenarios('S05,GROUP', 6)
+        assert [case[0] for case in selected] == ['GROUP', 'S05']
+        assert sum(case[1] for case in selected) == 5
+        for invalid in ['', ' ', 'S05,', ',GROUP', 'S05,,GROUP', 'S05,S05', 'UNKNOWN', 's05']:
+            try:
+                select_scenarios(invalid, 24)
+                raise AssertionError('invalid_selection_accepted')
+            except ValueError:
+                pass
+        for raw_cases, limit in [(None, 0), (None, 25), ('GROUP,S05', 4)]:
+            try:
+                select_scenarios(raw_cases, limit)
+                raise AssertionError('invalid_selection_limit_accepted')
+            except ValueError:
+                pass
+        return {'status': 'passed', 'checks': 13, 'original_gate_checks': 9, 'selection_checks': 4,
+                'external_model_requests': 0,
                 'source_data_opened': False, 'transport': 'loopback plus explicit offline-only stub'}
     finally:
         server.shutdown()
@@ -572,29 +650,50 @@ def main():
     for name in ('binary', 'web-dir', 'source-data-dir', 'expected-commit', 'report'):
         parser.add_argument('--' + name)
     parser.add_argument('--max-real-requests', type=int, default=24)
+    parser.add_argument('--cases', help='comma separated existing case IDs; executed in stable scenario-manifest order')
+    parser.add_argument('--expected-script-commit', help='require this exact clean Git commit for the validation script; independent of the program SHA')
     parser.add_argument('--openssl')
     parser.add_argument('--self-test', action='store_true', help='offline gate checks; no credentials or real model')
     args = parser.parse_args()
+    try:
+        selected = select_scenarios(args.cases, args.max_real_requests)
+    except ValueError as error:
+        parser.error(str(error))
+    if args.expected_script_commit and not re.fullmatch('[0-9a-f]{40}', args.expected_script_commit):
+        parser.error('--expected-script-commit must be a full lowercase commit SHA')
     if args.self_test:
         print(json.dumps(self_test()))
         return 0
     if not all((args.binary, args.web_dir, args.source_data_dir, args.expected_commit, args.report)):
         parser.error('binary, web-dir, source-data-dir, expected-commit and report are required')
-    if not 1 <= args.max_real_requests <= MAX_REQUESTS:
-        parser.error('--max-real-requests must be 1..24')
     if not re.fullmatch('[0-9a-f]{40}', args.expected_commit):
         parser.error('--expected-commit must be a full lowercase commit SHA')
+    try:
+        script_source = script_source_metadata(args.expected_script_commit)
+    except ValueError as error:
+        parser.error(str(error))
     binary, web = pathlib.Path(args.binary).resolve(strict=True), pathlib.Path(args.web_dir).resolve(strict=True)
     source, output = pathlib.Path(args.source_data_dir).resolve(strict=True), pathlib.Path(args.report).resolve()
     if output.is_relative_to(source) or output.exists():
         parser.error('report must be a new file outside source-data-dir; failed evidence is never overwritten')
     report = {'schema_version': 1, 'kind': 'isolated real-model conversation-state samples',
               'status': 'running', 'started_at': base.utc_now(), 'expected_commit': args.expected_commit,
+              'program_expected_commit': args.expected_commit,
+              'expected_script_commit': args.expected_script_commit,
+              'script_source_commit': script_source['commit'], 'script_source_clean': script_source['clean'],
+              'script_source_verification': script_source['verification'],
               'binary_sha256': sha(binary.read_bytes()), 'runner_sha256': sha(pathlib.Path(__file__).read_bytes()),
               'helper_sha256': {pathlib.Path(module.__file__).name: sha(pathlib.Path(module.__file__).read_bytes())
                                 for module in (coord, batch, base)},
               'architecture': platform.machine(), 'request_budget': {'limit': args.max_real_requests,
                   'reserved': 0, 'forwarded': 0, 'failed_attempts': 0, 'retry_policy': 'none'},
+              'selected_case_ids': [case[0] for case in selected],
+              'planned_requests': sum(case[1] for case in selected),
+              'case_selection': {'explicit': args.cases is not None,
+                  'requested_ids': [value.strip() for value in args.cases.split(',')] if args.cases is not None else None,
+                  'execution_order': 'stable_SCENARIOS_manifest_order',
+                  'all_defined_case_count': len(SCENARIOS),
+                  'excluded_case_ids': [case[0] for case in SCENARIOS if case not in selected]},
               'max_input_bytes': MAX_INPUT_BYTES, 'max_output_tokens': MAX_OUTPUT_TOKENS,
               'provider_hard_timeout_seconds': NETWORK_DEADLINE, 'max_actual_concurrency': 1,
               'real_host_time': base.utc_now(), 'fixed_fixture_15_00_claimed': False,
@@ -666,7 +765,7 @@ def main():
                     'qq_mode': 'signed synthetic webhook with durable pre-enable pacing fence',
                     'real_model_key_stored_in_temp_database': False, 'temperature_or_seed_forced': False}
                 replay = Replay(h, forward, signer, report)
-                for identifier, planned, review in SCENARIOS:
+                for identifier, planned, review in selected:
                     entry = {'id': identifier, 'planned_requests': planned, 'review_instruction': review,
                              'host_status': 'running', 'expression_status': 'review_pending',
                              'host_checks': [], 'run_ids': [], 'started_at': base.utc_now()}
