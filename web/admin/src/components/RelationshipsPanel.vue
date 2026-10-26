@@ -2,6 +2,8 @@
 import { computed, onMounted, onUnmounted, reactive, ref, useId } from "vue";
 import { api, errorMessage } from "../api";
 import AdminSelect from "./AdminSelect.vue";
+import Icon from "./Icon.vue";
+import { layoutRelationshipGraph, graphEdgePath } from "../relationship-graph";
 import type { Conversation } from "../types";
 
 interface Person {
@@ -191,27 +193,112 @@ const compatiblePeople = computed(() =>
       p.visibility === selected.value?.visibility,
   ),
 );
-const graphPeople = computed(() => activePeople.value.slice(0, 20));
-const positions = computed(
-  () =>
-    new Map(
-      graphPeople.value.map((p, index) => [
-        p.id,
-        { x: 100 + (index % 4) * 180, y: 65 + Math.floor(index / 4) * 115 },
-      ]),
-    ),
+const graphPeople = computed(() => activePeople.value.slice(0, 50));
+const graphEdges = computed(() => {
+  const ids = new Set(graphPeople.value.map((person) => person.id));
+  return relationships.value.filter(
+    (edge) =>
+      edge.status === "approved" &&
+      ids.has(edge.from_person_id) &&
+      ids.has(edge.to_person_id),
+  );
+});
+const positions = computed(() =>
+  layoutRelationshipGraph(graphPeople.value, graphEdges.value),
 );
-const graphEdges = computed(() =>
+const selectedId = ref<string | null>(null);
+const detailLoading = ref(false);
+const zoom = ref(1);
+const pan = reactive({ x: 0, y: 0 });
+const graphSvg = ref<SVGSVGElement | null>(null);
+const dragging = ref(false);
+let dragStart: {
+  pointer: number;
+  x: number;
+  y: number;
+  panX: number;
+  panY: number;
+} | null = null;
+const connectedIds = computed(() => {
+  const ids = new Set<string>();
+  if (selectedId.value) ids.add(selectedId.value);
+  for (const edge of graphEdges.value) {
+    if (edge.from_person_id === selectedId.value) ids.add(edge.to_person_id);
+    if (edge.to_person_id === selectedId.value) ids.add(edge.from_person_id);
+  }
+  return ids;
+});
+const selectedEdges = computed(() =>
   relationships.value.filter(
-    (e) =>
-      e.status === "approved" &&
-      positions.value.has(e.from_person_id) &&
-      positions.value.has(e.to_person_id),
+    (edge) =>
+      edge.from_person_id === selectedId.value ||
+      edge.to_person_id === selectedId.value,
   ),
 );
-const graphHeight = computed(() =>
-  Math.max(150, Math.ceil(graphPeople.value.length / 4) * 115),
-);
+function degree(id: string) {
+  return graphEdges.value.filter(
+    (edge) => edge.from_person_id === id || edge.to_person_id === id,
+  ).length;
+}
+function edgePath(edge: Edge) {
+  return graphEdgePath(
+    edge.id,
+    positions.value.get(edge.from_person_id)!,
+    positions.value.get(edge.to_person_id)!,
+    graphEdges.value.some(
+      (other) =>
+        other.from_person_id === edge.to_person_id &&
+        other.to_person_id === edge.from_person_id,
+    ),
+  );
+}
+function isConnected(edge: Edge) {
+  return (
+    edge.from_person_id === selectedId.value ||
+    edge.to_person_id === selectedId.value
+  );
+}
+function resetGraph() {
+  zoom.value = 1;
+  pan.x = 0;
+  pan.y = 0;
+}
+function zoomGraph(amount: number) {
+  zoom.value = Math.min(
+    2.4,
+    Math.max(0.5, Math.round((zoom.value + amount) * 100) / 100),
+  );
+}
+function startPan(event: PointerEvent) {
+  if (event.button !== 0) return;
+  dragStart = {
+    pointer: event.pointerId,
+    x: event.clientX,
+    y: event.clientY,
+    panX: pan.x,
+    panY: pan.y,
+  };
+  dragging.value = true;
+  graphSvg.value?.setPointerCapture?.(event.pointerId);
+}
+function movePan(event: PointerEvent) {
+  if (!dragStart || event.pointerId !== dragStart.pointer) return;
+  const rect = graphSvg.value?.getBoundingClientRect();
+  if (!rect || !rect.width || !rect.height) return;
+  const ratio = Math.min(rect.width / 900, rect.height / 680);
+  pan.x = Math.max(
+    -900,
+    Math.min(900, dragStart.panX + (event.clientX - dragStart.x) / ratio),
+  );
+  pan.y = Math.max(
+    -680,
+    Math.min(680, dragStart.panY + (event.clientY - dragStart.y) / ratio),
+  );
+}
+function endPan() {
+  dragStart = null;
+  dragging.value = false;
+}
 const currentAssertions = computed(
   () => selected.value?.assertions.filter((a) => a.status === "approved") || [],
 );
@@ -273,6 +360,17 @@ async function load() {
     total.value = p.total;
     relationships.value = e.items;
     conversations.value = c.items;
+    if (
+      selectedId.value &&
+      !p.items.some((person) => person.id === selectedId.value)
+    ) {
+      detailController?.abort();
+      detailEpoch++;
+      selectedId.value = null;
+      selected.value = null;
+      detailLoading.value = false;
+    }
+    resetGraph();
   } catch (e) {
     if (!controller.signal.aborted && !disposed) error.value = errorMessage(e);
   } finally {
@@ -284,6 +382,9 @@ async function choose(person: Person) {
   const controller = new AbortController();
   detailController = controller;
   const epoch = ++detailEpoch;
+  selectedId.value = person.id;
+  detailLoading.value = true;
+  if (selected.value?.id !== person.id) selected.value = null;
   error.value = "";
   try {
     const item = await api<Detail>(personPath(person.id), {
@@ -303,6 +404,8 @@ async function choose(person: Person) {
     supersedes.value = [];
   } catch (e) {
     if (!controller.signal.aborted && !disposed) error.value = errorMessage(e);
+  } finally {
+    if (epoch === detailEpoch && !disposed) detailLoading.value = false;
   }
 }
 async function perform(
@@ -772,9 +875,9 @@ onUnmounted(() => {
   <section class="relationships-panel life-system">
     <div class="section-heading">
       <div>
-        <h2>人际关系</h2>
-        <p>
-          人物按稳定身份保存，资料与有向关系逐项保留来源。同名不会自动合并。
+        <h2>每一段关系，都有来处</h2>
+        <p class="muted">
+          从一个人出发，看见彼此的联系。资料与关系保留来源，同名不会自动合并。
         </p>
       </div>
       <button type="button" :disabled="busy" @click="creating = !creating">
@@ -825,103 +928,28 @@ onUnmounted(() => {
         刷新
       </button>
     </form>
-    <details class="card">
-      <summary>好感规则与停机预演</summary>
-      <button type="button" :disabled="busy" @click="loadPolicy">
-        载入好感规则
-      </button>
-      <form
-        v-if="loadedPolicy"
-        class="relationship-form"
-        @submit.prevent="savePolicy"
-      >
-        <p>
-          当前版本 v{{
-            loadedPolicy.revision
-          }}。新规则只作用于生效水位之后；好感不会改变基础回复、纠错、隐私权或接收许可。
-        </p>
-        <label
-          >新档案初始分<input
-            v-model.number="policyForm.initial"
-            type="number"
-            min="0"
-            max="100"
-            required /></label
-        ><label
-          >下界<input
-            v-model.number="policyForm.minimum"
-            type="number"
-            min="0"
-            max="99"
-            required /></label
-        ><label
-          >上界<input
-            v-model.number="policyForm.maximum"
-            type="number"
-            min="1"
-            max="100"
-            required /></label
-        ><label
-          >每日空闲衰减<input
-            v-model.number="policyForm.daily_decay"
-            type="number"
-            min="0"
-            max="10"
-            step="0.001"
-            required /></label
-        ><label
-          >直接互动后宽限秒数<input
-            v-model.number="policyForm.grace_seconds"
-            type="number"
-            min="0"
-            max="2592000"
-            required /></label
-        ><label
-          >未观测停机区间最多补算秒数<input
-            v-model.number="policyForm.downtime_cap_seconds"
-            type="number"
-            min="0"
-            max="2592000"
-            required /></label
-        ><label>调整依据<textarea v-model="policyForm.reason" required /></label
-        ><label
-          >预演空闲天数<input
-            v-model.number="previewDays"
-            type="number"
-            min="0"
-            max="3650"
-            step="0.1" /></label
-        ><button type="button" :disabled="busy" @click="previewPolicy">
-          预演分数
-        </button>
-        <p v-if="policyPreview !== null" role="status">
-          从初始分出发的预演结果：{{
-            policyPreview.toFixed(3)
-          }}。本次预演不改实际分数。
-        </p>
-        <label class="checkbox"
-          ><input
-            v-model="policyForm.confirmed"
-            type="checkbox"
-          />明确确认新规则从生效水位向后应用</label
-        ><button :disabled="busy" type="submit">保存好感规则</button>
-      </form>
-    </details>
     <p v-if="loading" role="status">正在加载人物与关系…</p>
     <div v-else-if="!people.length" class="empty-state">
       尚无人物档案。建立人物并审核资料后，已核验身份的相关信息才会用于对话。
     </div>
-    <div v-else class="relationship-columns">
-      <aside class="card relationship-list" aria-label="人物列表">
+    <div v-else class="relationship-columns relationship-workspace">
+      <aside class="relationship-list" aria-label="人物列表">
+        <div class="relationship-list-heading">
+          <h3>人物</h3>
+          <span>{{ total }} 位</span>
+        </div>
         <button
           v-for="p in people"
           :key="p.id"
           type="button"
-          :class="{ active: selected?.id === p.id }"
+          :class="{ active: selectedId === p.id }"
+          :aria-pressed="selectedId === p.id"
           :disabled="busy"
           @click="choose(p)"
         >
-          <strong>{{ p.display_name }}</strong
+          <span class="person-list-title"
+            ><strong>{{ p.display_name }}</strong
+            ><span class="person-degree">{{ degree(p.id) }} 条关系</span></span
           ><span
             >{{ p.visibility === "shared" ? "已发布共享" : "来源私有"
             }}<template v-if="p.merged_into"> · 已合并</template></span
@@ -953,7 +981,186 @@ onUnmounted(() => {
           </button>
         </div>
       </aside>
-      <article v-if="selected" class="card relationship-detail">
+      <section class="relationship-graph" aria-label="人物关系网络">
+        <div class="graph-heading">
+          <div>
+            <h3>关系网络</h3>
+            <span class="muted"
+              >{{ graphPeople.length }} 位人物 ·
+              {{ graphEdges.length }} 条已审核关系</span
+            >
+          </div>
+          <span class="graph-live-label"><i></i> 来源可追溯</span>
+        </div>
+        <div class="graph-canvas" :class="{ dragging }">
+          <svg
+            ref="graphSvg"
+            viewBox="0 0 900 680"
+            role="group"
+            aria-label="已审核的有向人物关系图"
+            @wheel.prevent="zoomGraph($event.deltaY < 0 ? 0.1 : -0.1)"
+            @pointerdown="startPan"
+            @pointermove="movePan"
+            @pointerup="endPan"
+            @pointercancel="endPan"
+            @lostpointercapture="endPan"
+          >
+            <defs>
+              <marker
+                :id="`relationship-arrow-${uid}`"
+                markerWidth="8"
+                markerHeight="8"
+                refX="7"
+                refY="4"
+                orient="auto"
+                markerUnits="userSpaceOnUse"
+              >
+                <path
+                  d="M1,1 L7,4 L1,7"
+                  fill="none"
+                  stroke="context-stroke"
+                  stroke-width="1.3"
+                />
+              </marker>
+            </defs>
+            <g
+              class="relationship-graph-viewport"
+              :transform="`translate(${450 + pan.x} ${340 + pan.y}) scale(${zoom}) translate(-450 -340)`"
+            >
+              <g
+                v-for="edge in graphEdges"
+                :key="edge.id"
+                class="relationship-graph-edge"
+                :class="{
+                  highlighted: isConnected(edge),
+                  dimmed: selectedId && !isConnected(edge),
+                }"
+              >
+                <path
+                  :d="edgePath(edge)"
+                  :marker-end="`url(#relationship-arrow-${uid})`"
+                />
+                <title>
+                  {{ name(edge.from_person_id) }} →
+                  {{ name(edge.to_person_id) }} ·
+                  {{
+                    edgeNames[edge.relationship_type] || edge.relationship_type
+                  }}
+                </title>
+                <text
+                  v-if="isConnected(edge)"
+                  :x="
+                    (positions.get(edge.from_person_id)!.x +
+                      positions.get(edge.to_person_id)!.x) /
+                    2
+                  "
+                  :y="
+                    (positions.get(edge.from_person_id)!.y +
+                      positions.get(edge.to_person_id)!.y) /
+                      2 -
+                    9
+                  "
+                >
+                  {{
+                    edgeNames[edge.relationship_type] || edge.relationship_type
+                  }}
+                </text>
+              </g>
+              <g
+                v-for="person in graphPeople"
+                :key="person.id"
+                class="relationship-graph-node"
+                :class="{
+                  selected: selectedId === person.id,
+                  neighbor: selectedId && connectedIds.has(person.id),
+                  dimmed: selectedId && !connectedIds.has(person.id),
+                }"
+                :transform="`translate(${positions.get(person.id)!.x},${positions.get(person.id)!.y})`"
+                role="button"
+                tabindex="0"
+                :aria-label="`查看${person.display_name}的资料`"
+                :aria-pressed="selectedId === person.id"
+                :aria-disabled="busy"
+                @pointerdown.stop
+                @click.stop="!busy && choose(person)"
+                @keydown.enter.prevent="!busy && choose(person)"
+                @keydown.space.prevent="!busy && choose(person)"
+              >
+                <circle
+                  class="node-halo"
+                  :r="positions.get(person.id)!.radius + 6"
+                />
+                <circle
+                  class="node-disc"
+                  :r="positions.get(person.id)!.radius"
+                  :style="{
+                    '--node-opacity': String(
+                      0.36 +
+                        Math.min(positions.get(person.id)!.degree, 7) * 0.08,
+                    ),
+                  }"
+                />
+                <text text-anchor="middle" dominant-baseline="middle">
+                  {{
+                    person.display_name.length > 8
+                      ? person.display_name.slice(0, 7) + "…"
+                      : person.display_name
+                  }}
+                </text>
+                <title>
+                  {{ person.display_name }} ·
+                  {{ degree(person.id) }} 条已审核关系 · {{ person.id }}
+                </title>
+              </g>
+            </g>
+          </svg>
+          <div v-if="!graphPeople.length" class="graph-empty">
+            当前页没有未合并人物。
+          </div>
+          <div class="graph-controls" role="group" aria-label="关系图视图控制">
+            <button
+              type="button"
+              aria-label="缩小关系图"
+              :disabled="zoom <= 0.5"
+              @click="zoomGraph(-0.2)"
+            >
+              −
+            </button>
+            <output aria-label="关系图缩放比例"
+              >{{ Math.round(zoom * 100) }}%</output
+            >
+            <button
+              type="button"
+              aria-label="放大关系图"
+              :disabled="zoom >= 2.4"
+              @click="zoomGraph(0.2)"
+            >
+              +
+            </button>
+            <span class="control-divider"></span
+            ><button type="button" aria-label="重置关系图" @click="resetGraph">
+              <Icon name="refresh" :size="16" />
+            </button>
+          </div>
+          <p class="graph-hint">滚轮缩放 · 拖动空白移动 · 点击人物查看</p>
+        </div>
+        <div class="graph-legend">
+          <span
+            ><i class="legend-small"></i
+            ><i class="legend-large"></i>圆点越大，当前页关联越多</span
+          ><span><i class="legend-line"></i>已审核的有向关系</span>
+        </div>
+        <p class="graph-scope">
+          展示当前页最多 50
+          位未合并人物。箭头表示单向关系；间接联系不代表直接认识。
+        </p>
+      </section>
+      <article
+        v-if="selected && !detailLoading"
+        class="relationship-detail"
+        aria-label="人物详情"
+      >
+        <p class="eyebrow">PERSON PROFILE</p>
         <div class="section-heading">
           <div>
             <h3>{{ selected.display_name }}</h3>
@@ -987,6 +1194,35 @@ onUnmounted(() => {
             ><button :disabled="busy" type="submit">保存称呼</button>
           </details>
         </form>
+        <section class="person-connections" aria-label="当前人物的关系">
+          <h4>
+            与其他人的联系
+            <span class="tag">{{
+              selectedEdges.filter((edge) => edge.status === "approved").length
+            }}</span>
+          </h4>
+          <p
+            v-if="!selectedEdges.some((edge) => edge.status === 'approved')"
+            class="muted"
+          >
+            还没有已审核关系。可以在下方提交关系候选。
+          </p>
+          <ul v-else>
+            <li
+              v-for="edge in selectedEdges.filter(
+                (item) => item.status === 'approved',
+              )"
+              :key="edge.id"
+            >
+              <span
+                >{{ name(edge.from_person_id) }} →
+                {{ name(edge.to_person_id) }}</span
+              ><strong>{{
+                edgeNames[edge.relationship_type] || edge.relationship_type
+              }}</strong>
+            </li>
+          </ul>
+        </section>
         <h4>人物资料</h4>
         <p v-if="!selected.assertions.length" class="muted">
           资料未知，尚无字段断言。
@@ -1368,77 +1604,113 @@ onUnmounted(() => {
           </form>
         </details>
       </article>
-      <div v-else class="card empty-state">
-        选择一个人物，查看字段来源、冲突审核、身份映射和好感变化。
-      </div>
-    </div>
-    <section v-if="people.length" class="card relationship-graph">
-      <h3>有向关系图</h3>
-      <p class="muted">
-        仅展示当前页前 20
-        个未合并人物及已审核关系。间接了解不代表直接认识；箭头不代表双向。
-      </p>
-      <svg
-        :viewBox="`0 0 760 ${graphHeight}`"
-        role="img"
-        aria-label="已审核的有向人物关系图"
+      <aside
+        v-else
+        class="relationship-detail detail-placeholder"
+        aria-label="人物详情"
       >
-        <defs>
-          <marker
-            :id="`relationship-arrow-${uid}`"
-            markerWidth="8"
-            markerHeight="8"
-            refX="6"
-            refY="3"
-            orient="auto"
-          >
-            <path d="M0,0 L0,6 L6,3 z" fill="currentColor" />
-          </marker>
-        </defs>
-        <g
-          v-for="edge in graphEdges"
-          :key="edge.id"
-          class="relationship-graph-edge"
-        >
-          <line
-            :x1="positions.get(edge.from_person_id)!.x"
-            :y1="positions.get(edge.from_person_id)!.y"
-            :x2="positions.get(edge.to_person_id)!.x - 48"
-            :y2="positions.get(edge.to_person_id)!.y"
-            :marker-end="`url(#relationship-arrow-${uid})`"
-          />
-          <text
-            :x="
-              (positions.get(edge.from_person_id)!.x +
-                positions.get(edge.to_person_id)!.x) /
-              2
-            "
-            :y="
-              (positions.get(edge.from_person_id)!.y +
-                positions.get(edge.to_person_id)!.y) /
-                2 -
-              9
-            "
-          >
-            {{ edgeNames[edge.relationship_type] }}
-          </text>
-        </g>
-        <g
-          v-for="p in graphPeople"
-          :key="p.id"
-          class="relationship-graph-node"
-          :transform="`translate(${positions.get(p.id)!.x},${positions.get(p.id)!.y})`"
-        >
-          <rect x="-68" y="-22" width="136" height="44" rx="14" />
-          <text text-anchor="middle" dominant-baseline="middle">
-            {{ p.display_name.slice(0, 9) }}
-          </text>
-          <title>{{ p.display_name }} · {{ p.id }}</title>
-        </g>
-      </svg>
-    </section>
-    <section v-if="relationships.length" class="card">
-      <h3>关系及候选列表</h3>
+        <span class="detail-placeholder-icon"
+          ><Icon name="channel" :size="28"
+        /></span>
+        <h3>{{ detailLoading ? "正在载入人物…" : "从一个人开始了解" }}</h3>
+        <p>
+          {{
+            detailLoading
+              ? "正在读取资料与来源。"
+              : "点击关系图中的圆点，或从左侧选择人物。"
+          }}
+        </p>
+        <p class="muted">在这里查看人物资料、关系来源与审核记录。</p>
+      </aside>
+    </div>
+    <details class="card">
+      <summary>好感规则与停机预演</summary>
+      <button type="button" :disabled="busy" @click="loadPolicy">
+        载入好感规则
+      </button>
+      <form
+        v-if="loadedPolicy"
+        class="relationship-form"
+        @submit.prevent="savePolicy"
+      >
+        <p>
+          当前版本 v{{
+            loadedPolicy.revision
+          }}。新规则只作用于生效水位之后；好感不会改变基础回复、纠错、隐私权或接收许可。
+        </p>
+        <label
+          >新档案初始分<input
+            v-model.number="policyForm.initial"
+            type="number"
+            min="0"
+            max="100"
+            required /></label
+        ><label
+          >下界<input
+            v-model.number="policyForm.minimum"
+            type="number"
+            min="0"
+            max="99"
+            required /></label
+        ><label
+          >上界<input
+            v-model.number="policyForm.maximum"
+            type="number"
+            min="1"
+            max="100"
+            required /></label
+        ><label
+          >每日空闲衰减<input
+            v-model.number="policyForm.daily_decay"
+            type="number"
+            min="0"
+            max="10"
+            step="0.001"
+            required /></label
+        ><label
+          >直接互动后宽限秒数<input
+            v-model.number="policyForm.grace_seconds"
+            type="number"
+            min="0"
+            max="2592000"
+            required /></label
+        ><label
+          >未观测停机区间最多补算秒数<input
+            v-model.number="policyForm.downtime_cap_seconds"
+            type="number"
+            min="0"
+            max="2592000"
+            required /></label
+        ><label>调整依据<textarea v-model="policyForm.reason" required /></label
+        ><label
+          >预演空闲天数<input
+            v-model.number="previewDays"
+            type="number"
+            min="0"
+            max="3650"
+            step="0.1" /></label
+        ><button type="button" :disabled="busy" @click="previewPolicy">
+          预演分数
+        </button>
+        <p v-if="policyPreview !== null" role="status">
+          从初始分出发的预演结果：{{
+            policyPreview.toFixed(3)
+          }}。本次预演不改实际分数。
+        </p>
+        <label class="checkbox"
+          ><input
+            v-model="policyForm.confirmed"
+            type="checkbox"
+          />明确确认新规则从生效水位向后应用</label
+        ><button :disabled="busy" type="submit">保存好感规则</button>
+      </form>
+    </details>
+    <details v-if="relationships.length" class="card relationship-review-list">
+      <summary>
+        关系与候选审核 ·
+        {{ relationships.filter((edge) => edge.status === "pending").length }}
+        条待审核
+      </summary>
       <ul class="relationship-assertions">
         <li v-for="e in relationships" :key="e.id">
           <strong
@@ -1467,7 +1739,7 @@ onUnmounted(() => {
           </div>
         </li>
       </ul>
-    </section>
+    </details>
     <div
       v-if="deleteTarget"
       class="card relationship-forget"
@@ -1503,13 +1775,13 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.relationships-panel button {
-  padding: 9px 14px;
-  font-size: 13px;
-}
 .relationships-panel {
   display: grid;
   gap: 1.2rem;
+}
+.relationships-panel button {
+  padding: 9px 14px;
+  font-size: 13px;
 }
 .section-heading {
   display: flex;
@@ -1531,6 +1803,10 @@ onUnmounted(() => {
   gap: 0.6rem;
   flex-wrap: wrap;
 }
+.relationship-search label {
+  flex: 1;
+  max-width: 400px;
+}
 label {
   display: grid;
   gap: 0.35rem;
@@ -1550,8 +1826,16 @@ textarea {
 }
 .relationship-columns {
   display: grid;
-  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
-  gap: 1rem;
+  grid-template-columns: 190px minmax(0, 1fr) 310px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--pearl);
+  overflow: hidden;
+  height: clamp(560px, calc(100dvh - 320px), 780px);
+  min-height: 0;
+}
+.relationship-columns > * {
+  min-width: 0;
 }
 .card {
   padding: 1.2rem;
@@ -1560,31 +1844,164 @@ textarea {
   background: var(--pearl);
 }
 .relationship-list {
-  align-self: start;
-  display: grid;
-  gap: 0.5rem;
+  min-width: 0;
+  max-height: 100%;
+  overflow: auto;
+  align-self: stretch;
+  padding: 18px 0;
+  border-right: 1px solid var(--line);
+}
+.relationship-list-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 16px 12px;
+}
+.relationship-list-heading h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.relationship-list-heading > span {
+  font-size: 12px;
+  color: var(--muted);
 }
 .relationship-list > button {
   display: grid;
-  gap: 0.3rem;
+  gap: 7px;
   text-align: left;
   width: 100%;
-  padding: 0.8rem;
+  padding: 16px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+}
+.relationship-list > button:hover {
+  background: #f4f7fa;
 }
 .relationship-list > button.active {
-  background: #f4f6fc;
-  border-color: #8c9bc5;
-  color: var(--indigo);
+  background: #edf5f5;
+  box-shadow: inset 3px 0 #418386;
+  color: #24595e;
 }
-.relationship-list span,
+.person-list-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 5px;
+  align-items: baseline;
+}
+.person-list-title strong {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.person-degree {
+  font-size: 10px;
+  white-space: nowrap;
+}
+.relationship-list > button > span:not(.person-list-title),
 .relationship-list small,
 .muted {
   color: var(--muted, #696d66);
 }
+.relationship-list > button > span:not(.person-list-title) {
+  font-size: 11px;
+}
+.relationship-list small {
+  font-size: 10px;
+}
+.relationship-list > p,
+.relationship-list > .actions {
+  margin: 15px 12px 0;
+  font-size: 11px;
+}
+.relationship-list > .actions {
+  gap: 5px;
+}
+.relationship-list > .actions button {
+  padding: 7px;
+  font-size: 11px;
+}
 .relationship-detail {
+  padding: 22px;
+  border-left: 1px solid var(--line);
   display: grid;
   gap: 0.9rem;
   align-content: start;
+  max-height: 100%;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.relationship-detail .section-heading {
+  gap: 7px;
+}
+.relationship-detail .section-heading h3 {
+  font-size: 21px;
+}
+.relationship-detail .section-heading .danger {
+  font-size: 11px;
+  padding: 6px;
+  white-space: nowrap;
+}
+.relationship-detail p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.relationship-detail h4 {
+  margin: 8px 0 0;
+  font-size: 14px;
+}
+.relationship-detail .eyebrow {
+  color: #6c8f94;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+}
+.relationship-detail label {
+  font-size: 12px;
+}
+.person-connections {
+  border-block: 1px solid var(--line);
+  padding: 6px 0 14px;
+}
+.person-connections h4 {
+  margin-bottom: 12px;
+}
+.person-connections ul {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.person-connections li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+.person-connections li strong {
+  color: #367a7b;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.detail-placeholder {
+  text-align: center;
+  padding: 100px 24px 30px;
+}
+.detail-placeholder h3 {
+  font-size: 17px;
+  margin: 4px 0;
+}
+.detail-placeholder-icon {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  margin: 0 auto 14px;
+  color: #6f9c9c;
+  background: #edf5f5;
 }
 details {
   padding-block: 0.5rem;
@@ -1624,35 +2041,227 @@ summary {
   gap: 0.5rem;
   flex-wrap: wrap;
 }
-.error {
+.error,
+.danger {
   color: #9e3832;
 }
 .success {
   color: #3d663f;
 }
-.danger {
-  color: #9e3832;
+.relationship-graph {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fdfefe;
 }
-.relationship-graph svg {
+.graph-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 22px 0;
+  gap: 12px;
+}
+.graph-heading h3 {
+  font-size: 15px;
+  margin: 0 0 5px;
+}
+.graph-heading .muted {
+  font-size: 11px;
+}
+.graph-live-label {
+  font-size: 10px;
+  color: #548587;
+  white-space: nowrap;
+}
+.graph-live-label i {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: #66a1a1;
+}
+.graph-canvas {
+  position: relative;
+  min-height: 480px;
+  flex: 1;
+}
+.graph-canvas > svg {
   width: 100%;
-  max-height: 640px;
-  color: var(--indigo);
+  height: 100%;
+  min-height: 480px;
+  display: block;
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
 }
-.relationship-graph-edge line {
-  stroke: #8c9bc5;
+.graph-canvas.dragging > svg {
+  cursor: grabbing;
+}
+.relationship-graph-edge path {
+  stroke: #88a4a6;
+  stroke-width: 1.2;
+  fill: none;
+  opacity: 0.62;
+}
+.relationship-graph-edge.highlighted path {
+  stroke: #367b7e;
   stroke-width: 2;
+  opacity: 0.95;
+}
+.relationship-graph-edge.dimmed {
+  opacity: 0.15;
 }
 .relationship-graph-edge text {
-  fill: var(--indigo);
+  fill: #376d72;
   text-anchor: middle;
   font-size: 12px;
+  paint-order: stroke;
+  stroke: #fdfefe;
+  stroke-width: 4px;
+  stroke-linejoin: round;
 }
-.relationship-graph-node rect {
-  fill: var(--soft-blue);
-  stroke: #8c9bc5;
+.relationship-graph-node {
+  cursor: pointer;
+  outline: none;
+}
+.relationship-graph-node .node-disc {
+  fill: #3c8083;
+  fill-opacity: var(--node-opacity, 0.5);
+  stroke: #fdfefe;
+  stroke-width: 1.5;
+}
+.relationship-graph-node .node-halo {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 2.5;
+}
+.relationship-graph-node.selected .node-halo {
+  stroke: #a36b9c;
+}
+.relationship-graph-node.selected .node-disc {
+  fill-opacity: 0.92;
+  stroke: #fdfefe;
+  stroke-width: 2;
+}
+.relationship-graph-node.neighbor .node-disc {
+  stroke: #7aa4a5;
+}
+.relationship-graph-node.dimmed {
+  opacity: 0.28;
+}
+.relationship-graph-node:hover .node-halo,
+.relationship-graph-node:focus-visible .node-halo {
+  stroke: #448285;
+  stroke-dasharray: 4 3;
 }
 .relationship-graph-node text {
-  fill: var(--ink);
+  fill: #244e57;
+  font-size: 13px;
+  font-weight: 500;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: #fdfefe;
+  stroke-width: 2px;
+  stroke-opacity: 0.9;
+}
+.relationship-graph-node.selected text {
+  fill: white;
+  stroke: #3c8083;
+  stroke-opacity: 0.6;
+}
+.graph-controls {
+  position: absolute;
+  bottom: 18px;
+  left: 18px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: white;
+  border: 1px solid #dce7e8;
+  border-radius: 9px;
+  padding: 3px;
+  box-shadow: 0 3px 12px #2e666608;
+}
+.graph-controls button {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  font-size: 19px;
+  color: #4c797d;
+}
+.graph-controls output {
+  min-width: 40px;
+  font-size: 11px;
+  text-align: center;
+  color: #52777c;
+}
+.control-divider {
+  height: 16px;
+  border-left: 1px solid #e4eded;
+  margin: 0 3px;
+}
+.graph-hint {
+  position: absolute;
+  bottom: 23px;
+  right: 18px;
+  margin: 0;
+  color: #91a2a6;
+  font-size: 10px;
+  pointer-events: none;
+}
+.graph-legend {
+  padding: 16px 20px 10px;
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  border-top: 1px solid #edf2f2;
+  color: #758c90;
+  font-size: 10px;
+}
+.graph-legend span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.legend-small,
+.legend-large {
+  display: inline-block;
+  border-radius: 50%;
+  background: #5d9395;
+}
+.legend-small {
+  width: 7px;
+  height: 7px;
+  opacity: 0.4;
+}
+.legend-large {
+  width: 12px;
+  height: 12px;
+  opacity: 0.7;
+}
+.legend-line {
+  width: 20px;
+  border-top: 1px solid #82a2a3;
+}
+.graph-scope {
+  font-size: 10px;
+  line-height: 1.7;
+  color: #94a2a6;
+  margin: 0;
+  padding: 0 20px 16px;
+}
+.graph-empty {
+  position: absolute;
+  inset: 40% 20px auto;
+  text-align: center;
+  color: var(--muted);
   font-size: 13px;
 }
 .relationship-forget {
@@ -1661,13 +2270,51 @@ summary {
   bottom: 1rem;
   box-shadow: 0 4px 24px #0002;
 }
-@media (max-width: 820px) {
+@media (max-width: 1200px) {
+  .relationship-columns {
+    grid-template-columns: 170px minmax(0, 1fr);
+    height: auto;
+  }
+  .relationship-detail {
+    grid-column: 1 / -1;
+    max-height: none;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+  .detail-placeholder {
+    padding: 30px 24px;
+  }
+  .graph-hint {
+    display: none;
+  }
+}
+@media (max-width: 720px) {
   .relationship-columns {
     grid-template-columns: 1fr;
   }
   .relationship-list {
-    max-height: 300px;
-    overflow-y: auto;
+    max-height: 220px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .graph-canvas,
+  .graph-canvas > svg {
+    min-height: 400px;
+  }
+  .graph-heading {
+    padding: 18px 16px 0;
+  }
+  .graph-live-label {
+    display: none;
+  }
+  .relationship-detail {
+    padding: 20px 16px;
+  }
+  .relationship-search label {
+    width: 100%;
+  }
+  .section-heading {
+    flex-wrap: wrap;
   }
 }
 </style>

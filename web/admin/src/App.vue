@@ -12,11 +12,8 @@ import Icon from "./components/Icon.vue";
 import AdminSelect from "./components/AdminSelect.vue";
 import AssistantPersonality from "./components/AssistantPersonality.vue";
 import RuntimeLogs from "./components/RuntimeLogs.vue";
-import MemoryPanel from "./components/MemoryPanel.vue";
 import DiaryPanel from "./components/DiaryPanel.vue";
 import RelationshipsPanel from "./components/RelationshipsPanel.vue";
-import ConversationSummary from "./components/ConversationSummary.vue";
-import MemoryCandidates from "./components/MemoryCandidates.vue";
 import WeixinChannel from "./components/WeixinChannel.vue";
 import SkillsPanel from "./components/SkillsPanel.vue";
 import SchedulePanel from "./components/SchedulePanel.vue";
@@ -48,8 +45,6 @@ import type {
   SystemStatus,
   SkillDraft,
 } from "./types";
-const memoryPanel = ref<InstanceType<typeof MemoryPanel> | null>(null);
-
 type Page =
   | "overview"
   | "assistant"
@@ -1667,12 +1662,6 @@ onUnmounted(() => {
         <RuntimeLogs v-if="page === 'logs'" @unauthorized="expireSession" />
         <div v-if="page === 'memory'" class="memory-page">
           <DiaryPanel @unauthorized="expireSession" />
-          <details class="panel">
-            <summary>历史记忆与会话摘要兼容管理</summary>
-            <MemoryPanel ref="memoryPanel" />
-            <MemoryCandidates @accepted="memoryPanel?.refresh()" />
-            <ConversationSummary />
-          </details>
         </div>
         <RelationshipsPanel
           v-if="page === 'relationships'"

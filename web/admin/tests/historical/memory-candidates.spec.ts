@@ -1,8 +1,9 @@
+// Historical browser flow: the legacy management UI was retired on 2026-10-26.
 import { test, expect, type Page } from "@playwright/test";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { selectValue } from "./select-helpers";
+import { selectValue } from "../e2e/select-helpers";
 
 // Authentication and empty-state/CSRF checks use the real isolated backend.
 // Extraction, candidate decisions and job status below are browser fixtures:

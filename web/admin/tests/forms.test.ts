@@ -20,6 +20,52 @@ function response(value: unknown, status = 200) {
 }
 
 describe("management forms", () => {
+  it("opens diary management without mounting or requesting retired memory and summary controls", async () => {
+    location.hash = "#memory";
+    const fetch = vi.fn(async (input: string) => {
+      const url = input.replace("/api/admin/v1", "");
+      if (url === "/auth/status") return response({ initialized: true });
+      if (url === "/auth/me")
+        return response({
+          user: { username: "admin", role: "admin" },
+          csrf_token: "test-csrf",
+        });
+      if (url === "/status")
+        return response({ version: "test", model: {}, queue: {} });
+      if (url === "/config")
+        return response({
+          revision: 1,
+          applied_revision: 1,
+          config: { assistant: {}, model: {}, qq: {} },
+        });
+      if (url === "/diary/status") return response({});
+      if (
+        url === "/secrets" ||
+        url === "/conversations" ||
+        url.startsWith("/diary/")
+      )
+        return response({ items: [], total: 0 });
+      throw new Error(`Unexpected test request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetch);
+    wrapper = mount(App);
+    await flushPromises();
+    expect(wrapper.text()).toContain("把经历慢慢记下来");
+    expect(wrapper.text()).toContain("还没有这个范围的日记");
+    expect(wrapper.text()).not.toContain("历史记忆与会话摘要兼容管理");
+    for (const name of [
+      "MemoryPanel",
+      "MemoryCandidates",
+      "ConversationSummary",
+    ])
+      expect(wrapper.findComponent({ name }).exists()).toBe(false);
+    expect(
+      fetch.mock.calls.some(([url]) =>
+        /\/memory(?:[/?-]|$)|\/summary(?:[/?]|$)/.test(url),
+      ),
+    ).toBe(false);
+  });
+
   it("rejects mismatched bootstrap passwords without creating an account", async () => {
     const fetch = vi
       .fn()
