@@ -208,18 +208,48 @@ test("diary provenance, reviewed people and calendar work through the authentica
   await expect(
     page.getByRole("heading", { name: "安排今天，也看见进展" }),
   ).toBeVisible();
-  await page.getByRole("tab", { name: "授权书架", exact: true }).click();
-  await page
+  await expect(
+    page.getByRole("tab", { name: "授权书架", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("tab", { name: "兼容触发设置", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "新建活动", exact: true }).click();
+  const activityEditor = page.getByRole("region", {
+    name: "活动编辑",
+    exact: true,
+  });
+  await activityEditor
+    .getByRole("combobox", { name: "活动类型", exact: true })
+    .selectOption("reading");
+  const readingMaterials = activityEditor
+    .locator("details")
+    .filter({ has: page.getByText("阅读资料", { exact: true }) });
+  await readingMaterials.getByText("阅读资料", { exact: true }).click();
+  await readingMaterials
     .getByLabel("资料名称", { exact: true })
     .fill("星空入门（合成资料）");
-  await page
+  await readingMaterials
     .getByLabel("正文", { exact: true })
     .fill("这是一份合成验收资料。观察记录应包含日期、地点和实际观测范围。");
-  await page.getByLabel("我有权提供这些资料", { exact: false }).check();
-  await page.getByRole("button", { name: "保存到书架", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("资料已保存");
-  await page.getByRole("tab", { name: "日历", exact: true }).click();
-  await page.getByRole("button", { name: "新建活动", exact: true }).click();
+  const saveMaterial = readingMaterials.getByRole("button", {
+    name: "保存阅读资料",
+    exact: true,
+  });
+  await expect(saveMaterial).toBeDisabled();
+  await readingMaterials
+    .getByLabel("我有权提供这些资料", { exact: false })
+    .check();
+  const materialSaved = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/admin/v1/schedule/resources" &&
+      response.request().method() === "POST",
+  );
+  await saveMaterial.click();
+  const materialResponse = await materialSaved;
+  expect(materialResponse.ok()).toBe(true);
+  const resource = await materialResponse.json();
+  await expect(page.getByRole("status")).toContainText("阅读资料已保存");
   await page.getByLabel("活动名称", { exact: true }).fill("合成阅读日程");
   await page
     .getByLabel("目的", { exact: true })
@@ -231,9 +261,6 @@ test("diary provenance, reviewed people and calendar work through the authentica
   await page
     .getByLabel("计划结束", { exact: true })
     .fill(local(now + 20 * 60000));
-  const resource = (
-    await (await page.request.get("/api/admin/v1/schedule/resources")).json()
-  ).items[0];
   await page
     .getByRole("combobox", { name: "资料", exact: true })
     .selectOption(resource.id);

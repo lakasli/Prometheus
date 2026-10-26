@@ -92,7 +92,7 @@ it("shows a single assistant settings page and a read-only log page", async () =
   const fetch = setup();
   await flushPromises();
   const navigation = wrapper!.get("nav");
-  expect(navigation.text()).toContain("性格与模型");
+  expect(navigation.text()).toContain("性格");
   expect(navigation.text()).toContain("日志记录");
   expect(navigation.text()).not.toContain("角色卡");
   expect(navigation.text()).not.toContain("对话工作台");
@@ -108,7 +108,7 @@ it("shows a single assistant settings page and a read-only log page", async () =
   expect(wrapper!.find(".conversation-composer").exists()).toBe(false);
   await navigation
     .findAll("button")
-    .find((button) => button.text() === "性格与模型")!
+    .find((button) => button.text() === "性格")!
     .trigger("click");
   await flushPromises();
   expect(wrapper!.get('[aria-label="她的性格"]').text()).toContain(

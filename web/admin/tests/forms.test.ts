@@ -87,7 +87,7 @@ describe("management forms", () => {
   });
 
   it("keeps a replacement key out of configuration drafts and requires validation before apply", async () => {
-    location.hash = "#assistant";
+    location.hash = "#config";
     let revision = 3;
     const config: RuntimeConfig = {
       assistant: {

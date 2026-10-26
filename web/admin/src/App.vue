@@ -14,12 +14,11 @@ import AssistantPersonality from "./components/AssistantPersonality.vue";
 import RuntimeLogs from "./components/RuntimeLogs.vue";
 import DiaryPanel from "./components/DiaryPanel.vue";
 import RelationshipsPanel from "./components/RelationshipsPanel.vue";
+import AffinitySettings from "./components/AffinitySettings.vue";
 import WeixinChannel from "./components/WeixinChannel.vue";
 import SkillsPanel from "./components/SkillsPanel.vue";
 import SchedulePanel from "./components/SchedulePanel.vue";
 import SpeechPanel from "./components/SpeechPanel.vue";
-import QQPanel from "./components/QQPanel.vue";
-import ReplyDeliveryReview from "./components/ReplyDeliveryReview.vue";
 import PluginFactoryPanel from "./components/PluginFactoryPanel.vue";
 import {
   api,
@@ -55,7 +54,7 @@ type Page =
   | "plugins"
   | "weixin"
   | "logs"
-  | "history"
+  | "config"
   | "memory";
 type ExtendedPage = Page | "relationships";
 const navigation: {
@@ -75,9 +74,9 @@ const navigation: {
   {
     id: "assistant",
     icon: "settings",
-    title: "性格与模型",
-    eyebrow: "PERSONALITY & MODELS",
-    description: "她的性情、说话方式，以及与你相处的节奏。",
+    title: "性格",
+    eyebrow: "PERSONALITY",
+    description: "她的性情、说话方式与相处习惯。",
   },
   {
     id: "skills",
@@ -91,7 +90,7 @@ const navigation: {
     icon: "clock",
     title: "日程",
     eyebrow: "SCHEDULE & PROGRESS",
-    description: "安排阅读与工作目标，看见每一步的真实进展。",
+    description: "安排日常活动与工作目标，看见每一步的真实进展。",
   },
   {
     id: "qq",
@@ -143,11 +142,11 @@ const navigation: {
     description: "记得每个人的不同，珍惜有来由的联系。",
   },
   {
-    id: "history",
-    icon: "clock",
-    title: "配置历史",
-    eyebrow: "CONFIGURATION HISTORY",
-    description: "追踪每次配置变化，恢复可用版本。",
+    id: "config",
+    icon: "settings",
+    title: "配置",
+    eyebrow: "CONFIGURATION",
+    description: "设置模型、工作节奏与相处规则，查看配置历史。",
   },
 ];
 const page = ref<ExtendedPage>("overview");
@@ -161,7 +160,9 @@ function syncNavigationSize() {
   compactNavigation.value = navigationMedia?.matches ?? false;
 }
 const sidebarExtras = ref<HTMLDetailsElement | null>(null);
-watch(page, async () => {
+watch(page, async (current, previous) => {
+  if (previous === "config" && current !== previous)
+    affinityLoaded.value = false;
   await nextTick();
   window.scrollTo(0, 0);
 });
@@ -243,6 +244,16 @@ const conversations = ref<Conversation[]>([]);
 const personalityPanel = ref<InstanceType<typeof AssistantPersonality> | null>(
   null,
 );
+const affinityPanel = ref<InstanceType<typeof AffinitySettings> | null>(null);
+const affinityLoaded = ref(false);
+const historyLoaded = ref(false);
+function openAffinity(event: Event) {
+  if ((event.target as HTMLDetailsElement).open) affinityLoaded.value = true;
+}
+function openHistory(event: Event) {
+  if ((event.target as HTMLDetailsElement).open)
+    void task("读取历史", loadHistory);
+}
 const skillsPanel = ref<InstanceType<typeof SkillsPanel> | null>(null);
 const skillDraft = ref<SkillDraft | null>(null);
 const taskTriggers = ref<InstanceType<typeof SchedulePanel> | null>(null);
@@ -329,6 +340,9 @@ function expireSession() {
   statusSampledAt.value = null;
   statusError.value = "";
   conversations.value = [];
+  revisions.value = [];
+  historyLoaded.value = false;
+  affinityLoaded.value = false;
 }
 
 function scheduleStatusPoll() {
@@ -384,6 +398,11 @@ function refreshStatus(quiet = false): Promise<void> {
 
 function mayLeavePage() {
   if (
+    affinityPanel.value?.hasUnsaved &&
+    !window.confirm("好感规则有未保存的修改，确定离开？")
+  )
+    return false;
+  if (
     personalityPanel.value?.hasUnsaved &&
     !window.confirm("性格有未保存的修改，确定离开？")
   )
@@ -407,20 +426,21 @@ function navigate(id: ExtendedPage) {
   location.hash = id;
   mobileMenu.value = false;
   error.value = "";
-  if (id === "history") void task("读取历史", loadHistory);
 }
 function readHash() {
   const requested = location.hash.slice(1);
   const mapped =
-    requested === "schedule"
-      ? "triggers"
-      : requested === "diary"
-        ? "memory"
-        : requested === "characters"
-          ? "assistant"
-          : ["chat", "diagnostics", "images", "wasm"].includes(requested)
-            ? "logs"
-            : requested;
+    requested === "history"
+      ? "config"
+      : requested === "schedule"
+        ? "triggers"
+        : requested === "diary"
+          ? "memory"
+          : requested === "characters"
+            ? "assistant"
+            : ["chat", "diagnostics", "images", "wasm"].includes(requested)
+              ? "logs"
+              : requested;
   if (!navigation.some((item) => item.id === mapped)) return;
   if (mapped !== page.value && !mayLeavePage()) {
     history.replaceState(
@@ -524,6 +544,11 @@ async function authenticate() {
 }
 async function logout() {
   if (
+    affinityPanel.value?.hasUnsaved &&
+    !window.confirm("好感规则有未保存的修改，确定退出登录？")
+  )
+    return;
+  if (
     taskTriggers.value?.hasUnsaved &&
     !window.confirm("任务有未保存修改或结果未确认的操作，确定退出登录？")
   )
@@ -575,6 +600,7 @@ async function refresh() {
 async function loadHistory() {
   const result = await api<{ items: Revision[] }>("/config/revisions");
   revisions.value = result.items;
+  historyLoaded.value = true;
 }
 async function saveDraft() {
   await task("保存草稿", async () => {
@@ -664,6 +690,7 @@ async function applyDraft() {
     );
     if (operation.value.status === "completed") {
       await refresh();
+      if (historyLoaded.value) await loadHistory();
       notice.value = config.qq.enabled
         ? "配置已生效。QQ 连接与收发结果仍以运行状态及入站事件为准。"
         : "配置已生效。新的对话将使用这一版本。";
@@ -981,10 +1008,7 @@ onUnmounted(() => {
             <p>{{ activePage.description }}</p>
           </div>
           <span
-            v-if="
-              ['overview', 'assistant', 'qq', 'history'].includes(page) &&
-              configState
-            "
+            v-if="['overview', 'qq', 'config'].includes(page) && configState"
             class="revision-label"
             ><span class="status-dot" :class="{ amber: !effective }"></span
             >{{ effective ? "当前配置已生效" : "配置等待生效"
@@ -1123,7 +1147,7 @@ onUnmounted(() => {
                 <span class="progress-pill">{{ setupProgress }} / 3</span>
               </div>
               <div class="setup-list">
-                <button @click="navigate('assistant')">
+                <button @click="navigate('config')">
                   <span class="step-number" :class="{ done: configuredModel }"
                     ><Icon
                       v-if="configuredModel"
@@ -1212,132 +1236,228 @@ onUnmounted(() => {
           </div>
         </template>
 
-        <template v-if="page === 'assistant' || page === 'qq'">
+        <AssistantPersonality
+          v-if="page === 'assistant'"
+          ref="personalityPanel"
+          @unauthorized="expireSession"
+        />
+        <template v-if="page === 'config' || page === 'qq'">
           <div class="settings-layout">
             <div class="settings-main">
-              <AssistantPersonality
-                v-if="page === 'assistant'"
-                ref="personalityPanel"
-                @unauthorized="expireSession"
-              />
-              <section v-if="page === 'assistant'" class="panel">
-                <div class="panel-heading">
-                  <div>
-                    <h2>工作节奏</h2>
-                    <p>设置回复间隔、并发和超时。</p>
+              <details v-if="page === 'config'" class="panel config-drawer">
+                <summary>
+                  <span>模型配置</span><Icon name="chevron" :size="18" />
+                </summary>
+                <div class="config-drawer-body">
+                  <div class="panel-heading">
+                    <div>
+                      <p>连接兼容 Chat Completions 的模型 API。</p>
+                    </div>
+                    <span
+                      class="badge"
+                      :class="configuredModel ? 'green' : 'neutral'"
+                      >{{ configuredModel ? "已有凭证" : "未设置凭证" }}</span
+                    >
                   </div>
-                </div>
-                <div v-if="config.reply" class="field-row">
                   <label class="field"
-                    ><span>回复最小间隔（毫秒）</span
+                    ><span>API 基础地址</span
                     ><input
-                      v-model.number="config.reply.min_interval_ms"
-                      type="number"
-                      min="1000"
-                      max="10000"
+                      v-model="config.model.base_url"
+                      type="url"
+                      placeholder="https://api.deepseek.com"
+                      spellcheck="false"
+                    /><small>填写服务基础地址，由服务端构造请求。</small></label
+                  ><label class="field"
+                    ><span>模型标识</span
+                    ><input
+                      v-model="config.model.model"
+                      placeholder="填写服务商提供的模型名称"
+                      spellcheck="false" /></label
+                  ><label class="field"
+                    ><span
+                      >API Key
+                      <span class="optional">{{
+                        configuredModel ? "留空则保持原值" : "必填以启用对话"
+                      }}</span></span
+                    ><input
+                      v-model="modelKey"
+                      type="password"
+                      autocomplete="new-password"
+                      placeholder="输入新的 API Key"
                     /><small
-                      >逐句发送，从上一条实际发送完成时开始计时。</small
+                      >密钥仅用于替换，不会再次显示或保存在浏览器中。</small
                     ></label
                   >
-                  <label class="field"
-                    ><span>回复最大间隔（毫秒）</span
-                    ><input
-                      v-model.number="config.reply.max_interval_ms"
-                      type="number"
-                      :min="config.reply.min_interval_ms"
-                      max="30000"
-                  /></label>
-                  <label class="field"
-                    ><span>每轮最多消息</span
-                    ><input
-                      v-model.number="config.reply.max_items"
-                      type="number"
-                      min="1"
-                      max="4"
-                    /><small>QQ C2C 被动回复最多 4 条。</small></label
-                  >
                 </div>
-                <div class="field-row">
-                  <label class="field"
-                    ><span>最大活跃任务数</span
-                    ><AdminSelect
-                      v-model="config.assistant.max_concurrent_runs"
-                      aria-label="最大活跃任务数"
-                      :options="[
-                        { value: 1, label: '1 个任务' },
-                        { value: 2, label: '2 个任务' },
-                      ]"
-                    /><small>为树莓派 8GB 内存保留余量。</small></label
-                  ><label class="field"
-                    ><span>任务超时（秒）</span
-                    ><input
-                      v-model.number="config.assistant.timeout_seconds"
-                      type="number"
-                      min="5"
-                      max="300"
-                  /></label>
-                </div>
-              </section>
-              <section v-if="page === 'assistant'" class="panel">
-                <div class="panel-heading">
-                  <div>
-                    <h2>模型服务</h2>
-                    <p>连接兼容 Chat Completions 的模型 API。</p>
+              </details>
+              <details v-if="page === 'config'" class="panel config-drawer">
+                <summary>
+                  <span>工作节奏</span><Icon name="chevron" :size="18" />
+                </summary>
+                <div class="config-drawer-body">
+                  <div class="panel-heading">
+                    <div>
+                      <p>设置回复间隔、并发和超时。</p>
+                    </div>
                   </div>
-                  <span
-                    class="badge"
-                    :class="configuredModel ? 'green' : 'neutral'"
-                    >{{ configuredModel ? "已有凭证" : "未设置凭证" }}</span
+                  <div v-if="config.reply" class="field-row">
+                    <label class="field"
+                      ><span>回复最小间隔（毫秒）</span
+                      ><input
+                        v-model.number="config.reply.min_interval_ms"
+                        type="number"
+                        min="1000"
+                        max="10000"
+                      /><small
+                        >逐句发送，从上一条实际发送完成时开始计时。</small
+                      ></label
+                    >
+                    <label class="field"
+                      ><span>回复最大间隔（毫秒）</span
+                      ><input
+                        v-model.number="config.reply.max_interval_ms"
+                        type="number"
+                        :min="config.reply.min_interval_ms"
+                        max="30000"
+                    /></label>
+                    <label class="field"
+                      ><span>每轮最多消息</span
+                      ><input
+                        v-model.number="config.reply.max_items"
+                        type="number"
+                        min="1"
+                        max="4"
+                      /><small>QQ C2C 被动回复最多 4 条。</small></label
+                    >
+                  </div>
+                  <div class="field-row">
+                    <label class="field"
+                      ><span>最大活跃任务数</span
+                      ><AdminSelect
+                        v-model="config.assistant.max_concurrent_runs"
+                        aria-label="最大活跃任务数"
+                        :options="[
+                          { value: 1, label: '1 个任务' },
+                          { value: 2, label: '2 个任务' },
+                        ]"
+                      /><small>为树莓派 8GB 内存保留余量。</small></label
+                    ><label class="field"
+                      ><span>任务超时（秒）</span
+                      ><input
+                        v-model.number="config.assistant.timeout_seconds"
+                        type="number"
+                        min="5"
+                        max="300"
+                    /></label>
+                  </div>
+                </div>
+              </details>
+              <details v-if="page === 'config'" class="panel config-drawer">
+                <summary>
+                  <span>绘画能力</span><Icon name="chevron" :size="18" />
+                </summary>
+                <div class="config-drawer-body">
+                  <label class="field"
+                    ><span
+                      ><input
+                        v-model="config.model.image_generation"
+                        type="checkbox"
+                      />
+                      当前模型支持原生生图接口</span
+                    ><small
+                      >仅在服务商确认当前模型支持兼容的 images/generations
+                      接口和 Base64 PNG
+                      返回时启用。与上面的模型共用地址、标识和凭证；未启用时，绘画
+                      Skill 自动使用 HTML /
+                      SVG。勾选本身不代表连接测试通过。</small
+                    ></label
                   >
                 </div>
-                <label class="field"
-                  ><span>API 基础地址</span
-                  ><input
-                    v-model="config.model.base_url"
-                    type="url"
-                    placeholder="https://api.deepseek.com"
-                    spellcheck="false"
-                  /><small>填写服务基础地址，由服务端构造请求。</small></label
-                ><label class="field"
-                  ><span>模型标识</span
-                  ><input
-                    v-model="config.model.model"
-                    placeholder="填写服务商提供的模型名称"
-                    spellcheck="false" /></label
-                ><label class="field"
-                  ><span
-                    >API Key
-                    <span class="optional">{{
-                      configuredModel ? "留空则保持原值" : "必填以启用对话"
-                    }}</span></span
-                  ><input
-                    v-model="modelKey"
-                    type="password"
-                    autocomplete="new-password"
-                    placeholder="输入新的 API Key"
-                  /><small
-                    >密钥仅用于替换，不会再次显示或保存在浏览器中。</small
-                  ></label
-                >
-              </section>
-              <section v-if="page === 'assistant'" class="panel">
-                <h2>绘画能力</h2>
-                <label class="field"
-                  ><span
-                    ><input
-                      v-model="config.model.image_generation"
-                      type="checkbox"
-                    />
-                    当前模型支持原生生图接口</span
-                  ><small
-                    >仅在服务商确认当前模型支持兼容的 images/generations 接口和
-                    Base64 PNG
-                    返回时启用。与上面的模型共用地址、标识和凭证；未启用时，绘画
-                    Skill 自动使用 HTML /
-                    SVG。勾选本身不代表连接测试通过。</small
-                  ></label
-                >
-              </section>
+              </details>
+              <details
+                v-if="page === 'config'"
+                class="panel config-drawer"
+                @toggle="openAffinity"
+              >
+                <summary>
+                  <span>好感规则配置</span><Icon name="chevron" :size="18" />
+                </summary>
+                <div class="config-drawer-body">
+                  <AffinitySettings
+                    v-if="affinityLoaded"
+                    ref="affinityPanel"
+                    @unauthorized="expireSession"
+                  />
+                </div>
+              </details>
+              <details
+                v-if="page === 'config'"
+                class="panel config-drawer"
+                @toggle="openHistory"
+              >
+                <summary>
+                  <span>配置历史</span><Icon name="chevron" :size="18" />
+                </summary>
+                <div class="config-drawer-body history-panel">
+                  <div class="panel-heading">
+                    <div>
+                      <h2>配置版本</h2>
+                      <p>每次应用都有记录。恢复旧内容会生成新的配置版本。</p>
+                    </div>
+                    <button
+                      class="button secondary small"
+                      :disabled="!!busy"
+                      @click="task('读取历史', loadHistory)"
+                    >
+                      <Icon name="refresh" :size="16" />刷新
+                    </button>
+                  </div>
+                  <div v-if="!revisions.length" class="empty-state">
+                    <Icon name="clock" :size="34" />
+                    <h3>还没有版本记录</h3>
+                    <p>应用一次配置后，会在这里保留历史。</p>
+                  </div>
+                  <div
+                    v-for="revision in revisions"
+                    :key="revision.revision"
+                    class="revision-row"
+                  >
+                    <div class="revision-icon">
+                      <Icon name="clock" :size="19" />
+                    </div>
+                    <div class="revision-detail">
+                      <div>
+                        <strong>配置 v{{ revision.revision }}</strong
+                        ><span
+                          v-if="
+                            revision.current ||
+                            revision.revision === configState?.applied_revision
+                          "
+                          class="badge green"
+                          >当前生效</span
+                        >
+                      </div>
+                      <p>
+                        {{ formatDate(revision.created_at)
+                        }}<span v-if="revision.config?.model?.model">
+                          · {{ revision.config.model.model }}</span
+                        >
+                      </p>
+                    </div>
+                    <button
+                      class="button secondary small"
+                      :disabled="
+                        !!busy ||
+                        revision.current ||
+                        revision.revision === configState?.applied_revision
+                      "
+                      @click="rollback(revision.revision)"
+                    >
+                      恢复此版本
+                    </button>
+                  </div>
+                </div>
+              </details>
               <section v-if="page === 'qq'" class="panel">
                 <div class="panel-heading">
                   <div>
@@ -1580,69 +1700,6 @@ onUnmounted(() => {
               </p>
             </aside>
           </div>
-        </template>
-
-        <section v-if="page === 'qq'" class="panel">
-          <QQPanel /><ReplyDeliveryReview />
-        </section>
-        <template v-if="page === 'history'">
-          <section class="panel history-panel">
-            <div class="panel-heading">
-              <div>
-                <h2>配置版本</h2>
-                <p>每次应用都有记录。恢复旧内容会生成新的配置版本。</p>
-              </div>
-              <button
-                class="button secondary small"
-                :disabled="!!busy"
-                @click="task('读取历史', loadHistory)"
-              >
-                <Icon name="refresh" :size="16" />刷新
-              </button>
-            </div>
-            <div v-if="!revisions.length" class="empty-state">
-              <Icon name="clock" :size="34" />
-              <h3>还没有版本记录</h3>
-              <p>应用一次配置后，会在这里保留历史。</p>
-            </div>
-            <div
-              v-for="revision in revisions"
-              :key="revision.revision"
-              class="revision-row"
-            >
-              <div class="revision-icon"><Icon name="clock" :size="19" /></div>
-              <div class="revision-detail">
-                <div>
-                  <strong>配置 v{{ revision.revision }}</strong
-                  ><span
-                    v-if="
-                      revision.current ||
-                      revision.revision === configState?.applied_revision
-                    "
-                    class="badge green"
-                    >当前生效</span
-                  >
-                </div>
-                <p>
-                  {{ formatDate(revision.created_at)
-                  }}<span v-if="revision.config?.model?.model">
-                    · {{ revision.config.model.model }}</span
-                  >
-                </p>
-              </div>
-              <button
-                class="button secondary small"
-                :disabled="
-                  !!busy ||
-                  revision.current ||
-                  revision.revision === configState?.applied_revision
-                "
-                @click="rollback(revision.revision)"
-              >
-                恢复此版本
-              </button>
-            </div>
-          </section>
         </template>
 
         <SkillsPanel

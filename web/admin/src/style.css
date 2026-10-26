@@ -1459,6 +1459,43 @@ small {
   flex-direction: column;
   gap: 20px;
 }
+.config-drawer.panel {
+  padding: 0;
+  overflow: hidden;
+}
+.config-drawer > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 26px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 16px;
+  font-weight: 600;
+}
+.config-drawer > summary::-webkit-details-marker {
+  display: none;
+}
+.config-drawer > summary:hover {
+  background: var(--surface-soft, #f7f8fc);
+}
+.config-drawer > summary:focus-visible {
+  outline: 2px solid var(--accent, #4a5b95);
+  outline-offset: -4px;
+  border-radius: 14px;
+}
+.config-drawer > summary > svg {
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+.config-drawer[open] > summary > svg {
+  transform: rotate(90deg);
+}
+.config-drawer-body {
+  padding: 0 26px 26px;
+  min-width: 0;
+}
 .settings-main .panel .field:last-child,
 .settings-main .panel .field-row:last-child .field {
   margin-bottom: 0;

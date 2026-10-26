@@ -110,7 +110,7 @@ describe("QQ live status", () => {
   it("polls only status and preserves unsaved configuration, with manual refresh and cleanup", async () => {
     vi.useFakeTimers();
     vi.spyOn(document, "hidden", "get").mockReturnValue(false);
-    location.hash = "#assistant";
+    location.hash = "#config";
     const { state, fetch } = server();
     vi.stubGlobal("fetch", fetch);
     wrapper = mount(App);

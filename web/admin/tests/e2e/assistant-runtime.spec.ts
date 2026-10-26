@@ -101,9 +101,7 @@ test("single assistant personality and authenticated runtime journal replace ret
     await expect(
       navigation.getByRole("button", { name: retired, exact: true }),
     ).toHaveCount(0);
-  await navigation
-    .getByRole("button", { name: "性格与模型", exact: true })
-    .click();
+  await navigation.getByRole("button", { name: "性格", exact: true }).click();
   const panel = page.getByRole("region", { name: "她的性格", exact: true });
   await expect(panel.getByLabel("姓名", { exact: true })).toBeVisible();
   const original = await (
@@ -315,9 +313,7 @@ test("single assistant personality and authenticated runtime journal replace ret
     ).toBe(true);
     await screenshot(page, `03-runtime-logs-${width}.png`);
     await page.getByRole("button", { name: "打开导航", exact: true }).click();
-    await navigation
-      .getByRole("button", { name: "性格与模型", exact: true })
-      .click();
+    await navigation.getByRole("button", { name: "性格", exact: true }).click();
     await expect(
       page.getByRole("heading", { name: "她的性格", exact: true }),
     ).toBeVisible();

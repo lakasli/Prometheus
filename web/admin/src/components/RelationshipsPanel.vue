@@ -74,29 +74,6 @@ interface ModelJob {
   source_id: string;
   result: { assertion_ids?: string[]; edge_ids?: string[] };
 }
-interface AffinityPolicy {
-  revision: number;
-  initial: number;
-  minimum: number;
-  maximum: number;
-  daily_decay: number;
-  grace_seconds: number;
-  downtime_cap_seconds: number;
-  effective_at: number;
-}
-const loadedPolicy = ref<AffinityPolicy | null>(null);
-const policyForm = reactive({
-  initial: 50,
-  minimum: 0,
-  maximum: 100,
-  daily_decay: 1,
-  grace_seconds: 259200,
-  downtime_cap_seconds: 604800,
-  confirmed: false,
-  reason: "",
-});
-const previewDays = ref(10);
-const policyPreview = ref<number | null>(null);
 const modelSources = ref<{ id: string; revision: number; content: string }[]>(
   [],
 );
@@ -770,73 +747,6 @@ async function refreshModelJobs() {
     );
     modelJobs.value = jobs.items;
   }, "整理进度已刷新。");
-}
-async function loadPolicy() {
-  await perform(
-    async () => {
-      const policy = await api<AffinityPolicy>(
-        "/relationships/affinity-policy",
-      );
-      loadedPolicy.value = policy;
-      Object.assign(policyForm, {
-        initial: policy.initial,
-        minimum: policy.minimum,
-        maximum: policy.maximum,
-        daily_decay: policy.daily_decay,
-        grace_seconds: policy.grace_seconds,
-        downtime_cap_seconds: policy.downtime_cap_seconds,
-        confirmed: false,
-        reason: "",
-      });
-      policyPreview.value = null;
-    },
-    "当前好感规则已载入。",
-    false,
-  );
-}
-async function previewPolicy() {
-  if (!policyForm.reason.trim()) {
-    error.value = "请先填写规则调整依据。";
-    return;
-  }
-  await perform(
-    async () => {
-      const result = await api<{ projected_from_initial: number }>(
-        "/relationships/affinity-policy/preview",
-        {
-          method: "POST",
-          body: {
-            policy: policyForm,
-            idle_seconds: Math.round(previewDays.value * 86400),
-          },
-        },
-      );
-      policyPreview.value = result.projected_from_initial;
-    },
-    "预演完成，未修改实际分数或联系许可。",
-    false,
-  );
-}
-async function savePolicy() {
-  if (
-    !loadedPolicy.value ||
-    !policyForm.confirmed ||
-    !policyForm.reason.trim()
-  ) {
-    error.value = "规则变更须填写依据并明确确认。";
-    return;
-  }
-  await perform(async () => {
-    loadedPolicy.value = await api<AffinityPolicy>(
-      "/relationships/affinity-policy",
-      {
-        method: "PUT",
-        revision: loadedPolicy.value!.revision,
-        body: policyForm,
-      },
-    );
-    policyForm.confirmed = false;
-  }, "新规则已生效，旧规则结算区间和历史版本保留。");
 }
 async function confirmDelete() {
   const target = deleteTarget.value;
@@ -1623,88 +1533,6 @@ onUnmounted(() => {
         <p class="muted">在这里查看人物资料、关系来源与审核记录。</p>
       </aside>
     </div>
-    <details class="card">
-      <summary>好感规则与停机预演</summary>
-      <button type="button" :disabled="busy" @click="loadPolicy">
-        载入好感规则
-      </button>
-      <form
-        v-if="loadedPolicy"
-        class="relationship-form"
-        @submit.prevent="savePolicy"
-      >
-        <p>
-          当前版本 v{{
-            loadedPolicy.revision
-          }}。新规则只作用于生效水位之后；好感不会改变基础回复、纠错、隐私权或接收许可。
-        </p>
-        <label
-          >新档案初始分<input
-            v-model.number="policyForm.initial"
-            type="number"
-            min="0"
-            max="100"
-            required /></label
-        ><label
-          >下界<input
-            v-model.number="policyForm.minimum"
-            type="number"
-            min="0"
-            max="99"
-            required /></label
-        ><label
-          >上界<input
-            v-model.number="policyForm.maximum"
-            type="number"
-            min="1"
-            max="100"
-            required /></label
-        ><label
-          >每日空闲衰减<input
-            v-model.number="policyForm.daily_decay"
-            type="number"
-            min="0"
-            max="10"
-            step="0.001"
-            required /></label
-        ><label
-          >直接互动后宽限秒数<input
-            v-model.number="policyForm.grace_seconds"
-            type="number"
-            min="0"
-            max="2592000"
-            required /></label
-        ><label
-          >未观测停机区间最多补算秒数<input
-            v-model.number="policyForm.downtime_cap_seconds"
-            type="number"
-            min="0"
-            max="2592000"
-            required /></label
-        ><label>调整依据<textarea v-model="policyForm.reason" required /></label
-        ><label
-          >预演空闲天数<input
-            v-model.number="previewDays"
-            type="number"
-            min="0"
-            max="3650"
-            step="0.1" /></label
-        ><button type="button" :disabled="busy" @click="previewPolicy">
-          预演分数
-        </button>
-        <p v-if="policyPreview !== null" role="status">
-          从初始分出发的预演结果：{{
-            policyPreview.toFixed(3)
-          }}。本次预演不改实际分数。
-        </p>
-        <label class="checkbox"
-          ><input
-            v-model="policyForm.confirmed"
-            type="checkbox"
-          />明确确认新规则从生效水位向后应用</label
-        ><button :disabled="busy" type="submit">保存好感规则</button>
-      </form>
-    </details>
     <details v-if="relationships.length" class="card relationship-review-list">
       <summary>
         关系与候选审核 ·

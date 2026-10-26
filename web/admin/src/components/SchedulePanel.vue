@@ -14,7 +14,6 @@ import {
 import { blockReason, planningStatus, shiftMonth } from "../calendar-extras";
 import type { CalendarView } from "../life-systems";
 import type { CalendarRevision } from "../task-triggers";
-import TaskTriggers from "./TaskTriggers.vue";
 interface Activity {
   title: string;
   type: string;
@@ -122,7 +121,6 @@ interface Plan {
   };
 }
 const emit = defineEmits<{ unauthorized: []; openDiary: [] }>();
-const legacy = ref<InstanceType<typeof TaskTriggers> | null>(null);
 const tab = ref("calendar"),
   view = ref<CalendarView>(
     window.matchMedia("(max-width: 700px)").matches ? "agenda" : "week",
@@ -217,7 +215,12 @@ const activeResources = computed(() =>
 const activeGrants = computed(() => grants.value.filter((g) => !g.revoked_at));
 const dirty = computed(() => editor.value && !!form.title.trim());
 defineExpose({
-  hasUnsaved: computed(() => dirty.value || legacy.value?.hasUnsaved || false),
+  hasUnsaved: computed(
+    () =>
+      dirty.value ||
+      !!resourceForm.title.trim() ||
+      !!resourceForm.content.trim(),
+  ),
 });
 function caught(e: unknown) {
   if (e instanceof ApiError && e.status === 401) emit("unauthorized");
@@ -399,7 +402,7 @@ async function inspect(item: CalendarItem) {
     return;
   }
   if (item.origin === "legacy_trigger") {
-    tab.value = "legacy";
+    notice.value = "这是已有触发任务的只读执行记录。";
     return;
   }
   await task(async () => {
@@ -546,7 +549,7 @@ async function uploadResource() {
     resourceForm.content = "";
     resourceForm.allow = false;
     await loadSettings();
-    notice.value = "资料已保存到私有书架。";
+    notice.value = "阅读资料已保存，可用于当前来源的阅读活动。";
   });
 }
 async function revokeResource(resource: Resource) {
@@ -668,9 +671,7 @@ onUnmounted(() => {
       <div>
         <p class="eyebrow">TIME FOR WHAT MATTERS</p>
         <h2>安排今天，也看见进展</h2>
-        <p>
-          阅读、整理和工作目标，都有自己的时间。计划、真实进度与投递状态分别记录。
-        </p>
+        <p>安排日常活动与工作目标。计划、真实进度与投递状态分别记录。</p>
       </div>
       <button :disabled="busy" @click="task(refresh)">刷新</button>
     </section>
@@ -687,9 +688,7 @@ onUnmounted(() => {
       <button
         v-for="t in [
           { id: 'calendar', name: '日历' },
-          { id: 'resources', name: '授权书架' },
           { id: 'autonomy', name: '工作目标与授权' },
-          { id: 'legacy', name: '兼容触发设置' },
         ]"
         :key="t.id"
         role="tab"
@@ -1075,24 +1074,23 @@ onUnmounted(() => {
           }}</pre>
         </article>
       </div>
-    </section>
-    <template v-if="tab === 'resources'"
-      ><section class="panel">
-        <h3>授权书架</h3>
+      <details v-if="form.type === 'reading'" class="reading-materials">
+        <summary>阅读资料</summary>
         <p class="life-meta">
-          目前支持纯文本资料。内容只属于当前来源，阅读仅记录模型实际处理的片段和笔记。
+          可选择已有文字资料，或在这里加入有权提供的内容。资料只属于当前来源，阅读进度仅记录实际处理的片段与笔记。
         </p>
         <div class="life-cards">
           <article v-for="r in resources" :key="r.id" class="life-evidence">
-            <strong>{{ r.title }}</strong
-            ><span
-              >{{ r.characters ?? 0 }} 字 · v{{ r.revision }} ·
+            <strong>{{ r.title }}</strong>
+            <span
+              >{{ r.characters ?? 0 }} 字 ·
               {{ r.revoked_at ? "已撤销" : "已授权" }}</span
-            ><span v-if="r.progress" class="life-meta"
+            >
+            <small v-if="r.progress" class="life-meta"
               >已读 {{ r.progress.processed_chars }} /
-              {{ r.progress.total_chars }} 字 · 第
-              {{ r.progress.generation }} 次阅读</span
-            ><button
+              {{ r.progress.total_chars }} 字</small
+            >
+            <button
               v-if="!r.revoked_at"
               :disabled="busy"
               @click="revokeResource(r)"
@@ -1100,38 +1098,35 @@ onUnmounted(() => {
               撤销资料授权
             </button>
           </article>
-          <p v-if="!resources.length" class="life-empty">
-            书架还是空的，先加入有权提供的文字资料。
-          </p>
         </div>
-      </section>
-      <section class="panel">
-        <h3>加入文字资料</h3>
         <form class="life-form" @submit.prevent="uploadResource">
           <label
             >资料名称<input
               v-model="resourceForm.title"
               required
-              maxlength="120" /></label
-          ><label
+              maxlength="120"
+          /></label>
+          <label
             >正文<textarea
               v-model="resourceForm.content"
-              rows="8"
+              rows="5"
               required
               maxlength="500000"
-            ></textarea></label
-          ><label class="life-check"
+            ></textarea>
+          </label>
+          <label class="life-check"
             ><input
               v-model="resourceForm.allow"
               type="checkbox"
               required
             />我有权提供这些资料，并允许当前配置的模型在阅读活动中处理它们。</label
-          ><button class="primary" :disabled="busy || !resourceForm.allow">
-            保存到书架
+          >
+          <button class="primary" :disabled="busy || !resourceForm.allow">
+            保存阅读资料
           </button>
         </form>
-      </section></template
-    >
+      </details>
+    </section>
     <template v-if="tab === 'autonomy'"
       ><section class="panel">
         <h3>工作目标</h3>
@@ -1295,11 +1290,6 @@ onUnmounted(() => {
         </form>
       </section>
     </template>
-    <TaskTriggers
-      v-if="tab === 'legacy'"
-      ref="legacy"
-      @unauthorized="emit('unauthorized')"
-    />
   </div>
 </template>
 
@@ -1475,7 +1465,8 @@ onUnmounted(() => {
   font-size: 12px;
   padding: 0 6px;
 }
-.calendar-panel > details {
+.calendar-panel > details,
+.reading-materials {
   margin-top: 22px;
 }
 @media (max-width: 1000px) {
