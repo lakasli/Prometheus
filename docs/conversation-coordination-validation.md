@@ -53,6 +53,32 @@ DSH_BUILD_JOBS=1 DSH_CARGO_MIRROR=rsproxy bash /home/campanus/.cache/dsh/deploy-
 
 按当前 reader 门禁检查通过后执行 `rollback.sh 31ba12a056c7a1c6993c729a0e9042d34abb5dff`。脚本已切换并启动上一版本，但其第一次健康请求遇到监听尚未就绪而退出 1；单独带连接拒绝重试的复核退出 0，current、live、ready 和 systemd active/running 均确认回到 `31ba12a...`，NRestarts=0。没有删除或恢复用户数据库，也未回退配置；原失败与复核分开记录。
 
-修复在本地完成：已抑制候选先作为原始审计保存，跳过呈现解析与媒体准备；最终保存事务再次解决“校验期间被更正”的竞态。新回归刻意返回一个含两句的无效文本对象，修复前二进制可复现失败，修复后仍须无回复计划、无 Outbox、无旧候选历史及无提前归还 lease。回滚脚本同时补上连接拒绝重试。修复再次提交、推送、固定 SHA 部署与实际复验结果待补充，不以修测试替代程序修复。
+修复在本地完成：已抑制候选先作为原始审计保存，跳过呈现解析与媒体准备；最终保存事务再次解决“校验期间被更正”的竞态。新回归刻意返回一个含两句的无效文本对象，修复前二进制可复现失败，修复后仍须无回复计划、无 Outbox、无旧候选历史及无提前归还 lease。回滚脚本同时补上连接拒绝重试。修复后部署与复验见下一节，不以修测试替代程序修复。
 
 修复本地：daemon 430 项、部署兼容 37 项、停止/回退门禁 10 项以及协调进程 22 项均通过；新进程制品 SHA256 为 `5f83a941a6666a5760996e5f7890b213b0aae5a0971fa25fca3df005a271b649`，仍标记为 `development`。本次真实模型脚本保留三次请求上限，并用 `--prior-model-requests 1` 显式记录首轮已发生的一次请求，重测成功时累计为四次，不抹去失败消耗。
+
+## 修复发布与最终复验
+
+修复已提交、推送并部署为 **`468fcee400601a590e7bc4c8c573d16a7c20bca9`**，部署前已核实属于远端 `origin/main`。实际命令：
+
+```sh
+DSH_BUILD_JOBS=1 DSH_CARGO_MIRROR=rsproxy bash /home/campanus/.cache/dsh/deploy-468fcee.sh 468fcee400601a590e7bc4c8c573d16a7c20bca9 /home/campanus/.cache/dsh/admin-468fcee400601a590e7bc4c8c573d16a7c20bca9.tar.gz b1822c51717f5ac977924a38917bdb4b654d3d994d89daf56de5b3db5c0fa54e
+```
+
+部署退出 0；Linux daemon 431 项、内核 4 项通过，release 构建 9 分 22 秒。2026-10-26 22:56（Asia/Shanghai）复核源码 HEAD、静态 release.json、live / ready、current 及实际进程 exe 均为完整 SHA；systemd active/running。Linux 二进制 SHA256 为 `041c5b4fd9a8d39d6abbe0c21e3bfbf8ae6846f33cd7305cbecec44e915dabc5`。首次健康轮询的短暂连接拒绝保留，随后同次部署就绪。构建与测试日志为 `shared/logs/{build,test}-<完整SHA>.log`。
+
+从固定 release 顺序执行 6 套临时实例进程回归，退出码均为 0：隔离 21、协调 22、日记 9、摘要 24、日志 19、记忆 38，共 **133 项**。均使用合成模型、来源与回执。命令、时间、退出码和报告路径见 `shared/logs/conversation-acceptance-468fcee-command-results.json`，最终核对为 `conversation-acceptance-468fcee-assessed.json`。旧日志报告没有统一 `status` 字段，外层初次误标失败；按真实退出码与 19 项结果另存 assessed，原汇总保留，未因此重复测试。
+
+真实模型实际命令：
+
+```sh
+python3 -u /home/campanus/apps/dsh/releases/468fcee400601a590e7bc4c8c573d16a7c20bca9/source/tools/conversation-coordination-live.py --binary /home/campanus/apps/dsh/releases/468fcee400601a590e7bc4c8c573d16a7c20bca9/bin/dshd --web-dir /home/campanus/apps/dsh/releases/468fcee400601a590e7bc4c8c573d16a7c20bca9/web --source-data-dir /home/campanus/apps/dsh/shared/data --expected-commit 468fcee400601a590e7bc4c8c573d16a7c20bca9 --prior-model-requests 1 --report /home/campanus/apps/dsh/shared/logs/conversation-coordination-468fcee-real.json
+```
+
+22:53:51–22:54:01 执行，退出 0，**11 项通过**。严格发生 3 次新真实 HTTP 200，均限制 `max_tokens=1024`；加首轮失败已发生的一次，共 4 次。完整请求体摘要与冻结 Prompt 匹配。原轮次 completed + suppressed revision 2，保存 `output_suppressed_by_correction` 且无 Outbox；更正后 A 与独立 B 完成，仅有被临时 pacing fence 阻断的 queued Outbox，三者物理 lease 最终回收。屏障位于真实转发之前，**不证明真实 provider 已在途请求的取消**。未测试真实 QQ / 微信上传、客户端播放或用户已读。
+
+Playwright 经 Windows SSH 隧道访问同一 Linux 制品的全新临时实例，23:01 完成 `assistant-runtime.spec.ts`，1 个完整场景通过，覆盖认证、性格版本应用 / 回退、真实进程合成模型对话、只读日志及 320/390 像素布局。桌面与窄屏截图目视核对，未运行前端开发服务器。首轮缺 fixture-info 路径失败，第二轮复用已被首轮改动性格的夹具导致初始性格断言失败；两份报告保留，第三轮以新数据目录和完整参数通过，未放宽断言。自身 fixture PID 与 tunnel 已停止。报告和七张截图位于修复工作树 `.local/conversation-coordination/browser-468fcee-r{1,2,3}.json`、`browser-evidence-r3/`；未登录生产或使用真实渠道。
+
+验收后只读核对：生产配置 revision 7、4 个会话、92 条消息，记忆、日记事件 / 条目、人物和日程活动仍为 0。配置、已保存性格、稳定身份及三个来源 / 模型 / 规划授权策略摘要与部署前精确一致。首次摘要编码不同的诊断保留为 r1；采用相同 SELECT-rowset JSON 后全部相等，见 `production-readonly-468fcee-r2.json` 和 `post-acceptance-readonly-468fcee.json`。没有自动授予采集、模型出域、联系或动作权限，没有覆盖生产性格或数据库。
+
+本批完成的是上述隔离、投递历史与保守明确更正范围。话题、约定和预算的新实现仍在独立工作树开发；睡眠、真实主动联系、可执行动作与完整 M2 / M4 / M5 尚未据此完成。
