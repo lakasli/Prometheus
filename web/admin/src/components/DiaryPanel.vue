@@ -47,6 +47,8 @@ const entries = ref<Entry[]>([]),
   sources = ref<Source[]>([]);
 const selected = ref<Entry | null>(null),
   evidence = ref<DiaryEvent[]>([]);
+const evidenceTotal = ref(0),
+  evidenceHasMore = ref(false);
 const period = ref("day"),
   query = ref(""),
   source = ref("");
@@ -122,11 +124,32 @@ async function load() {
 }
 async function inspect(entry: Entry) {
   await task(async () => {
-    const result = await api<{ items: DiaryEvent[] }>(
-      `/diary/entries/${entry.id}/sources`,
-    );
+    const result = await api<{
+      items: DiaryEvent[];
+      total?: number;
+      has_more?: boolean;
+    }>(`/diary/entries/${entry.id}/sources?limit=100&offset=0`);
     selected.value = entry;
     evidence.value = result.items;
+    evidenceTotal.value = result.total ?? result.items.length;
+    evidenceHasMore.value = result.has_more ?? false;
+  });
+}
+async function moreEvidence() {
+  const entry = selected.value;
+  if (!entry || !evidenceHasMore.value) return;
+  await task(async () => {
+    const page = await api<{
+      items: DiaryEvent[];
+      total: number;
+      has_more: boolean;
+    }>(
+      `/diary/entries/${entry.id}/sources?limit=100&offset=${evidence.value.length}`,
+    );
+    if (selected.value?.id !== entry.id) return;
+    evidence.value.push(...page.items);
+    evidenceTotal.value = page.total;
+    evidenceHasMore.value = page.has_more;
   });
 }
 async function saveNote() {
@@ -210,6 +233,7 @@ async function consolidate() {
         timezone: "Asia/Shanghai",
         visibility: "private",
         source_owner_id: source.value || null,
+        retry_failed: true,
       },
     });
     await load();
@@ -352,7 +376,10 @@ onUnmounted(() => {
               {{ selected.feelings || "本次没有生成主观感受。" }}
             </p>
             <details>
-              <summary>来源与版本 · {{ evidence.length }} 条</summary>
+              <summary>
+                来源与版本 · {{ evidenceTotal }} 条（已加载
+                {{ evidence.length }} 条）
+              </summary>
               <div
                 v-for="event in evidence"
                 :key="event.id"
@@ -374,6 +401,13 @@ onUnmounted(() => {
                   ><button @click="forgetting = event">遗忘</button>
                 </div>
               </div>
+              <button
+                v-if="evidenceHasMore"
+                :disabled="busy"
+                @click="moreEvidence"
+              >
+                加载更多来源
+              </button>
               <small
                 >覆盖水位 {{ selected.coverage_watermark }} · 删除水位
                 {{ selected.deletion_epoch }}</small

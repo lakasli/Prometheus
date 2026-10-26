@@ -523,3 +523,142 @@ async fn revoked_legacy_memory_and_earlier_context_never_reach_actual_provider_a
     assert_eq!(counts(&reopened), (0, 0, 0, 0));
     server.abort();
 }
+
+#[tokio::test]
+async fn recent_diary_fallback_is_bounded_private_and_forgotten_after_restart() {
+    let (_dir, state, p, server) = fixture().await;
+    state
+        .db(|db| {
+            Ok(diary::save_policy(
+                db,
+                "owner",
+                1,
+                &diary::SourcePolicy {
+                    source_owner_id: "owner".into(),
+                    enabled: true,
+                    allow_model: false,
+                    timezone: diary::TIMEZONE.into(),
+                },
+            ))
+        })
+        .unwrap()
+        .unwrap();
+    let own = note(
+        &state,
+        "RECENT_DIARY_OWNER_CANARY_6fc81：今天完成了一次真实来源合成验收记录。",
+    );
+    diary_job(&state);
+    state.db(|db|{db.execute("INSERT INTO conversations(id,owner_id,title,created_at) VALUES('foreign-chat','foreign-owner','private fixture',0)",[])?;Ok(())}).unwrap();
+    state
+        .db(|db| {
+            Ok(diary::note(
+                db,
+                "owner",
+                &diary::Note {
+                    content: "RECENT_DIARY_FOREIGN_CANARY_7baf1".into(),
+                    source_conversation_id: Some("foreign-chat".into()),
+                    visibility: "private".into(),
+                    publish: false,
+                    happened_at: None,
+                },
+            ))
+        })
+        .unwrap()
+        .unwrap();
+    let day = Utc
+        .timestamp_opt(now(), 0)
+        .unwrap()
+        .with_timezone(&chrono_tz::Asia::Shanghai)
+        .date_naive()
+        .to_string();
+    state
+        .db(|db| {
+            let tx = db.transaction()?;
+            let result = diary::consolidate_in(
+                &tx,
+                "private",
+                Some("foreign-owner"),
+                "day",
+                &day,
+                diary::TIMEZONE,
+                now(),
+            );
+            if result.is_ok() {
+                tx.commit()?;
+            }
+            Ok(result)
+        })
+        .unwrap()
+        .unwrap();
+    let first = worker::enqueue(
+        &state,
+        "chat",
+        "owner",
+        "recent-diary-before",
+        "请回顾最近的近况。",
+        None,
+    )
+    .unwrap();
+    let stop = CancellationToken::new();
+    let s = state.clone();
+    let token = stop.clone();
+    let task = tokio::spawn(async move { worker::run_worker(s, token).await });
+    wait_request(&p, 1).await;
+    {
+        let payloads = p.payloads.lock().unwrap();
+        let text = payloads[0].to_string();
+        assert!(text.contains("RECENT_DIARY_OWNER_CANARY_6fc81"));
+        assert!(text.contains("recent_visible_day"));
+        assert!(!text.contains("RECENT_DIARY_FOREIGN_CANARY_7baf1"));
+        let supplied = payloads[0]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|m| {
+                m["content"]
+                    .as_str()
+                    .filter(|v| v.contains("recent_visible_day"))
+            })
+            .unwrap();
+        let json = supplied.rsplit_once('\n').unwrap().1;
+        assert!(json.len() <= 8000);
+        let entries: Value = serde_json::from_str(json).unwrap();
+        assert!(
+            entries[0].get("content").is_none(),
+            "duplicate content must not consume the request budget"
+        );
+    }
+    p.release.notify_one();
+    wait_completed(&state, &first).await;
+    stop.cancel();
+    done(task, "recent-diary-before").await;
+    state
+        .db(|db| Ok(diary::forget(db, "owner", &own.id, own.revision)))
+        .unwrap()
+        .unwrap();
+    let options = state.0.options.clone();
+    drop(state);
+    let reopened = AppState::open(options).unwrap();
+    let second = worker::enqueue(
+        &reopened,
+        "chat",
+        "owner",
+        "recent-diary-after",
+        "还有哪些近况可以回顾？",
+        None,
+    )
+    .unwrap();
+    let stop = CancellationToken::new();
+    let s = reopened.clone();
+    let token = stop.clone();
+    let task = tokio::spawn(async move { worker::run_worker(s, token).await });
+    wait_request(&p, 2).await;
+    let text = p.payloads.lock().unwrap()[1].to_string();
+    assert!(!text.contains("RECENT_DIARY_OWNER_CANARY_6fc81"));
+    assert!(!text.contains("RECENT_DIARY_FOREIGN_CANARY_7baf1"));
+    p.release.notify_one();
+    wait_completed(&reopened, &second).await;
+    stop.cancel();
+    done(task, "recent-diary-after").await;
+    server.abort();
+}

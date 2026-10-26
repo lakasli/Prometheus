@@ -39,16 +39,9 @@ class Provider(memory.Provider):
         system = payload['messages'][0]['content']
         envelope = json.loads(payload['messages'][-1]['content'])
         if '安排一个阅读活动' in system:
-            start = max([envelope['earliest_start']] + [
-                item['end_at'] + 60 for item in envelope['anonymous_busy']])
-            start = ((start + 59) // 60) * 60
-            activity = {'title': '合成授权阅读计划', 'type': 'reading',
-                        'purpose': '阅读给定合成文本', 'start_at': start,
-                        'end_at': start + 600, 'time_zone': envelope['time_zone'],
-                        'resource_id': envelope['authorized_resources'][0]['resource_id'],
-                        'target_ref': None, 'repeat': None, 'movable': True,
-                        'grant_id': envelope['grant_id']}
-            content = json.dumps({'activity': activity,
+            selection = {'slot_id': envelope['candidate_slots'][0]['slot_id'],
+                         'resource_id': envelope['authorized_resources'][0]['resource_id']}
+            content = json.dumps({'selection': selection,
                                   'reason': '使用已有授权及空闲时间'}, ensure_ascii=False)
         else:
             content = '本片段是合成验收资料，说明春日读诗与按来源记录的重要性；覆盖范围只限本次给定字符区间。'
@@ -89,6 +82,7 @@ def main():
 
     def check(name, condition):
         if not condition:
+            report['failed_check'] = name
             raise AssertionError(name)
         report['checks'].append(name)
         print('PASS ' + name, flush=True)
@@ -201,7 +195,8 @@ def main():
                     'goal': '阅读授权合成资料，留出已有忙闲时间。', 'grant_id': grant['id'],
                     'resource_ids': [planning_rid], 'duration_minutes': 10,
                     'state': 'enabled', 'planning_mode': 'model'})
-                deadline = time.monotonic() + 120
+                current_config, _, _ = h.request('GET', PREFIX + '/config')
+                deadline = time.monotonic() + max(180, current_config['config']['assistant']['timeout_seconds'] + 30)
                 planned = None
                 while time.monotonic() < deadline:
                     candidates, _, _ = h.request('GET', ROOT + '/activities')
@@ -209,7 +204,20 @@ def main():
                                     and v['state'] == 'enabled'), None)
                     if planned:
                         break
+                    plan_status, _, _ = h.request('GET', ROOT + '/plans')
+                    observed = next((v for v in plan_status['items'] if v['id'] == plan['id']), {})
+                    # Preserve only safe metadata. The definition contains the
+                    # private goal and must never enter the report.
+                    report['planning_diagnostics'] = {k: observed.get(k) for k in (
+                        'state', 'revision', 'block_reason', 'last_planned_at', 'planning_diagnostics')}
+                    attempt = observed.get('planning_diagnostics', {}).get('last_attempt') or {}
+                    if attempt.get('status') in {'failed', 'rejected', 'blocked', 'cancelled', 'interrupted', 'declined'}:
+                        break
                     time.sleep(.3)
+                plan_status, _, _ = h.request('GET', ROOT + '/plans')
+                observed = next((v for v in plan_status['items'] if v['id'] == plan['id']), {})
+                report['planning_diagnostics'] = {k: observed.get(k) for k in (
+                    'state', 'revision', 'block_reason', 'last_planned_at', 'planning_diagnostics')}
                 check('model autonomously schedules only within an existing bounded grant',
                       planned is not None and planned['definition']['resource_id'] == planning_rid
                       and planned['definition']['grant_id'] == grant['id']
@@ -262,6 +270,7 @@ def main():
         failed = True
         report['status'] = 'failed'
         report['error_type'] = type(error).__name__
+        report.setdefault('failed_check', 'unexpected_failure_after_' + str(len(report['checks'])) + '_checks')
         trace = error.__traceback__
         while trace:
             if trace.tb_frame.f_code.co_filename == __file__:

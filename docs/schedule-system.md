@@ -55,7 +55,19 @@
 
 模型预算额外限定 `max_daily_model_calls`（默认 8）、`max_daily_tokens`（默认 24000）、`max_output_tokens`（默认 1200）。每次请求按输入 UTF-8 字节、协议开销和输出上限保守预留；失败、取消与未知消耗不归还预算；后续日期的获授权单次机会可续读此前未完成的资源。该值是保守预留，不伪称 provider 实际计费 token。
 
-工作目标默认为 `planning_mode=bounded_rule`：只在授权窗口查找空闲段，每分钟最多创建一项、同目标一天最多一次、失败至少一小时冷却。显式选 `model` 才调用真实模型规划。模型只收到本目标、当前可信时间、本人授权书架摘要、授权版本与匿名忙闲；不复用最近聊天或另一 owner 的历史。输出仅允许一个严格 JSON 的阅读活动或无可用时段。宿主在提交时重新校验目标 revision、grant revision、资源白名单、类型、时间、时长、冲突和总预算，模型没有修改授权的接口。
+工作目标默认为 `planning_mode=bounded_rule`：只在授权窗口查找空闲段，每分钟最多创建一项、同目标一天最多一次、失败至少一小时冷却。显式选 `model` 才调用真实模型规划。宿主按真实忙闲、来源、授权和预算，在最多三天的有界搜索范围内提供最多八个候选 `slot_id`，附精确 Unix 起止、IANA 时区和时长；候选至少提前七分钟，避免模型请求消耗预定开始窗口。其他 owner 的标题和详情不进入模型输入。
+
+模型只收到本目标、可信时间、本人授权书架摘要、授权版本及已校验候选时段，不复用最近聊天或另一 owner 的历史。首选输出为 `{"selection":{"resource_id":"本次提供的资料ID","slot_id":"本次提供的时段ID"},"reason":"简短说明"}`；无合适选择时 `selection` 为 null。模型直接复制 ID，不计算时间戳。宿主使用候选的真实起止和当前目标构造活动，提交前重新校验目标 revision、grant revision、来源、时段未过期、类型、时长、冲突及总预算。候选提出后出现新冲突时拒绝，不能暗自改到另一个时段。旧完整 `activity` JSON 仍经原严格校验兼容，模型始终没有修改授权的接口。
+
+仅允许完整 JSON，或一份完整闭合且没有额外前后文的 `json` 代码围栏；未知字段、重复字段、其他语言围栏和混杂说明均拒绝，不使用字符串搜索截取任意大段回复中的 JSON。
+
+## 规划状态与安全诊断
+
+`schedule_planning_attempts` 保存每次准备、请求、成功、拒绝、失败、中断或无候选的元数据：目标与授权 revision、起止时间、候选数量、保守预留 token、输出上限、请求 SHA-256、原始输出 SHA-256 与字节数，以及稳定机器错误码。它不保存模型正文、输出 reason、目标正文、资源标题、凭证或原始网络错误。模型请求失败时若没有可用文字响应，输出摘要保持空值，不伪造响应证据。
+
+`GET plans` 的每项保留 `state/block_reason/last_planned_at`，并提供 `planning_diagnostics`：`status`、`last_attempt` 和最近十个 `attempts`。状态包括 `not_attempted/prepared/running/completed/declined/rejected/failed/cancelled/interrupted/blocked`。错误示例为 `planning_invalid_json`、`planning_unknown_slot`、`planning_resource_not_offered`、`autonomy_outside_window`、`schedule_conflict`、`planning_model_http_403`、`planning_model_timeout` 和 `planning_model_budget_exhausted`。所有查询仍先按 owner 过滤。
+
+提交失败会回滚活动变更，再独立持久化安全诊断；失败预算和失败记录保留，不自动重新授予权限。无候选时不发起模型请求、不占模型预算；实际请求失败或取消的预留不会归还。终态 attempt 不重放。重启将未结束的 attempt 标为 interrupted，既有失败不会被下一轮空检查覆盖。验收脚本记录 `failed_check` 及安全 attempt 元数据，因此能区分未派发、无候选、预算等待、模型网络失败、协议拒绝和提交冲突。
 
 超出自主范围的待批活动可经独立管理批准入口生效。批准必须认证、CSRF、可信时钟和精确 If-Match，并显式确认整个已保存系列；不支持用普通 resume 代替批准。宿主重新校验所有资料的 owner / 撤权状态、实际未来机会和冲突，将原 grant 约束清除，以 `schedule_admin_approvals` 持久记录批准 ID、actor、revision、定义与例外的精确哈希和审批时间，保留原 AI 创建者。修改获批正文、时间、重复规则或例外会撤销审批并重新待批；暂停 / 恢复同一份未变定义仍保留来源证明。该接口不出现在模型规划输出协议中，不改变模型 provider / 网络准入或收件人许可；没有附加 grant 的人工批准活动沿用每日最多八请求、24000 token 保守预留及每请求1200输出上限。视频、消息外发和未知动作仍受原能力阻断，批准系列不等于收到真实处理或投递结果。
 

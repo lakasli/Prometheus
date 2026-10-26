@@ -39,7 +39,7 @@ class Provider(memory.Provider):
             content = json.dumps({"assertions": [{
                 "field": "hobby", "value": "围棋", "statement_kind": "self_report",
                 "reason": "合成甲明确说自己的爱好是围棋。"}], "edges": []}, ensure_ascii=False)
-        elif system.startswith("你为刘嘉卉整理有来源的日记。"):
+        elif system.startswith(("DSH_DIARY_GENERATOR_V2", "你为刘嘉卉整理有来源的日记。")):
             content = json.dumps({"facts": "收到一条合成资料。", "feelings": ""}, ensure_ascii=False)
         else:
             content = "已收到这条合成测试消息。"

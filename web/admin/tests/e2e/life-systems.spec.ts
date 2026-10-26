@@ -126,6 +126,46 @@ test("diary provenance, reviewed people and calendar work through the authentica
   );
   await screenshot(page, "01-diary-desktop.png");
 
+  // Exercise the real second-page boundary without model calls or production data.
+  for (let i = 0; i < 101; i++) {
+    const response = await page.request.post("/api/admin/v1/diary/events", {
+      headers,
+      data: {
+        content: `分页合成来源 ${i}`,
+        visibility: "private",
+        publish: false,
+      },
+    });
+    expect(response.ok()).toBeTruthy();
+  }
+  const day = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Asia/Shanghai",
+  }).format(new Date());
+  expect(
+    (
+      await page.request.post("/api/admin/v1/diary/consolidate", {
+        headers,
+        data: {
+          period: "day",
+          day,
+          timezone: "Asia/Shanghai",
+          visibility: "private",
+        },
+      })
+    ).ok(),
+  ).toBeTruthy();
+  await page.getByLabel("搜索", { exact: true }).fill("分页合成来源");
+  await page.getByRole("button", { name: "查询", exact: true }).click();
+  await page.locator(".diary-card").first().click();
+  const sourceSummary = page.getByText(/来源与版本 ·/);
+  await expect(sourceSummary).toContainText("102 条（已加载 100 条）");
+  await sourceSummary.click();
+  await page.getByRole("button", { name: "加载更多来源", exact: true }).click();
+  await expect(sourceSummary).toContainText("102 条（已加载 102 条）");
+  await expect(
+    page.getByRole("button", { name: "加载更多来源", exact: true }),
+  ).toHaveCount(0);
+
   await nav.getByRole("button", { name: "人际关系", exact: true }).click();
   await page.getByRole("button", { name: "建立人物", exact: true }).click();
   await page.getByLabel("称呼", { exact: true }).fill(personName);

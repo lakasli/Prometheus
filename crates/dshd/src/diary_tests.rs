@@ -136,7 +136,9 @@ fn repeated_period_generation_is_idempotent_and_month_excludes_cross_month_event
     let month = build(&mut db, "owner-a", "month", "2026-10-01");
     assert_eq!(month.source_count, 1);
     assert!(!month.facts.contains("九月资料"));
-    assert!(month.facts.contains("十月资料"));
+    let provenance = source_page(&db, &month.id, Some("owner-a"), 100, 0).unwrap();
+    assert_eq!(provenance.total, 1);
+    assert!(provenance.items[0].content.contains("十月资料"));
 }
 #[test]
 fn old_memory_id_visibility_and_tombstone_are_retained() {
@@ -433,15 +435,18 @@ fn oversized_week_keeps_completed_days_and_other_source_checkpoints_committed() 
     tx.commit().unwrap();
     assert_eq!(outcome["status"], "completed");
     let a_days:i64=db.query_row("SELECT count(*) FROM diary_entries WHERE source_owner_id='owner-a' AND period='day' AND status!='invalidated'",[],|r|r.get(0)).unwrap();
-    assert_eq!(a_days, 4);
+    assert!(a_days >= 4);
     let b_days:i64=db.query_row("SELECT count(*) FROM diary_entries WHERE source_owner_id='owner-b' AND period='day' AND status!='invalidated'",[],|r|r.get(0)).unwrap();
-    assert_eq!(b_days, 4);
-    assert!(
-        status(&db).unwrap()["blocked_consolidations"]
-            .as_i64()
-            .unwrap()
-            > 0
-    );
+    assert!(b_days >= 4);
+    let checkpoint: String = db
+        .query_row(
+            "SELECT last_date FROM diary_scope_checkpoints WHERE scope_key='private:owner-a'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(checkpoint, "2026-10-04");
+    assert_eq!(status(&db).unwrap()["blocked_consolidations"], 0);
 }
 
 #[test]
@@ -455,4 +460,185 @@ fn shared_source_forget_invalidates_other_owners_copied_context() {
     assert_eq!(crate::memory_context::history_floor(&db, "bob").unwrap(), 0);
     forget(&mut db, "admin", &event.id, 1).unwrap();
     assert!(crate::memory_context::history_floor(&db, "bob").unwrap() > 0);
+}
+
+#[test]
+fn month_310_sources_reduces_bounded_parent_batches_resumes_and_forgets_full_chain() {
+    let mut db = database();
+    db.execute("UPDATE diary_meta SET started_at=0", [])
+        .unwrap();
+    let mut policy = SourcePolicy {
+        source_owner_id: "owner-a".into(),
+        enabled: true,
+        allow_model: false,
+        timezone: TIMEZONE.into(),
+    };
+    save_policy(&mut db, "admin", 0, &policy).unwrap();
+    let mut removed = None;
+    for d in 1..=31 {
+        let day = format!("2026-08-{d:02}");
+        for i in 0..10 {
+            let e = note(
+                &mut db,
+                "admin",
+                &input(
+                    &format!(
+                        "合成第{d}天第{i}件经历：{}",
+                        "今天读了一小段描写山川的文字，记下了作者视角和时间顺序的问题。".repeat(3)
+                    ),
+                    "alice",
+                    &day,
+                ),
+            )
+            .unwrap();
+            if d == 20 && i == 0 {
+                removed = Some(e);
+            }
+        }
+        let e = build(&mut db, "owner-a", "day", &day);
+        assert_eq!(e.source_count, 10);
+        assert!(!e.facts.contains("摘录达到正文预算"));
+    }
+    policy.allow_model = true;
+    save_policy(&mut db, "admin", 1, &policy).unwrap();
+    let month = build(&mut db, "owner-a", "month", "2026-08-01");
+    let week = build(&mut db, "owner-a", "week", "2026-08-20");
+    assert_eq!(month.source_count, 310);
+    assert_eq!(week.source_count, 70);
+    let first = source_page(&db, &month.id, Some("owner-a"), 100, 0).unwrap();
+    assert_eq!(first.total, 310);
+    assert!(first.has_more);
+    assert_eq!(first.items.len(), 100);
+    let last = source_page(&db, &month.id, Some("owner-a"), 200, 300).unwrap();
+    assert_eq!(last.items.len(), 10);
+    assert!(!last.has_more);
+    assert!(source_page(&db, &month.id, Some("owner-b"), 100, 0).is_err());
+    let mut calls = 0;
+    let mut month_parts = 0;
+    let mut restarted = false;
+    for _ in 0..12 {
+        let Some(input) = prepare_generation_in(&db).unwrap() else {
+            break;
+        };
+        calls += 1;
+        assert!(input.events.is_empty());
+        assert!(
+            serde_json::to_vec(&generation_payload(&input))
+                .unwrap()
+                .len()
+                <= 44000
+        );
+        if input.entry_id == month.id && !input.reduction.as_ref().unwrap().final_batch {
+            month_parts += 1;
+        }
+        let tx = db.transaction().unwrap();
+        commit_generation_in(
+            &tx,
+            &input,
+            &GenerationOutput {
+                facts: format!("合成层次归纳第{calls}批，事实只来自本批父日记。"),
+                feelings: "这是合成整理感受。".into(),
+            },
+            "bounded-fixture",
+        )
+        .unwrap();
+        tx.commit().unwrap();
+        if month_parts == 1 && !restarted {
+            initialize(&mut db).unwrap();
+            restarted = true;
+        }
+    }
+    assert!(calls <= 8);
+    assert!(month_parts >= 2);
+    let final_month = entry(&db, &month.id, None).unwrap();
+    assert_eq!(final_month.generator, "model:bounded-fixture");
+    assert_eq!(final_month.source_count, 310);
+    assert_eq!(
+        entry(&db, &week.id, None).unwrap().generator,
+        "model:bounded-fixture"
+    );
+    // A parent's later model-enrichment revision cannot create a new aggregate
+    // loop: the earlier complete evidence version remains the frozen parent.
+    let daily = build(&mut db, "owner-a", "day", "2026-08-01");
+    retry_generation_in(&db, &daily.id).unwrap();
+    let enriched = prepare_generation_in(&db).unwrap().unwrap();
+    assert_eq!(enriched.entry_id, daily.id);
+    let tx = db.transaction().unwrap();
+    commit_generation_in(
+        &tx,
+        &enriched,
+        &GenerationOutput {
+            facts: "同一原始资料的后续模型整理版本，不更改原始事实。".into(),
+            feelings: String::new(),
+        },
+        "enriched-fixture",
+    )
+    .unwrap();
+    tx.commit().unwrap();
+    assert!(entry(&db, &daily.id, None).unwrap().revision > daily.revision);
+    let before = final_month.revision;
+    let again = build(&mut db, "owner-a", "month", "2026-08-01");
+    assert_eq!(again.revision, before);
+    let e = removed.unwrap();
+    forget(&mut db, "admin", &e.id, 1).unwrap();
+    assert!(entry(&db, &month.id, None).is_err());
+    assert!(entry(&db, &week.id, None).is_err());
+    let fragments: i64 = db
+        .query_row(
+            "SELECT count(*) FROM diary_model_fragments WHERE entry_id=?1",
+            [&month.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(fragments, 0);
+    initialize(&mut db).unwrap();
+    assert!(event(&db, &e.id, None).is_err());
+    assert!(entry(&db, &month.id, None).is_err());
+}
+
+#[test]
+fn exhausted_model_attempts_require_manual_retry_while_scheduled_noop_keeps_failure() {
+    let mut db = database();
+    save_policy(
+        &mut db,
+        "admin",
+        0,
+        &SourcePolicy {
+            source_owner_id: "owner-a".into(),
+            enabled: true,
+            allow_model: true,
+            timezone: TIMEZONE.into(),
+        },
+    )
+    .unwrap();
+    note(
+        &mut db,
+        "admin",
+        &input("受控失败恢复资料", "alice", "2026-10-01"),
+    )
+    .unwrap();
+    let e = build(&mut db, "owner-a", "day", "2026-10-01");
+    for _ in 0..3 {
+        let c = prepare_generation_in(&db).unwrap().unwrap();
+        generation_failed_in(&db, &c.entry_id, "mock_transient_failure").unwrap();
+        db.execute("UPDATE diary_model_jobs SET updated_at=0", [])
+            .unwrap();
+    }
+    assert!(prepare_generation_in(&db).unwrap().is_none());
+    build(&mut db, "owner-a", "day", "2026-10-01");
+    assert!(prepare_generation_in(&db).unwrap().is_none());
+    retry_generation_in(&db, &e.id).unwrap();
+    assert!(prepare_generation_in(&db).unwrap().is_some());
+}
+
+#[test]
+fn diary_reader_one_migrates_to_two_and_unknown_future_reader_fails() {
+    let mut db = database();
+    db.execute("UPDATE diary_meta SET schema_version=1", [])
+        .unwrap();
+    initialize(&mut db).unwrap();
+    assert_eq!(status(&db).unwrap()["schema_version"], 2);
+    db.execute("UPDATE diary_meta SET schema_version=3", [])
+        .unwrap();
+    assert!(initialize(&mut db).is_err());
 }

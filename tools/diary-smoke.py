@@ -41,7 +41,7 @@ class Provider(memory.Provider):
         payload = json.loads(self.rfile.read(size))
         with self.server.mock_state.condition:
             self.server.mock_state.requests.append(payload)
-        if payload['messages'][0]['content'].startswith('你为刘嘉卉整理有来源的日记。'):
+        if payload['messages'][0]['content'].startswith('DSH_DIARY_GENERATOR_V2'):
             content = json.dumps({'facts': '今天收到了一条合成测试记录，记下对方学习了一首诗。',
                                   'feelings': '我觉得这次交流轻松。'}, ensure_ascii=False)
         else:

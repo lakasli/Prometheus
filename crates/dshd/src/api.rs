@@ -142,7 +142,7 @@ async fn capabilities(_admin: Admin) -> Json<Value> {
         json!({"mode":"single","versioned":true,"effective_from":"next_run"});
     result.0["runtime_logs"] =
         json!({"persistent":true,"authenticated":true,"subagent":false,"asr":false});
-    result.0["diary"] = json!({"periods":["day","week","month"],"source_authorization":"explicit","model_generation":true,"source_tracing":true,"revisioned":true});
+    result.0["diary"] = json!({"schema_version":2,"hierarchical_reductions":true,"periods":["day","week","month"],"source_authorization":"explicit","model_generation":true,"source_tracing":true,"revisioned":true});
     result.0["relationships"] = json!({"reviewed_fields":true,"directed_edges":true,"identity_confirmation":true,"contact_delivery":false});
     result.0["schedule"] = json!({"calendar_views":["month","week","day","agenda"],"text_reading":true,"video":false,"proactive_delivery":false,"legacy_triggers":true});
     result.0["conversation_images"] = json!({"channels":["web"],"formats":["png"],"max_images":1,"max_image_bytes":1048576,"provider":"deepseek","model":"deepseek-flash","basis":"vision_description","role_vision_module":false,"draft_tests":false});

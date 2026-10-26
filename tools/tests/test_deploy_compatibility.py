@@ -59,6 +59,19 @@ class CompatibilityTests(unittest.TestCase):
                     db.execute(f"DROP TABLE {table}")
                 manifest.unlink()
 
+    def test_hierarchy_fragments_require_the_v2_diary_reader_even_before_first_use(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE diary_meta(schema_version INTEGER); INSERT INTO diary_meta VALUES(1);")
+        manifest = self.release / "deploy/release-capabilities.json"
+        manifest.write_text(json.dumps({"diary": 1}))
+        compatibility.check(self.data, self.release)
+        with connect(self.data / "dsh.db") as db:
+            db.execute("UPDATE diary_meta SET schema_version=2")
+        with self.assertRaisesRegex(RuntimeError, "diary schema version"):
+            compatibility.check(self.data, self.release)
+        manifest.write_text(json.dumps({"diary": 2}))
+        compatibility.check(self.data, self.release)
+
     def test_saved_single_personality_requires_compatible_release(self):
         with connect(self.data / "dsh.db") as db:
             db.execute("INSERT INTO settings VALUES('assistant.personality.v1','{}')")

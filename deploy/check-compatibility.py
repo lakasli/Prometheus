@@ -18,12 +18,18 @@ def check(data_dir, release_source):
         # Version 1 is additive for legacy work. A future schema requires its reader.
         if version > max(1, int(capabilities.get("schema_reader", 0))):
             raise RuntimeError("Target release cannot read this database schema")
+        # v2 readers erase partial hierarchy reductions together with sources.
+        # A v1 program cannot safely maintain those derived private fragments.
+        if "diary_meta" in tables:
+            diary_version = db.execute("SELECT coalesce(max(schema_version),0) FROM diary_meta").fetchone()[0]
+            if diary_version > int(capabilities.get("diary", 0)):
+                raise RuntimeError("Target release cannot read this diary schema version or erase hierarchy fragments")
         # A bodyless tombstone, revoked identity, or a completed occurrence is
         # still durable state. Older readers must not bypass its semantics.
         for feature, feature_tables in (
             ("diary", ("diary_events", "diary_entries", "diary_source_policies", "diary_source_revocations", "diary_model_leases")),
             ("relationships", ("relationship_people", "relationship_assertions", "relationship_edges", "relationship_source_tombstones", "relationship_model_jobs", "relationship_identity_group_members")),
-            ("schedule", ("schedule_activities", "schedule_occurrences", "schedule_autonomy_grants", "schedule_model_budgets", "schedule_model_leases", "schedule_activity_budgets", "schedule_resources", "schedule_reading_progress", "schedule_admin_approvals")),
+            ("schedule", ("schedule_activities", "schedule_occurrences", "schedule_autonomy_grants", "schedule_model_budgets", "schedule_model_leases", "schedule_activity_budgets", "schedule_resources", "schedule_reading_progress", "schedule_admin_approvals", "schedule_planning_attempts")),
         ):
             used = any(table in tables and db.execute(f"SELECT EXISTS(SELECT 1 FROM {table})").fetchone()[0]
                        for table in feature_tables)

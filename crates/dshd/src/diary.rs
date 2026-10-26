@@ -15,6 +15,9 @@ use sha2::{Digest, Sha256};
 pub const TIMEZONE: &str = "Asia/Shanghai";
 const MAX_CONTENT: usize = 12000;
 const MAX_EVENTS: usize = 200;
+#[path = "diary_aggregation.rs"]
+mod aggregation;
+pub use aggregation::{FragmentExcerpt, ParentExcerpt, ParentReference, ReductionStep};
 
 trait DbResult<T> {
     fn api(self) -> ApiResult<T>;
@@ -158,11 +161,14 @@ pub fn initialize(db: &mut Connection) -> anyhow::Result<()> {
         [],
         |r| r.get(0),
     )?;
-    anyhow::ensure!(version == 1, "Unsupported diary schema");
+    anyhow::ensure!((1..=2).contains(&version), "Unsupported diary schema");
+    aggregation::initialize(&tx)?;
+    tx.execute("UPDATE diary_meta SET schema_version=2 WHERE id=1", [])?;
     initialize_search(&tx)?;
     // A single legacy transaction is mirrored into the canonical ledger; the
     // old IDs remain compatibility projections until the migration gate closes.
-    tx.execute_batch("CREATE TRIGGER IF NOT EXISTS diary_legacy_insert AFTER INSERT ON memory_records BEGIN
+    tx.execute_batch("DROP TRIGGER IF EXISTS diary_legacy_update;
+      CREATE TRIGGER IF NOT EXISTS diary_legacy_insert AFTER INSERT ON memory_records BEGIN
       INSERT OR IGNORE INTO diary_events(id,assistant_id,revision,visibility,source_owner_id,source_conversation_id,source_message_id,origin_type,origin_id,happened_at,observed_at,content,assertion_kind,deleted_at) VALUES('legacy:'||new.id,new.assistant_id,new.revision,new.visibility,new.source_owner_id,new.source_conversation_id,new.source_message_id,'legacy_memory',new.id,new.created_at,new.updated_at,new.content,'self_report',new.deleted_at);
       INSERT OR REPLACE INTO diary_legacy_map VALUES(new.id,'legacy:'||new.id,new.revision);
       INSERT OR IGNORE INTO diary_scope_checkpoints(scope_key,visibility,source_owner_id,timezone,last_date) VALUES(new.visibility||':'||coalesce(new.source_owner_id,''),new.visibility,new.source_owner_id,'Asia/Shanghai',date(new.created_at,'unixepoch','+8 hours','-1 day'));
@@ -172,6 +178,9 @@ pub fn initialize(db: &mut Connection) -> anyhow::Result<()> {
       UPDATE diary_meta SET deletion_epoch=deletion_epoch+1 WHERE id=1;
       UPDATE diary_entries SET facts='',feelings='',content='',status='invalidated',revision=revision+1,deletion_epoch=(SELECT deletion_epoch FROM diary_meta WHERE id=1) WHERE id IN (SELECT entry_id FROM diary_entry_sources WHERE event_id='legacy:'||new.id);
       UPDATE diary_entry_versions SET facts=NULL,feelings=NULL WHERE entry_id IN (SELECT entry_id FROM diary_entry_sources WHERE event_id='legacy:'||new.id);
+      DELETE FROM diary_model_fragments WHERE entry_id IN (SELECT entry_id FROM diary_entry_sources WHERE event_id='legacy:'||new.id);
+      DELETE FROM diary_model_reductions WHERE entry_id IN (SELECT entry_id FROM diary_entry_sources WHERE event_id='legacy:'||new.id);
+      DELETE FROM diary_aggregation_coverage WHERE entry_id IN (SELECT entry_id FROM diary_entry_sources WHERE event_id='legacy:'||new.id);
       UPDATE diary_event_versions SET content=NULL WHERE event_id='legacy:'||new.id;
       UPDATE diary_legacy_map SET last_revision=new.revision WHERE memory_id=new.id;
       UPDATE diary_scope_checkpoints SET last_date=min(last_date,date(new.created_at,'unixepoch','+8 hours','-1 day')) WHERE scope_key=new.visibility||':'||coalesce(new.source_owner_id,'');
@@ -540,10 +549,50 @@ pub fn list(db: &Connection, options: &ListOptions, owner: Option<&str>) -> ApiR
     })
 }
 pub fn sources(db: &Connection, id: &str, owner: Option<&str>) -> ApiResult<Vec<Event>> {
+    Ok(source_page(db, id, owner, MAX_EVENTS, 0)?.items)
+}
+#[derive(Debug, Serialize)]
+pub struct SourcePage {
+    pub items: Vec<Event>,
+    pub total: i64,
+    pub limit: usize,
+    pub offset: usize,
+    pub has_more: bool,
+}
+pub fn source_page(
+    db: &Connection,
+    id: &str,
+    owner: Option<&str>,
+    limit: usize,
+    offset: usize,
+) -> ApiResult<SourcePage> {
     entry(db, id, owner)?;
-    let mut stmt=db.prepare(&format!("SELECT {} FROM diary_events WHERE id IN (SELECT event_id FROM diary_entry_sources WHERE entry_id=?1) AND deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM diary_source_revocations v WHERE v.source_owner_id=diary_events.source_owner_id AND diary_events.rowid<=v.through_event_rowid) AND (?2 IS NULL OR visibility='shared' OR source_owner_id=?2) ORDER BY happened_at,id",EVENT_COLUMNS)).api()?;
-    let rows = stmt.query_map(params![id, owner], event_row).api()?;
-    rows.collect::<rusqlite::Result<Vec<_>>>().api()
+    let limit = limit.clamp(1, MAX_EVENTS);
+    let offset = offset.min(100000);
+    let scope="FROM diary_events WHERE id IN (SELECT event_id FROM diary_entry_sources WHERE entry_id=?1) AND deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM diary_source_revocations v WHERE v.source_owner_id=diary_events.source_owner_id AND diary_events.rowid<=v.through_event_rowid) AND (?2 IS NULL OR visibility='shared' OR source_owner_id=?2)";
+    let total: i64 = db
+        .query_row(
+            &format!("SELECT count(*) {scope}"),
+            params![id, owner],
+            |r| r.get(0),
+        )
+        .api()?;
+    let mut stmt = db
+        .prepare(&format!(
+            "SELECT {EVENT_COLUMNS} {scope} ORDER BY happened_at,id LIMIT ?3 OFFSET ?4"
+        ))
+        .api()?;
+    let rows = stmt
+        .query_map(params![id, owner, limit as i64, offset as i64], event_row)
+        .api()?;
+    let items = rows.collect::<rusqlite::Result<Vec<_>>>().api()?;
+    Ok(SourcePage {
+        items,
+        total,
+        limit,
+        offset,
+        has_more: offset + limit < total as usize,
+    })
 }
 
 pub fn correct(
@@ -678,6 +727,7 @@ pub fn invalidate_event_in(db: &Connection, id: &str) -> ApiResult<()> {
     Ok(())
 }
 fn invalidate_entry_in(db: &Connection, id: &str) -> ApiResult<()> {
+    aggregation::clear(db, id)?;
     db.execute("UPDATE diary_entries SET facts='',feelings='',content='',status='invalidated',revision=revision+1,deletion_epoch=(SELECT deletion_epoch FROM diary_meta WHERE id=1),updated_at=?1 WHERE id=?2",params![now(),id]).api()?;
     db.execute(
         "UPDATE diary_entry_versions SET facts=NULL,feelings=NULL WHERE entry_id=?1",
@@ -979,6 +1029,11 @@ pub fn consolidate_in(
             "来源已撤销，须显式重新授权并迁移后才能继续整理旧资料",
         ));
     }
+    if kind != "day" {
+        return aggregation::consolidate(
+            db, visibility, owner, kind, start, end, timezone, timestamp,
+        );
+    }
     let assistant = memory::identity(db)?;
     let mut stmt=db.prepare(&format!("SELECT {EVENT_COLUMNS} FROM diary_events WHERE assistant_id=?1 AND visibility=?2 AND source_owner_id IS ?3 AND deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM diary_source_revocations v WHERE v.source_owner_id=diary_events.source_owner_id AND diary_events.rowid<=v.through_event_rowid) AND happened_at>=?4 AND happened_at<?5 ORDER BY happened_at,id LIMIT ?6")).api()?;
     let events = stmt
@@ -1058,6 +1113,7 @@ pub fn consolidate_in(
             .join("\n\n")
     };
     // Bounded summaries do not silently drop evidence when a period is large.
+    let full_evidence = facts.len() <= MAX_CONTENT;
     let facts = if facts.len() > MAX_CONTENT {
         format!(
             "{}\n\n[摘录达到正文预算；完整证据见本条来源列表，不表示全部内容均已整理。]",
@@ -1086,6 +1142,11 @@ pub fn consolidate_in(
     db.execute(
         "INSERT INTO diary_entry_versions VALUES(?1,?2,?3,'','evidence_excerpt_v1','system',?4)",
         params![id, revision, facts, timestamp],
+    )
+    .api()?;
+    db.execute(
+        "INSERT INTO diary_entry_version_coverage VALUES(?1,?2,?3)",
+        params![id, revision, full_evidence],
     )
     .api()?;
     if kind != "day" {
@@ -1221,6 +1282,7 @@ pub fn tick_in(db: &Connection, timestamp: i64) -> ApiResult<Value> {
             day += Duration::days(1);
         }
     }
+    aggregation::retry_periods(db, timestamp)?;
     Ok(json!({"status":"completed","captured":captured,"periods_updated":generated}))
 }
 
@@ -1258,6 +1320,12 @@ pub struct GenerationInput {
     pub source_owner_id: String,
     pub source_fingerprint: String,
     pub events: Vec<Event>,
+    pub parents: Vec<aggregation::ParentExcerpt>,
+    pub fragments: Vec<aggregation::FragmentExcerpt>,
+    pub parent_references: Vec<aggregation::ParentReference>,
+    pub raw_fingerprint: Option<String>,
+    pub raw_source_count: usize,
+    pub reduction: Option<aggregation::ReductionStep>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1268,11 +1336,31 @@ pub struct GenerationOutput {
 /// Claims one bounded, already authorized source envelope. The caller must use
 /// the common model-request lease and only run it after interactive work.
 pub fn prepare_generation_in(db: &Connection) -> ApiResult<Option<GenerationInput>> {
-    let next:Option<(String,i64)>=db.query_row("SELECT j.entry_id,p.revision FROM diary_model_jobs j JOIN diary_entries e ON e.id=j.entry_id JOIN diary_source_policies p ON p.source_owner_id=e.source_owner_id WHERE j.status='queued' AND j.attempts<3 AND (j.attempts=0 OR j.updated_at<?1) AND j.entry_revision=e.revision AND e.deleted_at IS NULL AND e.status!='invalidated' AND p.enabled=1 AND p.allow_model=1 ORDER BY e.period_start,j.updated_at LIMIT 1",[now()-60],|r|Ok((r.get(0)?,r.get(1)?))).optional().api()?;
-    let Some((id, policy_revision)) = next else {
-        return Ok(None);
+    let candidates = {
+        let mut stmt=db.prepare("SELECT j.entry_id,p.revision FROM diary_model_jobs j JOIN diary_entries e ON e.id=j.entry_id JOIN diary_source_policies p ON p.source_owner_id=e.source_owner_id WHERE j.status IN ('queued','waiting_parents') AND j.attempts<3 AND (j.attempts=0 OR j.updated_at<?1) AND (coalesce(j.error,'')!='daily_budget_wait' OR j.updated_at<?1) AND j.entry_revision=e.revision AND e.deleted_at IS NULL AND e.status!='invalidated' AND p.enabled=1 AND p.allow_model=1 ORDER BY CASE e.period WHEN 'day' THEN 0 WHEN 'week' THEN 1 ELSE 2 END,e.period_start,j.updated_at LIMIT 64").api()?;
+        let rows = stmt
+            .query_map([now() - 60], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+            })
+            .api()?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().api()?
     };
+    for (id, policy) in candidates {
+        if let Some(input) = prepare_generation_item(db, &id, policy)? {
+            return Ok(Some(input));
+        }
+    }
+    Ok(None)
+}
+fn prepare_generation_item(
+    db: &Connection,
+    id: &str,
+    policy_revision: i64,
+) -> ApiResult<Option<GenerationInput>> {
     let item = entry(db, &id, None)?;
+    if item.period != "day" {
+        return aggregation::prepare(db, &item, policy_revision);
+    }
     let events = sources(db, &id, None)?;
     if events.is_empty() {
         db.execute(
@@ -1302,8 +1390,8 @@ pub fn prepare_generation_in(db: &Connection) -> ApiResult<Option<GenerationInpu
             |r| r.get(0),
         )
         .api()?;
-    Ok(Some(GenerationInput {
-        entry_id: id,
+    let input = GenerationInput {
+        entry_id: id.into(),
         entry_revision: item.revision,
         deletion_epoch,
         policy_revision,
@@ -1314,7 +1402,25 @@ pub fn prepare_generation_in(db: &Connection) -> ApiResult<Option<GenerationInpu
         source_owner_id: item.source_owner_id.unwrap_or_default(),
         source_fingerprint,
         events,
-    }))
+        parents: Vec::new(),
+        fragments: Vec::new(),
+        parent_references: Vec::new(),
+        raw_fingerprint: None,
+        raw_source_count: item.source_count,
+        reduction: None,
+    };
+    if serde_json::to_vec(&aggregation::payload(&input))
+        .map_err(|_| ApiError::internal())?
+        .len()
+        > 44000
+    {
+        db.execute("UPDATE diary_model_jobs SET status='blocked',error='source_token_budget' WHERE entry_id=?1",[id]).api()?;
+        return Ok(None);
+    }
+    Ok(Some(input))
+}
+pub fn generation_payload(input: &GenerationInput) -> Value {
+    aggregation::payload(input)
 }
 pub fn commit_generation_in(
     db: &Connection,
@@ -1331,6 +1437,9 @@ pub fn commit_generation_in(
     }
     if model.trim().is_empty() || model.len() > 128 {
         return Err(ApiError::bad("invalid_generator", "生成器标识无效"));
+    }
+    if input.reduction.is_some() {
+        return aggregation::commit(db, input, output, model);
     }
     let current = entry(db, &input.entry_id, None)?;
     let epoch: i64 = db
@@ -1378,6 +1487,11 @@ pub fn commit_generation_in(
     )
     .api()?;
     db.execute(
+        "INSERT INTO diary_entry_version_coverage VALUES(?1,?2,1)",
+        params![input.entry_id, input.entry_revision + 1],
+    )
+    .api()?;
+    db.execute(
         "UPDATE diary_model_jobs SET status='completed',error=NULL,updated_at=?1 WHERE entry_id=?2",
         params![now(), input.entry_id],
     )
@@ -1387,6 +1501,18 @@ pub fn commit_generation_in(
 }
 pub fn generation_failed_in(db: &Connection, id: &str, error: &str) -> ApiResult<()> {
     db.execute("UPDATE diary_model_jobs SET status=CASE WHEN attempts>=3 THEN 'failed' ELSE 'queued' END,error=?1,updated_at=?2 WHERE entry_id=?3 AND status='running'",params![clip(error,160),now(),id]).api()?;
+    Ok(())
+}
+/// Only the authenticated manual consolidation endpoint calls this recovery
+/// action. Scheduled passes never reset exhausted attempts or fragment work.
+pub fn retry_generation_in(db: &Connection, id: &str) -> ApiResult<()> {
+    let item = entry(db, id, None)?;
+    let allowed:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM diary_source_policies WHERE source_owner_id=?1 AND enabled=1 AND allow_model=1)",[&item.source_owner_id],|r|r.get(0)).api()?;
+    if !allowed || item.source_count == 0 || item.generator.starts_with("model:") {
+        return Ok(());
+    }
+    db.execute("INSERT OR IGNORE INTO diary_model_jobs(entry_id,entry_revision,status,updated_at) VALUES(?1,?2,'queued',?3)",params![id,item.revision,now()]).api()?;
+    db.execute("UPDATE diary_model_jobs SET status='queued',attempts=0,error=NULL,updated_at=?1 WHERE entry_id=?2 AND entry_revision=?3 AND status IN ('failed','blocked')",params![now(),id,item.revision]).api()?;
     Ok(())
 }
 

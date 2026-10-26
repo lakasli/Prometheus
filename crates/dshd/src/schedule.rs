@@ -619,6 +619,142 @@ fn grant_check(
     }
     Ok(revision)
 }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PlanningSlot {
+    pub slot_id: String,
+    pub start_at: i64,
+    pub end_at: i64,
+    pub time_zone: String,
+    pub duration_minutes: i64,
+}
+/// Compute bounded, already-authorized alternatives; models select identifiers
+/// instead of calculating civil times or Unix timestamps themselves.
+pub fn planning_slots(
+    db: &Connection,
+    owner: &str,
+    p: &Plan,
+    g: &Grant,
+    grant_revision: i64,
+    now: i64,
+) -> anyhow::Result<Vec<PlanningSlot>> {
+    let zone = tz(&g.time_zone)?;
+    let horizon = (now + g.horizon_days.min(3) * 86400).min(g.valid_until);
+    let rows=db.prepare("SELECT id,definition_json FROM schedule_activities WHERE state='enabled' ORDER BY id LIMIT 2001")?.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?.collect::<Result<Vec<_>,_>>()?;
+    if rows.len() > 2000 {
+        return Err(fail("planning_capacity", "活动协调数量超出有界规划范围"));
+    }
+    let mut busy = Vec::new();
+    for (id, d) in rows {
+        let a: Activity = serde_json::from_str(&d)?;
+        for (_, a, state) in expanded_with_exceptions(db, &id, &a, now, horizon, "enabled")? {
+            if state == "enabled" {
+                busy.push((a.start_at, a.end_at));
+            }
+        }
+        if busy.len() > 10000 {
+            return Err(fail("planning_capacity", "忙闲块超过有界规划范围"));
+        }
+    }
+    busy.sort_unstable();
+    let mut merged: Vec<(i64, i64)> = Vec::new();
+    for (start, end) in busy {
+        if let Some(last) = merged.last_mut() {
+            if start <= last.1 {
+                last.1 = last.1.max(end);
+                continue;
+            }
+        }
+        merged.push((start, end));
+    }
+    let Some(resource) = p.resource_ids.iter().find(|id| g.resource_ids.contains(id)) else {
+        return Ok(Vec::new());
+    };
+    let mut day = instant(now)?.with_timezone(&zone).date_naive();
+    let mut slots = Vec::new();
+    let duration = p.duration_minutes * 60;
+    for _ in 0..4 {
+        let from = window(&g.window_start)?;
+        let to = window(&g.window_end)?;
+        let (LocalResult::Single(start), LocalResult::Single(end)) = (
+            zone.from_local_datetime(&day.and_hms_opt(from / 60, from % 60, 0).unwrap()),
+            zone.from_local_datetime(&day.and_hms_opt(to / 60, to % 60, 0).unwrap()),
+        ) else {
+            day += Duration::days(1);
+            continue;
+        };
+        // Seven minutes covers the configured maximum 300-second model request
+        // plus DNS and scheduling overhead without silently moving its choice.
+        let mut cursor = start
+            .timestamp()
+            .max(((now + 420 + 59) / 60) * 60)
+            .max(g.valid_from);
+        let end = end.timestamp().min(horizon);
+        let mut scans = 0;
+        while cursor + duration <= end && slots.len() < 8 && scans < 128 {
+            scans += 1;
+            if let Some((_, busy_end)) = merged
+                .iter()
+                .find(|(s, e)| cursor < *e && cursor + duration > *s)
+            {
+                cursor = ((busy_end + 59) / 60) * 60;
+                continue;
+            }
+            let a = Activity {
+                title: "授权阅读候选时段".into(),
+                kind: "reading".into(),
+                purpose: p.goal.clone(),
+                start_at: cursor,
+                end_at: cursor + duration,
+                time_zone: g.time_zone.clone(),
+                resource_id: Some(resource.clone()),
+                target_ref: None,
+                repeat: None,
+                movable: true,
+                grant_id: Some(p.grant_id.clone()),
+                restart_reading: false,
+            };
+            match grant_check(db, owner, &a, Some(grant_revision), None, now) {
+                Ok(_) => {}
+                Err(error) => {
+                    if error
+                        .downcast_ref::<crate::trigger_store::TriggerError>()
+                        .is_some_and(|e| e.code == "autonomy_budget_exhausted")
+                    {
+                        break;
+                    }
+                    return Err(error);
+                }
+            }
+            let digest = crate::trigger_store::digest(
+                &json!({"grant_id":p.grant_id,"grant_revision":grant_revision,"start_at":cursor,"end_at":cursor+duration,"time_zone":g.time_zone}),
+            );
+            slots.push(PlanningSlot {
+                slot_id: format!("slot-{}", &digest[..20]),
+                start_at: cursor,
+                end_at: cursor + duration,
+                time_zone: g.time_zone.clone(),
+                duration_minutes: p.duration_minutes,
+            });
+            cursor += 15 * 60;
+        }
+        if slots.len() >= 8 {
+            break;
+        }
+        day += Duration::days(1);
+    }
+    Ok(slots)
+}
+pub fn check_model_proposal(
+    db: &Connection,
+    owner: &str,
+    a: &Activity,
+    expected_grant: i64,
+    now: i64,
+) -> anyhow::Result<()> {
+    validate(a)?;
+    grant_check(db, owner, a, Some(expected_grant), None, now)?;
+    Ok(())
+}
 fn mutate_budget(db: &Connection, owner: &str, a: &Activity) -> anyhow::Result<()> {
     let day = instant(a.start_at)?
         .with_timezone(&tz(&a.time_zone)?)
@@ -1304,7 +1440,11 @@ pub fn create_plan(db: &Connection, owner: &str, v: &Value, now: i64) -> anyhow:
     )
 }
 pub fn list_plans(db: &Connection, owner: &str) -> anyhow::Result<Value> {
-    let items=db.prepare("SELECT id,revision,definition_json,state,last_planned_day,last_planned_at,block_reason FROM schedule_plans WHERE owner_id=?1 ORDER BY created_at DESC LIMIT 100")?.query_map([owner],|r|Ok(json!({"id":r.get::<_,String>(0)?,"revision":r.get::<_,i64>(1)?,"definition":serde_json::from_str::<Value>(&r.get::<_,String>(2)?).unwrap_or(Value::Null),"state":r.get::<_,String>(3)?,"last_planned_day":r.get::<_,Option<String>>(4)?,"last_planned_at":r.get::<_,Option<i64>>(5)?,"block_reason":r.get::<_,Option<String>>(6)?,"planning":serde_json::from_str::<Value>(&r.get::<_,String>(2)?).ok().and_then(|v|v["planning_mode"].as_str().map(str::to_owned)).unwrap_or_else(||"bounded_rule".into())})))?.collect::<Result<Vec<_>,_>>()?;
+    let mut items=db.prepare("SELECT id,revision,definition_json,state,last_planned_day,last_planned_at,block_reason FROM schedule_plans WHERE owner_id=?1 ORDER BY created_at DESC LIMIT 100")?.query_map([owner],|r|Ok(json!({"id":r.get::<_,String>(0)?,"revision":r.get::<_,i64>(1)?,"definition":serde_json::from_str::<Value>(&r.get::<_,String>(2)?).unwrap_or(Value::Null),"state":r.get::<_,String>(3)?,"last_planned_day":r.get::<_,Option<String>>(4)?,"last_planned_at":r.get::<_,Option<i64>>(5)?,"block_reason":r.get::<_,Option<String>>(6)?,"planning":serde_json::from_str::<Value>(&r.get::<_,String>(2)?).ok().and_then(|v|v["planning_mode"].as_str().map(str::to_owned)).unwrap_or_else(||"bounded_rule".into())})))?.collect::<Result<Vec<_>,_>>()?;
+    for item in &mut items {
+        item["planning_diagnostics"] =
+            crate::schedule_model::planning_metadata(db, owner, item["id"].as_str().unwrap_or(""))?;
+    }
     Ok(json!({"items":items}))
 }
 pub fn change_plan(

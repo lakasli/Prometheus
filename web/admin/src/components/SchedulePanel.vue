@@ -11,7 +11,7 @@ import {
   localTimestamp,
   shiftDay,
 } from "../life-systems";
-import { blockReason, shiftMonth } from "../calendar-extras";
+import { blockReason, planningStatus, shiftMonth } from "../calendar-extras";
 import type { CalendarView } from "../life-systems";
 import type { CalendarRevision } from "../task-triggers";
 import TaskTriggers from "./TaskTriggers.vue";
@@ -112,6 +112,14 @@ interface Plan {
     state: string;
   };
   last_planned_at: number | null;
+  planning_diagnostics?: {
+    status: string;
+    last_attempt: {
+      status: string;
+      error_code: string | null;
+      finished_at: number | null;
+    } | null;
+  };
 }
 const emit = defineEmits<{ unauthorized: []; openDiary: [] }>();
 const legacy = ref<InstanceType<typeof TaskTriggers> | null>(null);
@@ -1135,6 +1143,14 @@ onUnmounted(() => {
           ><small
             >{{ label(p.state) }} · 最近规划
             {{ displayTime(p.last_planned_at) }}</small
+          ><small v-if="p.planning_diagnostics"
+            >{{ planningStatus(p.planning_diagnostics.status)
+            }}<template v-if="p.planning_diagnostics.last_attempt?.error_code">
+              ·
+              {{
+                blockReason(p.planning_diagnostics.last_attempt.error_code)
+              }}</template
+            ></small
           ><button :disabled="busy" @click="pausePlan(p)">
             {{ p.state === "paused" ? "恢复规划" : "暂停规划" }}
           </button>

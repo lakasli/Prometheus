@@ -102,9 +102,26 @@ async fn entry_sources(
     State(s): State<AppState>,
     _: Admin,
     Path(id): Path<String>,
+    Query(q): Query<SourceQuery>,
 ) -> ApiResult<Json<Value>> {
-    let items = s.db(|db| Ok(diary::sources(db, &id, None)))??;
-    Ok(Json(json!({"items":items})))
+    let page = s.db(|db| Ok(diary::source_page(db, &id, None, q.limit, q.offset)))??;
+    Ok(Json(
+        serde_json::to_value(page).map_err(|_| ApiError::internal())?,
+    ))
+}
+#[derive(Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct SourceQuery {
+    limit: usize,
+    offset: usize,
+}
+impl Default for SourceQuery {
+    fn default() -> Self {
+        Self {
+            limit: 100,
+            offset: 0,
+        }
+    }
 }
 async fn note(State(s): State<AppState>, a: Admin, Json(body): Json<Note>) -> ApiResult<Response> {
     let item = s.db(|db| Ok(diary::note(db, &a.id, &body)))??;
@@ -147,6 +164,8 @@ struct Consolidate {
     timezone: String,
     visibility: String,
     source_owner_id: Option<String>,
+    #[serde(default)]
+    retry_failed: bool,
 }
 async fn consolidate(
     State(s): State<AppState>,
@@ -161,7 +180,7 @@ async fn consolidate(
         } else {
             None
         });
-    let item=s.db(|db|{let tx=db.transaction()?;let item=diary::consolidate_in(&tx,&body.visibility,owner,&body.period,&body.day,&body.timezone,crate::state::now());if item.is_ok(){tx.execute("INSERT INTO audit_events(actor,action,resource,created_at) VALUES(?1,'diary.consolidate',?2,?3)",rusqlite::params![a.id,body.day,crate::state::now()])?;tx.commit()?;}Ok(item)})??;
+    let item=s.db(|db|{let tx=db.transaction()?;let item=diary::consolidate_in(&tx,&body.visibility,owner,&body.period,&body.day,&body.timezone,crate::state::now());if let Ok(ref entry)=item{if body.retry_failed{diary::retry_generation_in(&tx,&entry.id).map_err(|_|anyhow::anyhow!("diary retry unavailable"))?;}tx.execute("INSERT INTO audit_events(actor,action,resource,created_at) VALUES(?1,'diary.consolidate',?2,?3)",rusqlite::params![a.id,body.day,crate::state::now()])?;tx.commit()?;}Ok(item)})??;
     s.0.notify.notify_waiters();
     Ok(response(StatusCode::OK, item.revision, item))
 }

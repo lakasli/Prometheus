@@ -26,6 +26,32 @@ export function blockReason(value: string) {
     execution_window_elapsed: "执行时间窗已结束，已完成片段会保留",
     resource_already_read: "这份资料已经读完，本次已跳过",
     restart_checkpoint: "重启后从已保存的片段继续",
+    planning_invalid_json: "规划结果格式不符合要求，未创建活动",
+    planning_unknown_slot: "规划选择了未提供的时间段，未创建活动",
+    planning_resource_not_offered: "规划选择了未授权的资料，未创建活动",
+    autonomy_outside_window: "规划时间超出授权窗口",
+    schedule_conflict: "规划时间与现有活动冲突",
+    planning_model_timeout: "规划请求超时，可稍后重试",
+    planning_model_budget_exhausted: "规划模型预算已用完",
   };
   return reasons[value] || value;
+}
+
+export function planningStatus(value: string) {
+  return (
+    (
+      {
+        not_attempted: "尚未规划",
+        prepared: "等待规划",
+        running: "正在规划",
+        completed: "规划完成",
+        declined: "本轮未安排",
+        rejected: "规划未通过校验",
+        failed: "规划失败",
+        cancelled: "规划已取消",
+        interrupted: "规划已中断",
+        blocked: "规划受限",
+      } as Record<string, string>
+    )[value] || value
+  );
 }
