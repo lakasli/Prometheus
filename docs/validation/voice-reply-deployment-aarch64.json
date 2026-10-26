@@ -1,0 +1,153 @@
+{
+  "commit": "a566f608328d3d6acbdbe08327057eac301e86f8",
+  "target": "campanus@192.168.189.191",
+  "architecture": "aarch64",
+  "os": "Ubuntu 24.04.4 LTS",
+  "deployed_at": "2026-10-26T16:23:49.811962+08:00",
+  "deployment_exit_status": 0,
+  "previous_commit": "e4c955eda1ca7fa01062470f0cad5313e79f6a31",
+  "frontend_archive_sha256": "1f8484bd96ec7c8a472edc95241b0228cc67a869c030d33e042e34d6bc625fa2",
+  "remote_tests": {
+    "daemon": 307,
+    "kernel": 4,
+    "failed": 0,
+    "exit_status": 0
+  },
+  "release_build": {
+    "exit_status": 0,
+    "duration": "8m 10s",
+    "jobs": 1,
+    "cargo_mirror": "rsproxy"
+  },
+  "before": {
+    "audited_at": "2026-10-26T08:07:38.944958+00:00",
+    "current_release": "/home/campanus/apps/dsh/releases/e4c955eda1ca7fa01062470f0cad5313e79f6a31",
+    "source_sha": "e4c955eda1ca7fa01062470f0cad5313e79f6a31",
+    "binary_sha256": "ab36210a893998944d2e38fd3b6fbbb02be9720d4439fcbf9dc63c4ab0f3a388",
+    "web_manifest": {
+      "commit": "e4c955eda1ca7fa01062470f0cad5313e79f6a31",
+      "api_version": 1
+    },
+    "identity_sha256": "02d4c0a19fec90e8753c4b64cda52e9b7ef5d3b60b779abef91b67319447724d",
+    "active_config_revision": "6",
+    "personality_revision": 2,
+    "requested_personality_matches": true,
+    "counts": {
+      "conversations": 4,
+      "runs": 34,
+      "messages": 66,
+      "memory_records": 0
+    },
+    "health": {
+      "commit": "e4c955eda1ca7fa01062470f0cad5313e79f6a31",
+      "status": "ready"
+    },
+    "retained_personality_revisions": [
+      1,
+      0
+    ],
+    "updated_builtin_skills": [
+      {
+        "id": "skill-creator",
+        "revision": 2,
+        "enabled": true,
+        "matches_published_instructions": true
+      },
+      {
+        "id": "task-trigger-setup",
+        "revision": 2,
+        "enabled": true,
+        "matches_published_instructions": true
+      }
+    ]
+  },
+  "after": {
+    "audited_at": "2026-10-26T08:25:45.383900+00:00",
+    "current_release": "/home/campanus/apps/dsh/releases/a566f608328d3d6acbdbe08327057eac301e86f8",
+    "source_sha": "a566f608328d3d6acbdbe08327057eac301e86f8",
+    "binary_sha256": "670fa23b1d07bf27f2c295748e7d038c690d6a862e7f466c594ae4575198d34b",
+    "web_manifest": {
+      "commit": "a566f608328d3d6acbdbe08327057eac301e86f8",
+      "api_version": 1
+    },
+    "identity_sha256": "02d4c0a19fec90e8753c4b64cda52e9b7ef5d3b60b779abef91b67319447724d",
+    "active_config_revision": "6",
+    "personality_revision": 2,
+    "requested_personality_matches": true,
+    "counts": {
+      "conversations": 4,
+      "runs": 34,
+      "messages": 66,
+      "memory_records": 0
+    },
+    "health": {
+      "commit": "a566f608328d3d6acbdbe08327057eac301e86f8",
+      "status": "ready"
+    },
+    "retained_personality_revisions": [
+      1,
+      0
+    ],
+    "updated_builtin_skills": [
+      {
+        "id": "skill-creator",
+        "revision": 2,
+        "enabled": true,
+        "matches_published_instructions": true
+      },
+      {
+        "id": "task-trigger-setup",
+        "revision": 2,
+        "enabled": true,
+        "matches_published_instructions": true
+      }
+    ]
+  },
+  "preserved": {
+    "identity": true,
+    "configuration": true,
+    "personality": true,
+    "counts": true,
+    "original_failed_run": true
+  },
+  "incident_after": {
+    "run_id": "4c8f09a1-0d12-4520-9f0d-7272adb73d88",
+    "status": "failed",
+    "error": "每个回复对象只允许一句话",
+    "input_requests_speech": true,
+    "input_chars": 16,
+    "model_response_persisted": false,
+    "speech_enabled": true,
+    "speech_voice": "zh_CN-huayan-medium",
+    "reply_max_items": 4,
+    "created_at": "2026-10-26T07:52:09+00:00",
+    "updated_at": "2026-10-26T07:52:17+00:00",
+    "snapshot_speech_available": true,
+    "tts_events": 0,
+    "speech_assets": 0,
+    "outbox_entries": 0,
+    "current_health": {
+      "commit": "a566f608328d3d6acbdbe08327057eac301e86f8",
+      "status": "ready"
+    }
+  },
+  "remote_acceptance": {
+    "replies": 14,
+    "signed_synthetic_qq_with_real_piper": 15,
+    "speech": 18,
+    "real_model": 11,
+    "real_model_requests": 2
+  },
+  "service": "dsh.service",
+  "service_active": true,
+  "daemon_process_count_after_checks": 1,
+  "sample_mem_available_mib": 7314,
+  "anonymous_production_speech_api": 401,
+  "production_test_messages_created": 0,
+  "real_qq_outbound_http_tested": false,
+  "qq_client_playback_tested": false,
+  "pre_upgrade_backup": "/home/campanus/apps/dsh/shared/backups/pre-a566f608328d3d6acbdbe08327057eac301e86f8-20261026T082348301208867.sqlite",
+  "rollback_performed": false,
+  "test_log": "/home/campanus/apps/dsh/shared/logs/test-a566f608328d3d6acbdbe08327057eac301e86f8.log",
+  "build_log": "/home/campanus/apps/dsh/shared/logs/build-a566f608328d3d6acbdbe08327057eac301e86f8.log"
+}

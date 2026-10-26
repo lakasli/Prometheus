@@ -1,0 +1,53 @@
+{
+  "kind": "multi-sentence voice reply signed synthetic QQ acceptance",
+  "status": "passed",
+  "started_at": "2026-10-26T08:24:32.062066+00:00",
+  "checks": [
+    "synthetic QQ account is enabled only behind a persistent outbound fence",
+    "installed Piper runtime is available to the isolated daemon",
+    "signed synthetic QQ request completes after a multi-sentence voice model reply",
+    "one loopback model HTTP request receives the actual structured reply protocol",
+    "host expands both full sentences in order and enforces the configured pacing",
+    "reply preserves the synthetic owner and frozen passive reply target",
+    "completed run atomically queues two ordered reply parts without dispatch",
+    "real Piper sentence 1 artifact has complete mono PCM and a matching digest",
+    "real Piper sentence 2 artifact has complete mono PCM and a matching digest",
+    "each expanded voice part owns its distinct source-bound Piper artifact",
+    "Piper sentence completions are logged without copying spoken text",
+    "Piper workers exit after both sentence syntheses",
+    "expanded voice overflow fails before audio creation or partial reply publication",
+    "reply plan and queued sequence survive restart without replaying the model",
+    "original outbound fence prevents every QQ dispatch before and after restart"
+  ],
+  "commit": "a566f608328d3d6acbdbe08327057eac301e86f8",
+  "binary_sha256": "670fa23b1d07bf27f2c295748e7d038c690d6a862e7f466c594ae4575198d34b",
+  "architecture": "aarch64",
+  "production_data_accessed": false,
+  "real_local_piper_tested": true,
+  "mock_model_http_tested": true,
+  "signed_webhook_tested": true,
+  "real_qq_tested": false,
+  "qq_outbound_http_tested": false,
+  "real_external_model_tested": false,
+  "outbound_safety": "synthetic account is durably fenced before enabling QQ and remains fenced on restart",
+  "audio_artifacts": [
+    {
+      "sha256": "ce2c136a811acb51aeef477176dea91ce20c0833d52aaeeeb35dadb7cf3ca4f5",
+      "bytes": 109100,
+      "duration_ms": 2472,
+      "synthesis_ms": 4677
+    },
+    {
+      "sha256": "30a12ad13d55380bfb72ecb8acb9dbea5ddcbc83fd05ad4f002c8f941d89b936",
+      "bytes": 124460,
+      "duration_ms": 2821,
+      "synthesis_ms": 5185
+    }
+  ],
+  "not_executed": [
+    "QQ outbound HTTP upload and delivery",
+    "QQ client playback",
+    "real external model request"
+  ],
+  "finished_at": "2026-10-26T08:24:48.843093+00:00"
+}

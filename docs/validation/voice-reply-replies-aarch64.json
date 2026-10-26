@@ -1,0 +1,27 @@
+{
+  "kind": "structured replies and scoped media",
+  "commit": "a566f608328d3d6acbdbe08327057eac301e86f8",
+  "started_at": "2026-10-26T08:24:27.274163+00:00",
+  "architecture": "aarch64",
+  "production_data_accessed": false,
+  "real_qq_tested": false,
+  "real_external_model_tested": false,
+  "status": "passed",
+  "checks": [
+    "one-sentence JSON items and enforced interval persist",
+    "host protocol reaches actual provider request",
+    "message history returns presentation objects without raw JSON text",
+    "multiple sentences in one object are rejected",
+    "more than four channel messages are rejected",
+    "model URLs cannot become media actions",
+    "disabled speech degrades to readable text",
+    "multiple voice sentences normalize before disabled speech preserves all text",
+    "private canonical PNG download matches content hash",
+    "fake video and missing authentication or CSRF are rejected",
+    "only scoped known media can be referenced",
+    "cross-conversation and cross-owner reads fail closed",
+    "expired media is inaccessible and reclaimed",
+    "reply plan survives process restart without model replay"
+  ],
+  "finished_at": "2026-10-26T08:24:31.555408+00:00"
+}

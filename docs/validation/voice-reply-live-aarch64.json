@@ -1,0 +1,71 @@
+{
+  "kind": "isolated real-model voice reply acceptance",
+  "started_at": "2026-10-26T08:24:27.192093+00:00",
+  "status": "passed",
+  "commit": "a566f608328d3d6acbdbe08327057eac301e86f8",
+  "architecture": "aarch64",
+  "checks": [
+    "temporary model and Piper configuration is valid with QQ disabled",
+    "reviewed Liu Jiahui personality is applied only to the temporary instance",
+    "installed real local Piper is available",
+    "short voice request: actual model request completes",
+    "short voice request: result contains materialized voice artifacts",
+    "short voice request: real audio is complete private PCM bound to its source run",
+    "two-sentence voice request: actual model request completes",
+    "two-sentence voice request: result contains materialized voice artifacts",
+    "two-sentence voice request: real audio is complete private PCM bound to its source run",
+    "two-sentence voice request: real audio is complete private PCM bound to its source run",
+    "workers are reclaimed and synthetic voice turns create no outbound messages or memories"
+  ],
+  "voice_results": [
+    {
+      "scenario": "short voice request",
+      "items": 1,
+      "voice_items": 1,
+      "normalized": false,
+      "elapsed_ms": 7803,
+      "audio": [
+        {
+          "bytes": 112684,
+          "duration_ms": 2554,
+          "sha256": "7248e082b955ddb06eff6f137fb14a73c6bfc8f266851ad01ad4d9220f3f5324"
+        }
+      ]
+    },
+    {
+      "scenario": "two-sentence voice request",
+      "items": 2,
+      "voice_items": 2,
+      "normalized": false,
+      "elapsed_ms": 11496,
+      "audio": [
+        {
+          "bytes": 81964,
+          "duration_ms": 1858,
+          "sha256": "46c175a4238e61a2f62e9500c852341bc1e6dbc598b44f31feff2b64f4c1a2f7"
+        },
+        {
+          "bytes": 90156,
+          "duration_ms": 2043,
+          "sha256": "4a5686a1565b90e429aa1dee8a60618007c44cee9a33409afe207ecaed4e0c05"
+        }
+      ]
+    }
+  ],
+  "binary_sha256": "670fa23b1d07bf27f2c295748e7d038c690d6a862e7f466c594ae4575198d34b",
+  "personality_sha256": "b1d9e5750f395257caa8747e620cd9b08374e623505dd4225cdeeba76460aa0d",
+  "model_request_budget": 2,
+  "model_requests": 2,
+  "real_external_model_attempted": true,
+  "real_external_model_tested": true,
+  "real_local_piper_tested": true,
+  "production_model_configuration_read": true,
+  "production_model_credential_read": true,
+  "production_database_modified": false,
+  "real_user_content_accessed": false,
+  "real_qq_tested": false,
+  "real_weixin_tested": false,
+  "outbound_channels_enabled": false,
+  "finished_at": "2026-10-26T08:24:49.077045+00:00",
+  "passed": 11
+}
