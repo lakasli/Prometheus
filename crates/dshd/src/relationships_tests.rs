@@ -384,7 +384,27 @@ fn query_context_binds_verified_owner_and_tracks_exact_assertion_revision() {
     .unwrap();
     db.execute("INSERT INTO runs(id,conversation_id,owner_id,client_message_id,input,config_json,status,created_at,updated_at) VALUES('run-a','alice','owner-a','a','你好','{}','running',1,1),('run-b','bob','owner-b','b','你好','{}','running',1,1)",[]).unwrap();
     let tx = db.transaction().unwrap();
+    let candidate = context_candidate_for_run_in(&tx, "run-a", 8000).unwrap();
+    assert_eq!(
+        tx.query_row(
+            "SELECT count(*) FROM relationship_context_uses WHERE run_id='run-a'",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0
+    );
     let ca = context_for_run_in(&tx, "run-a", 8000).unwrap();
+    assert_eq!(candidate, ca);
+    assert!(
+        tx.query_row(
+            "SELECT count(*) FROM relationship_context_uses WHERE run_id='run-a'",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap()
+            > 0
+    );
     let cb = context_for_run_in(&tx, "run-b", 8000).unwrap();
     assert!(ca.to_string().contains("甲的专属标记"));
     assert!(!cb.to_string().contains("专属标记"));

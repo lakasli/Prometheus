@@ -24,6 +24,8 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .merge(crate::character_api::router())
         .merge(crate::runtime_logs::router())
+        .merge(crate::conversation_commitments_api::router())
+        .merge(crate::context_budget_api::router())
         .merge(crate::conversation_images_api::router())
         .merge(crate::skills_api::router())
         .merge(crate::trigger_api::router())
@@ -142,7 +144,7 @@ async fn capabilities(_admin: Admin) -> Json<Value> {
         json!({"mode":"single","versioned":true,"effective_from":"next_run"});
     result.0["runtime_logs"] =
         json!({"persistent":true,"authenticated":true,"subagent":false,"asr":false});
-    result.0["conversation_coordination"] = json!({"version":1,"identity_snapshot":2,"delivery_history":"confirmed_parts","correction_policy":"explicit_private_plain_text","frozen_delivery_snapshots":true,"focus":false,"commitments":false});
+    result.0["conversation_coordination"] = json!({"version":2,"identity_snapshot":2,"delivery_history":"confirmed_parts","correction_policy":"explicit_private_plain_text","frozen_delivery_snapshots":true,"focus":true,"focus_policy":"bounded_trial_v1","commitments":true,"commitment_scheduling":"verified_existing_activity_only","context_budget":"estimated_block_selection_v1","exact_token_counts":false});
     result.0["diary"] = json!({"schema_version":2,"hierarchical_reductions":true,"periods":["day","week","month"],"source_authorization":"explicit","model_generation":true,"source_tracing":true,"revisioned":true});
     result.0["relationships"] = json!({"reviewed_fields":true,"directed_edges":true,"identity_confirmation":true,"contact_delivery":false});
     result.0["schedule"] = json!({"calendar_views":["month","week","day","agenda"],"text_reading":true,"video":false,"proactive_delivery":false,"legacy_triggers":true});

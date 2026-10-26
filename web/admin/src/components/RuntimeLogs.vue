@@ -3,6 +3,11 @@ import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { api, ApiError, errorMessage } from "../api";
 import { formatDate } from "../validation";
 import AdminSelect from "./AdminSelect.vue";
+import {
+  contextBlockLabels,
+  selectionReasonLabels,
+} from "../context-management";
+import type { ContextSelectionView } from "../context-management";
 
 interface RuntimeEvent {
   id: number;
@@ -40,6 +45,8 @@ const kindLabels: Record<string, string> = {
   system: "系统",
 };
 const statusLabels: Record<string, string> = {
+  active: "允许发布",
+  suppressed: "旧候选已停止发布",
   recorded: "已记录",
   accepted: "已接受",
   unknown: "结果未知",
@@ -71,6 +78,13 @@ const error = ref("");
 const autoRefresh = ref(false);
 const loadedAt = ref<number | null>(null);
 const expanded = ref(new Set<number>());
+const selections = reactive<
+  Record<
+    string,
+    { loading: boolean; error: string; data: ContextSelectionView | null }
+  >
+>({});
+const selectionControllers = new Map<string, AbortController>();
 const hasUnapplied = computed(
   () => JSON.stringify(filters) !== JSON.stringify(applied.value),
 );
@@ -85,6 +99,33 @@ function toggle(id: number) {
 }
 function details(event: RuntimeEvent) {
   return JSON.stringify(event.details, null, 2);
+}
+async function loadSelection(run: string) {
+  if (selections[run]?.loading || disposed) return;
+  selections[run] = { loading: true, error: "", data: null };
+  const request = new AbortController();
+  selectionControllers.set(run, request);
+  try {
+    const data = await api<ContextSelectionView>(
+      `/runs/${encodeURIComponent(run)}/context-selection`,
+      { signal: request.signal },
+    );
+    if (!disposed) selections[run] = { loading: false, error: "", data };
+  } catch (caught) {
+    if (disposed) return;
+    if (caught instanceof ApiError && caught.status === 401)
+      emit("unauthorized");
+    selections[run] = {
+      loading: false,
+      data: null,
+      error:
+        caught instanceof ApiError && caught.status === 404
+          ? "没有可访问的上下文选择记录，来源可能已失效。"
+          : errorMessage(caught),
+    };
+  } finally {
+    selectionControllers.delete(run);
+  }
 }
 async function load(append = false, apply = false) {
   if (loading.value || disposed) return;
@@ -150,6 +191,8 @@ onUnmounted(() => {
   disposed = true;
   epoch++;
   controller?.abort();
+  for (const request of selectionControllers.values()) request.abort();
+  selectionControllers.clear();
   clearTimeout(timer);
 });
 </script>
@@ -312,6 +355,99 @@ onUnmounted(() => {
             </div>
           </dl>
           <pre v-if="item.content">{{ item.content }}</pre>
+          <section
+            v-if="item.run_id"
+            class="runtime-context-evidence"
+            aria-label="上下文选择依据"
+          >
+            <h3>上下文选择依据</h3>
+            <button
+              type="button"
+              :disabled="selections[item.run_id]?.loading"
+              @click="loadSelection(item.run_id)"
+            >
+              {{
+                selections[item.run_id]?.loading
+                  ? "正在读取依据…"
+                  : "读取上下文选择记录"
+              }}
+            </button>
+            <p v-if="selections[item.run_id]?.error" role="alert">
+              {{ selections[item.run_id]?.error }}
+            </p>
+            <p v-if="selections[item.run_id]?.data?.available === false">
+              该运行没有预算选择记录，历史窗口与选择过程保持未知。
+            </p>
+            <template v-if="selections[item.run_id]?.data?.selection">
+              <p>
+                {{
+                  selections[item.run_id]!.data!.selection!.accepted
+                    ? "预算校验通过"
+                    : "预算拒绝，请求未发出"
+                }}
+                · 策略 v{{
+                  selections[item.run_id]!.data!.selection!.policy.revision
+                }}
+                ·
+                {{
+                  selections[item.run_id]!.data!.selection!.serialized_bytes
+                }}
+                字节
+              </p>
+              <p>
+                保守估计输入
+                {{
+                  selections[item.run_id]!.data!.selection!
+                    .estimated_input_tokens
+                }}，响应预留
+                {{
+                  selections[item.run_id]!.data!.selection!.policy
+                    .response_reserve_tokens
+                }}；本次请求输出上限
+                {{
+                  selections[item.run_id]!.data!.selection!
+                    .actual_response_tokens
+                }}。这是估计，不是精确 token 计费。
+              </p>
+              <p
+                v-if="
+                  selections[item.run_id]!.data!.selection!.rejection_reason
+                "
+              >
+                {{
+                  selectionReasonLabels[
+                    selections[item.run_id]!.data!.selection!.rejection_reason!
+                  ] ||
+                  selections[item.run_id]!.data!.selection!.rejection_reason
+                }}
+              </p>
+              <ul class="runtime-context-blocks">
+                <li
+                  v-for="block in selections[item.run_id]!.data!.selection!
+                    .blocks"
+                  :key="block.id"
+                >
+                  <strong
+                    >{{ contextBlockLabels[block.kind] || block.kind }} ·
+                    {{ block.selected ? "已选入" : "已省略" }}</strong
+                  ><span>{{
+                    selectionReasonLabels[block.reason] || block.reason
+                  }}</span
+                  ><small
+                    v-for="source in block.source_refs"
+                    :key="`${source.kind}:${source.id}:${source.revision}`"
+                    >来源 {{ source.kind }} · {{ source.id }} · v{{
+                      source.revision
+                    }}<template
+                      v-if="source.epoch !== null && source.epoch !== undefined"
+                    >
+                      · 水位 {{ source.epoch }}</template
+                    ></small
+                  >
+                </li>
+              </ul>
+            </template>
+          </section>
           <details v-if="Object.keys(item.details).length">
             <summary>结构化详情</summary>
             <pre>{{ details(item) }}</pre>
@@ -330,3 +466,34 @@ onUnmounted(() => {
     </div>
   </section>
 </template>
+
+<style scoped>
+.runtime-context-evidence {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  margin-top: 16px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.runtime-context-evidence h3 {
+  margin: 0 0 12px;
+}
+.runtime-context-blocks {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.runtime-context-blocks li {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.runtime-context-blocks span,
+.runtime-context-blocks small {
+  color: var(--muted);
+}
+</style>

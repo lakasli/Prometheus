@@ -157,6 +157,9 @@ impl AppState {
         crate::turn_control::ensure_schema(&db)?;
         crate::delivery_context::ensure_schema(&db)?;
         crate::diary::initialize_delivery_capture(&db)?;
+        crate::conversation_state::initialize(&db)?;
+        crate::conversation_commitments::ensure_schema(&db)?;
+        crate::context_budget::ensure_schema(&db)?;
         crate::runtime_logs::initialize(&db)?;
         Ok(Self(Arc::new(Inner {
             db: Mutex::new(db),
@@ -179,7 +182,16 @@ impl AppState {
     pub fn db<T>(&self, f: impl FnOnce(&mut Connection) -> anyhow::Result<T>) -> ApiResult<T> {
         let mut db = self.0.db.lock().map_err(|_| ApiError::internal())?;
         f(&mut db).map_err(|error| {
-            if let Some(character) = error.downcast_ref::<crate::character::CharacterError>() {
+            if let Some(source) =
+                error.downcast_ref::<crate::conversation_context::SourceUnavailable>()
+            {
+                ApiError::new(
+                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                    "context_source_unavailable",
+                    source.to_string(),
+                )
+            } else if let Some(character) = error.downcast_ref::<crate::character::CharacterError>()
+            {
                 ApiError::new(character.status, character.code, character.message.clone())
             } else if let Some(skill) = error.downcast_ref::<crate::skills::SkillError>() {
                 ApiError::bad(skill.code, skill.message)

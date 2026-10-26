@@ -42,11 +42,19 @@ def check(data_dir, release_source):
             ("conversation_identity", 2, ("run_conversation_bindings", "conversation_message_identities", "run_conversation_contexts")),
             ("delivery_context", 1, ("delivery_context_snapshots", "conversation_summary_delivery_sources", "conversation_summary_delivery_versions", "diary_capture_delivery_state", "diary_capture_dirty")),
             ("turn_control", 1, ("conversation_inputs", "run_publication_decisions", "conversation_corrections")),
+            # Empty additive tables permit an unused upgrade to roll back.
+            # Any retained row matters, including erased entities, source
+            # tombstones, usage proofs, epochs and idempotency results.
+            ("conversation_state", 1, ("conversation_state_heads", "conversation_state_entities", "conversation_state_sources", "conversation_state_observations", "conversation_state_uses", "conversation_state_snapshots", "conversation_state_source_tombstones")),
+            ("commitments", 1, ("conversation_commitments", "conversation_commitment_epochs", "conversation_commitment_events", "conversation_commitment_usage", "conversation_commitment_contexts", "conversation_commitment_sources", "conversation_commitment_idempotency")),
+            # A saved policy already constrains the worker even before the
+            # first compiled Prompt; an old worker must not ignore it.
+            ("context_budget", 1, ("context_budget_policy_versions", "context_budget_policy_current", "context_budget_snapshots")),
         ):
             used = any(table in tables and db.execute(f"SELECT EXISTS(SELECT 1 FROM {table})").fetchone()[0]
                        for table in feature_tables)
             if used and int(capabilities.get(feature, 0)) < required:
-                raise RuntimeError(f"Target release lacks {feature} binding, publication or delivery history semantics")
+                raise RuntimeError(f"Target release lacks {feature} durable source, context or execution semantics")
         for table, capability in (("run_reply_plans", "structured_replies"), ("outbox_reply_parts", "structured_replies"), ("speech_assets", "local_piper_speech"), ("conversation_media_assets", "conversation_media")):
             if table in tables and db.execute(f"SELECT EXISTS(SELECT 1 FROM {table})").fetchone()[0] and int(capabilities.get(capability, 0)) < 1:
                 raise RuntimeError(f"Target release lacks {capability} authorization or delivery semantics")

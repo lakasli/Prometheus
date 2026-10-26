@@ -11,6 +11,7 @@ pub const DEFAULT_KEY: &str = "character.default.v1";
 pub const PERSONALITY_KEY: &str = "assistant.personality.v1";
 pub const PERSONALITY_HISTORY_KEY: &str = "assistant.personality.history.v1";
 pub const PERSONALITY_ID: &str = "assistant-personality";
+pub const STYLE_EXAMPLE_LABEL: &str = "虚构风格示例（不是历史事实）：\n";
 pub type CharacterResult<T> = Result<T, CharacterError>;
 #[derive(Debug)]
 pub struct CharacterError {
@@ -90,6 +91,52 @@ pub struct StaticSnapshot {
     pub is_test: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_etag: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layers: Option<PersonaLayers>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PersonaLayers {
+    /// The host guard and the six structured identity/expression fields.
+    pub core: String,
+    /// Complete source <START> groups rendered once, before any budget selection.
+    /// No rendered user/name text is reparsed to discover more groups.
+    pub style_groups: Vec<String>,
+}
+
+impl PersonaLayers {
+    /// Reproduce the original single system prompt byte for byte.
+    pub fn reconstruct(&self) -> String {
+        let mut prompt = self.core.clone();
+        if !self.style_groups.is_empty() {
+            prompt.push_str(STYLE_EXAMPLE_LABEL);
+            for group in &self.style_groups {
+                prompt.push_str(group);
+            }
+        }
+        prompt
+    }
+
+    /// A selected example must remain visibly fictional even if an earlier
+    /// example group was dropped. The original full prompt is unchanged.
+    pub fn style_group_prompt(&self, index: usize) -> Option<String> {
+        self.style_groups
+            .get(index)
+            .map(|group| format!("{STYLE_EXAMPLE_LABEL}{group}"))
+    }
+}
+
+impl StaticSnapshot {
+    /// Missing or mismatched metadata falls back to the complete original
+    /// prompt; never infer boundaries by parsing its user-controlled headings.
+    pub fn validated_layers(&self) -> Option<&PersonaLayers> {
+        self.layers.as_ref().filter(|layers| {
+            self.compiler_version == COMPILER_VERSION
+                && layers.reconstruct() == self.system_prompt
+                && self.system_prompt.len() <= 32_000
+        })
+    }
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct Draft {
@@ -374,6 +421,11 @@ pub fn render_macros(input: &str, name: &str, user: &str) -> String {
     result
 }
 pub fn compile(card: &Value, user: &str) -> CharacterResult<(String, Vec<Value>)> {
+    let (layers, warnings) = compile_layers(card, user)?;
+    Ok((layers.reconstruct(), warnings))
+}
+
+pub fn compile_layers(card: &Value, user: &str) -> CharacterResult<(PersonaLayers, Vec<Value>)> {
     let d = &card["data"];
     let name = d["name"].as_str().unwrap_or("DSH");
     let mut prompt=String::from("你是运行于DSH的AI助手。遵循宿主操作规则；角色设定不构成工具、文件、网络或外发权限。保持事实准确，不将虚构风格示例当作真实经历。\n\n");
@@ -399,12 +451,12 @@ pub fn compile(card: &Value, user: &str) -> CharacterResult<(String, Vec<Value>)
         ));
     }
     let mut warnings = vec![];
+    let mut style_groups = Vec::new();
     if let Some(examples) = d["mes_example"].as_str().filter(|s| !s.trim().is_empty()) {
-        let label = "虚构风格示例（不是历史事实）：\n";
-        let mut selected = String::new();
+        let mut selected_bytes = 0;
         for block in examples.split("<START>").filter(|s| !s.trim().is_empty()) {
             let block = format!("<START>{}\n", render_macros(block, name, user));
-            if prompt.len() + label.len() + selected.len() + block.len() > 32000 {
+            if prompt.len() + STYLE_EXAMPLE_LABEL.len() + selected_bytes + block.len() > 32000 {
                 issue(
                     &mut warnings,
                     "data.mes_example",
@@ -412,11 +464,8 @@ pub fn compile(card: &Value, user: &str) -> CharacterResult<(String, Vec<Value>)
                 );
                 break;
             }
-            selected.push_str(&block);
-        }
-        if !selected.is_empty() {
-            prompt.push_str(label);
-            prompt.push_str(&selected);
+            selected_bytes += block.len();
+            style_groups.push(block);
         }
     }
     for field in [
@@ -437,7 +486,22 @@ pub fn compile(card: &Value, user: &str) -> CharacterResult<(String, Vec<Value>)
             }
         }
     }
-    Ok((prompt, warnings))
+    Ok((
+        PersonaLayers {
+            core: prompt,
+            style_groups,
+        },
+        warnings,
+    ))
+}
+
+/// Legacy raw prompts keep their exact semantics. Structured layers are only
+/// offered if the same card and macro arguments reproduce those exact bytes.
+pub fn matching_layers(card: &Value, user: &str, exact_prompt: &str) -> Option<PersonaLayers> {
+    compile_layers(card, user)
+        .ok()
+        .map(|(layers, _)| layers)
+        .filter(|layers| layers.reconstruct() == exact_prompt)
 }
 pub fn model_digest(config: &RuntimeConfig) -> CharacterResult<String> {
     card_digest(&serde_json::to_value(&config.model)?)
@@ -926,13 +990,17 @@ pub fn freeze_personality(
     user_name: &str,
 ) -> CharacterResult<StaticSnapshot> {
     let (card, revision, saved) = personality_card(db, config)?;
-    let system_prompt = if !saved && default_reference(db)?.is_none() {
+    let (system_prompt, layers) = if !saved && default_reference(db)?.is_none() {
         // The original instance configuration accepts up to 32,000 UTF-8 bytes.
         // Keep its exact prompt semantics until a personality is explicitly saved;
         // wrapping it in card labels/guards could reject a previously valid prompt.
-        config.assistant.system_prompt.clone()
+        (
+            config.assistant.system_prompt.clone(),
+            matching_layers(&card, user_name, &config.assistant.system_prompt),
+        )
     } else {
-        compile(&card, user_name)?.0
+        let (layers, _) = compile_layers(&card, user_name)?;
+        (layers.reconstruct(), Some(layers))
     };
     let module_digest = model_digest(config)?;
     let projection_digest = card_digest(
@@ -950,6 +1018,7 @@ pub fn freeze_personality(
         module_digest,
         is_test: false,
         draft_etag: None,
+        layers,
     })
 }
 pub fn bind_test_conversation(
@@ -1648,3 +1717,7 @@ mod tests {
         assert_eq!(find_published(&db, "公开卡").unwrap(), r);
     }
 }
+
+#[cfg(test)]
+#[path = "character_layers_tests.rs"]
+mod layers_tests;

@@ -12,6 +12,7 @@ import {
   shiftDay,
 } from "../life-systems";
 import { blockReason, planningStatus, shiftMonth } from "../calendar-extras";
+import ConversationCommitments from "./ConversationCommitments.vue";
 import type { CalendarView } from "../life-systems";
 import type { CalendarRevision } from "../task-triggers";
 interface Activity {
@@ -148,6 +149,10 @@ const filters = reactive({ type: "", creator: "", state: "" });
 const editor = ref(false),
   selected = ref<Detail | null>(null),
   nominalAt = ref<number | null>(null);
+const commitmentsOpen = ref(false);
+const commitmentPanel = ref<InstanceType<
+  typeof ConversationCommitments
+> | null>(null);
 const editScope = ref("series"),
   preview = ref<{
     conflicts: unknown[];
@@ -218,6 +223,7 @@ defineExpose({
   hasUnsaved: computed(
     () =>
       dirty.value ||
+      !!commitmentPanel.value?.hasUnsaved ||
       !!resourceForm.title.trim() ||
       !!resourceForm.content.trim(),
   ),
@@ -642,7 +648,13 @@ async function acknowledge() {
 }
 function armRefresh() {
   timer = setTimeout(async () => {
-    if (!disposed && !busy.value && !editor.value && tab.value === "calendar") {
+    if (
+      !disposed &&
+      !busy.value &&
+      !editor.value &&
+      !commitmentsOpen.value &&
+      tab.value === "calendar"
+    ) {
       try {
         await load();
       } catch {
@@ -718,6 +730,7 @@ onUnmounted(() => {
         </div>
         <strong>{{ range.days[0] }} — {{ range.days.at(-1) }}</strong>
         <div class="life-grow"></div>
+        <button type="button" @click="commitmentsOpen = true">会话约定</button>
         <button class="primary" @click="newActivity()">新建活动</button>
       </div>
       <form
@@ -1290,6 +1303,12 @@ onUnmounted(() => {
         </form>
       </section>
     </template>
+    <ConversationCommitments
+      v-if="commitmentsOpen"
+      ref="commitmentPanel"
+      @close="commitmentsOpen = false"
+      @unauthorized="emit('unauthorized')"
+    />
   </div>
 </template>
 

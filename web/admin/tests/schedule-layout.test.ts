@@ -111,3 +111,30 @@ it("allows text for a reading activity with explicit source authorization", asyn
   );
   expect(materials.text()).toContain("日程中的阅读");
 });
+
+it("opens conversation commitments from the calendar toolbar without a new navigation panel", async () => {
+  const fetch = setup();
+  wrapper = mount(SchedulePanel);
+  await flushPromises();
+  const originalTabs = wrapper
+    .findAll('[role="tab"]')
+    .map((item) => item.text());
+  expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+  expect(
+    fetch.mock.calls.some(([url]) => url.includes("/commitments/scopes")),
+  ).toBe(false);
+  await wrapper
+    .findAll("button")
+    .find((item) => item.text() === "会话约定")!
+    .trigger("click");
+  await flushPromises();
+  expect(wrapper.get('[role="dialog"]').text()).toContain("会话约定");
+  expect(wrapper.findAll('[role="tab"]').map((item) => item.text())).toEqual(
+    originalTabs,
+  );
+  expect(
+    fetch.mock.calls.some(([url]) => url.includes("/commitments/scopes?")),
+  ).toBe(true);
+  await wrapper.get('[aria-label="关闭会话约定"]').trigger("click");
+  expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+});

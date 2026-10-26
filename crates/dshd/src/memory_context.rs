@@ -96,16 +96,23 @@ pub fn invalidate(db: &Connection, assistant: &str, memory: &str) -> anyhow::Res
         !db.is_autocommit(),
         "memory invalidation requires a transaction"
     );
-    let source: Option<Option<String>> = db
+    let source: Option<(Option<String>,i64)> = db
         .query_row(
-            "SELECT source_conversation_id FROM memory_records WHERE assistant_id=?1 AND id=?2",
+            "SELECT source_conversation_id,revision FROM memory_records WHERE assistant_id=?1 AND id=?2",
             params![assistant, memory],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?,r.get(1)?)),
         )
         .optional()?;
-    let Some(source) = source else {
+    let Some((source, revision)) = source else {
         bail!("memory is unavailable");
     };
+    crate::conversation_invalidation::invalidate_source_in(
+        db,
+        "memory",
+        memory,
+        Some(revision),
+        crate::state::now(),
+    )?;
     let mut conversations = {
         let mut statement = db.prepare(
             "SELECT DISTINCT r.conversation_id FROM memory_run_uses u
@@ -128,6 +135,17 @@ pub fn invalidate(db: &Connection, assistant: &str, memory: &str) -> anyhow::Res
     };
     let timestamp = crate::state::now();
     for conversation in conversations {
+        let owner: String = db.query_row(
+            "SELECT owner_id FROM conversations WHERE id=?1",
+            [&conversation],
+            |r| r.get(0),
+        )?;
+        crate::conversation_invalidation::invalidate_conversation_in(
+            db,
+            &owner,
+            &conversation,
+            timestamp,
+        )?;
         crate::conversation_summary::invalidate(db, assistant, &conversation)?;
         crate::memory_candidates::invalidate(db, assistant, &conversation)?;
         crate::weixin_store::cancel_queued_for_conversation_in(db, &conversation)?;

@@ -847,17 +847,39 @@ async fn gateway_session(
     }
 }
 
+type LegacyOutboxClaim = (String, String, String);
+
+pub(crate) fn claim_legacy_outbox_in(
+    db: &mut rusqlite::Connection,
+) -> anyhow::Result<Option<LegacyOutboxClaim>> {
+    let tx = db.transaction()?;
+    crate::conversation_context::fence_queued_delivery_candidates_in(&tx, true)?;
+    for _ in 0..64 {
+        let item=tx.query_row("SELECT id,target_json,content,run_id FROM outbox o WHERE status='queued' AND NOT EXISTS(SELECT 1 FROM run_publication_decisions p WHERE p.run_id=o.run_id AND p.decision='suppressed') ORDER BY created_at,o.rowid LIMIT 1",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?))).optional()?;
+        let Some((id, target, content, run)) = item else {
+            tx.commit()?;
+            return Ok(None);
+        };
+        if !crate::conversation_context::claim_delivery_allowed_in(&tx, &run)? {
+            continue;
+        }
+        tx.execute(
+            "UPDATE outbox SET status='sending' WHERE id=?1 AND status='queued'",
+            [&id],
+        )?;
+        tx.commit()?;
+        return Ok(Some((id, target, content)));
+    }
+    tx.commit()?;
+    Ok(None)
+}
+
 pub async fn run_outbox(state: AppState, cancel: CancellationToken) {
     loop {
         if cancel.is_cancelled() {
             break;
         }
-        let next=state.db(|db|{
-            let tx=db.transaction()?;
-            let item=tx.query_row("SELECT id,target_json,content FROM outbox o WHERE status='queued' AND NOT EXISTS(SELECT 1 FROM run_publication_decisions p WHERE p.run_id=o.run_id AND p.decision='suppressed') ORDER BY created_at LIMIT 1",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?))).optional()?;
-            if let Some((id,_,_))=&item{tx.execute("UPDATE outbox SET status='sending' WHERE id=?1 AND status='queued'",[id])?;}
-            tx.commit()?;Ok(item)
-        });
+        let next = state.db(claim_legacy_outbox_in);
         let Ok(Some((id, target, content))) = next else {
             tokio::select! {_=cancel.cancelled()=>break,_=tokio::time::sleep(Duration::from_millis(500))=>{}};
             continue;

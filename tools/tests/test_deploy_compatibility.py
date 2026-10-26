@@ -15,6 +15,26 @@ compatibility = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(compatibility)
 
 
+PHASE2_TABLES = {
+    "conversation_state": (
+        "conversation_state_heads", "conversation_state_entities",
+        "conversation_state_sources", "conversation_state_observations",
+        "conversation_state_uses", "conversation_state_snapshots",
+        "conversation_state_source_tombstones",
+    ),
+    "commitments": (
+        "conversation_commitments", "conversation_commitment_epochs",
+        "conversation_commitment_events", "conversation_commitment_usage",
+        "conversation_commitment_contexts", "conversation_commitment_sources",
+        "conversation_commitment_idempotency",
+    ),
+    "context_budget": (
+        "context_budget_policy_versions", "context_budget_policy_current",
+        "context_budget_snapshots",
+    ),
+}
+
+
 @contextmanager
 def connect(path):
     db = sqlite3.connect(path)
@@ -65,6 +85,61 @@ class CompatibilityTests(unittest.TestCase):
         with connect(self.data / "dsh.db") as db:
             db.executescript("CREATE TABLE delivery_context_revisions(run_id TEXT,revision INTEGER); INSERT INTO delivery_context_revisions VALUES('old-outbox',1); CREATE TABLE diary_capture_migrations(key TEXT,value INTEGER); INSERT INTO diary_capture_migrations VALUES('receipt_projection_v1',1);")
         compatibility.check(self.data, self.release)
+
+    def test_all_empty_phase2_tables_allow_unused_rollback(self):
+        with connect(self.data / "dsh.db") as db:
+            for tables in PHASE2_TABLES.values():
+                for table in tables:
+                    db.execute(f"CREATE TABLE {table}(id TEXT)")
+        before = (self.data / "dsh.db").read_bytes()
+        compatibility.check(self.data, self.release)
+        self.assertEqual((self.data / "dsh.db").read_bytes(), before)
+
+    def test_each_phase2_durable_table_independently_requires_its_reader(self):
+        manifest = self.release / "deploy/release-capabilities.json"
+        for feature, tables in PHASE2_TABLES.items():
+            for table in tables:
+                with self.subTest(feature=feature, table=table):
+                    with connect(self.data / "dsh.db") as db:
+                        db.execute(f"CREATE TABLE {table}(id TEXT,body TEXT)")
+                        # Bodyless/orphaned records still retain revocation,
+                        # revision or replay semantics after source deletion.
+                        db.execute(f"INSERT INTO {table} VALUES('retained-proof',NULL)")
+                    before = (self.data / "dsh.db").read_bytes()
+                    for capabilities in ({}, {feature: 0}, {
+                        other: 1 for other in PHASE2_TABLES if other != feature
+                    }):
+                        manifest.write_text(json.dumps(capabilities))
+                        with self.assertRaisesRegex(RuntimeError, feature):
+                            compatibility.check(self.data, self.release)
+                    manifest.write_text(json.dumps({feature: 1}))
+                    compatibility.check(self.data, self.release)
+                    self.assertEqual((self.data / "dsh.db").read_bytes(), before)
+                    with connect(self.data / "dsh.db") as db:
+                        db.execute(f"DROP TABLE {table}")
+                    manifest.unlink()
+
+    def test_source_tombstone_alone_blocks_reader_without_state_semantics(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE conversation_state_source_tombstones(source_kind TEXT,source_id TEXT,through_revision INTEGER,invalidated_at INTEGER); INSERT INTO conversation_state_source_tombstones VALUES('run_input','deleted-source',7,123);")
+        manifest = self.release / "deploy/release-capabilities.json"
+        manifest.write_text(json.dumps({"schema_reader": 10, "memory_context": 1}))
+        with self.assertRaisesRegex(RuntimeError, "conversation_state"):
+            compatibility.check(self.data, self.release)
+
+    def test_budget_policy_without_prompt_snapshot_still_blocks_old_worker(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE context_budget_policy_versions(revision INTEGER,policy_json TEXT); INSERT INTO context_budget_policy_versions VALUES(1,'{}'); CREATE TABLE context_budget_policy_current(revision INTEGER); INSERT INTO context_budget_policy_current VALUES(1); CREATE TABLE context_budget_snapshots(run_id TEXT);")
+        with self.assertRaisesRegex(RuntimeError, "context_budget"):
+            compatibility.check(self.data, self.release)
+        (self.release / "deploy/release-capabilities.json").write_text(json.dumps({"context_budget": 1}))
+        compatibility.check(self.data, self.release)
+
+    def test_current_manifest_advertises_all_phase2_readers(self):
+        manifest = pathlib.Path(__file__).resolve().parents[2] / "deploy/release-capabilities.json"
+        capabilities = json.loads(manifest.read_text())
+        for feature in PHASE2_TABLES:
+            self.assertGreaterEqual(capabilities.get(feature, 0), 1, feature)
 
     def test_knowledge_and_schedule_state_requires_its_reader(self):
         for feature, table in (("diary", "diary_events"),

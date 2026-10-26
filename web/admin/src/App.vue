@@ -15,6 +15,7 @@ import RuntimeLogs from "./components/RuntimeLogs.vue";
 import DiaryPanel from "./components/DiaryPanel.vue";
 import RelationshipsPanel from "./components/RelationshipsPanel.vue";
 import AffinitySettings from "./components/AffinitySettings.vue";
+import ContextPolicyPanel from "./components/ContextPolicyPanel.vue";
 import WeixinChannel from "./components/WeixinChannel.vue";
 import SkillsPanel from "./components/SkillsPanel.vue";
 import SchedulePanel from "./components/SchedulePanel.vue";
@@ -245,10 +246,18 @@ const personalityPanel = ref<InstanceType<typeof AssistantPersonality> | null>(
   null,
 );
 const affinityPanel = ref<InstanceType<typeof AffinitySettings> | null>(null);
+const contextPolicyPanel = ref<InstanceType<typeof ContextPolicyPanel> | null>(
+  null,
+);
+const contextPolicyLoaded = ref(false);
 const affinityLoaded = ref(false);
 const historyLoaded = ref(false);
 function openAffinity(event: Event) {
   if ((event.target as HTMLDetailsElement).open) affinityLoaded.value = true;
+}
+function openWorkRhythm(event: Event) {
+  if ((event.target as HTMLDetailsElement).open)
+    contextPolicyLoaded.value = true;
 }
 function openHistory(event: Event) {
   if ((event.target as HTMLDetailsElement).open)
@@ -398,6 +407,11 @@ function refreshStatus(quiet = false): Promise<void> {
 
 function mayLeavePage() {
   if (
+    contextPolicyPanel.value?.hasUnsaved &&
+    !window.confirm("上下文预算有未保存的修改，确定离开？")
+  )
+    return false;
+  if (
     affinityPanel.value?.hasUnsaved &&
     !window.confirm("好感规则有未保存的修改，确定离开？")
   )
@@ -543,6 +557,11 @@ async function authenticate() {
   });
 }
 async function logout() {
+  if (
+    contextPolicyPanel.value?.hasUnsaved &&
+    !window.confirm("上下文预算有未保存的修改，确定退出登录？")
+  )
+    return;
   if (
     affinityPanel.value?.hasUnsaved &&
     !window.confirm("好感规则有未保存的修改，确定退出登录？")
@@ -1290,7 +1309,11 @@ onUnmounted(() => {
                   >
                 </div>
               </details>
-              <details v-if="page === 'config'" class="panel config-drawer">
+              <details
+                v-if="page === 'config'"
+                class="panel config-drawer"
+                @toggle="openWorkRhythm"
+              >
                 <summary>
                   <span>工作节奏</span><Icon name="chevron" :size="18" />
                 </summary>
@@ -1350,6 +1373,11 @@ onUnmounted(() => {
                         max="300"
                     /></label>
                   </div>
+                  <ContextPolicyPanel
+                    v-if="contextPolicyLoaded"
+                    ref="contextPolicyPanel"
+                    @unauthorized="expireSession"
+                  />
                 </div>
               </details>
               <details v-if="page === 'config'" class="panel config-drawer">

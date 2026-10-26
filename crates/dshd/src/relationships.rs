@@ -743,6 +743,14 @@ pub fn review_assertion(
                     "只能替代同一人物同一字段的已审核断言",
                 ));
             }
+            crate::conversation_invalidation::invalidate_source_in(
+                &tx,
+                "person_assertion",
+                previous,
+                Some(old.revision),
+                now(),
+            )
+            .map_err(|_| ApiError::internal())?;
             tx.execute("UPDATE relationship_assertions SET status='superseded',revision=revision+1,updated_at=?1 WHERE id=?2",params![now(),previous]).api()?;
         }
         invalidate_person_context(&tx, &a.person_id).map_err(|_| ApiError::internal())?;
@@ -752,6 +760,14 @@ pub fn review_assertion(
     } else {
         "rejected"
     };
+    crate::conversation_invalidation::invalidate_source_in(
+        &tx,
+        "person_assertion",
+        id,
+        Some(a.revision),
+        now(),
+    )
+    .map_err(|_| ApiError::internal())?;
     tx.execute("UPDATE relationship_assertions SET status=?1,revision=revision+1,updated_at=?2 WHERE id=?3",params![status,now(),id]).api()?;
     tx.execute("INSERT INTO relationship_assertion_versions(assertion_id,revision,value_json,status,actor,reason,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![id,expected+1,a.value.to_string(),status,access.actor(),b.reason,now()]).api()?;
     bump(&tx, &a.person_id)?;
@@ -774,6 +790,14 @@ pub fn forget_assertion(
     if !access.administrative() && a.scope.source_owner_id.as_deref() != access.owner() {
         return Err(ApiError::not_found());
     }
+    crate::conversation_invalidation::invalidate_source_in(
+        &tx,
+        "person_assertion",
+        id,
+        Some(a.revision),
+        now(),
+    )
+    .map_err(|_| ApiError::internal())?;
     invalidate_person_context(&tx, &a.person_id).map_err(|_| ApiError::internal())?;
     tx.execute("UPDATE relationship_assertions SET value_json=NULL,reason=NULL,status='forgotten',revision=revision+1,deleted_at=?1,updated_at=?1 WHERE id=?2",params![now(),id]).api()?;
     tx.execute("UPDATE relationship_assertion_versions SET value_json=NULL,reason=NULL WHERE assertion_id=?1",[id]).api()?;
@@ -835,6 +859,13 @@ pub fn bind_identity(
     }
     let iid = uuid::Uuid::new_v4().to_string();
     let t = now();
+    crate::conversation_invalidation::invalidate_conversation_in(
+        &tx,
+        &owner,
+        &b.conversation_id,
+        t,
+    )
+    .map_err(|_| ApiError::internal())?;
     tx.execute("INSERT INTO relationship_identities(id,person_id,conversation_id,source_owner_id,alias,confirmed_at) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(conversation_id) DO UPDATE SET person_id=excluded.person_id,id=excluded.id,source_owner_id=excluded.source_owner_id,alias=excluded.alias,confirmed_at=excluded.confirmed_at,deleted_at=NULL",params![iid,id,b.conversation_id,owner,b.alias,t]).api()?;
     tx.execute("INSERT INTO relationship_identity_history(identity_id,person_id,action,actor,created_at) VALUES(?1,?2,'bind',?3,?4)",params![iid,id,access.actor(),t]).api()?;
     bump(&tx, id)?;
@@ -1412,6 +1443,62 @@ pub fn invalidate_source_in(
     source_type: &str,
     source_id: &str,
 ) -> anyhow::Result<()> {
+    if crate::conversation_invalidation::initialized_schema(db)? {
+        let revision_sql = match source_type {
+            "diary_event" => Some("SELECT revision FROM diary_events WHERE id=?1"),
+            "diary_entry" => Some("SELECT revision FROM diary_entries WHERE id=?1"),
+            "memory" => Some("SELECT revision FROM memory_records WHERE id=?1"),
+            _ => None,
+        };
+        if let Some(sql) = revision_sql {
+            let revision = db
+                .query_row(sql, [source_id], |r| r.get::<_, i64>(0))
+                .optional()?;
+            crate::conversation_invalidation::invalidate_source_in(
+                db,
+                source_type,
+                source_id,
+                revision,
+                now(),
+            )?;
+        } else if source_type == "message" {
+            let run: Option<String> = db
+                .query_row(
+                    "SELECT run_id FROM messages WHERE id=?1 AND role='user'",
+                    [source_id],
+                    |r| r.get(0),
+                )
+                .optional()?
+                .flatten();
+            if let Some(run) = run {
+                crate::conversation_invalidation::invalidate_source_in(
+                    db,
+                    "run_input",
+                    &run,
+                    Some(1),
+                    now(),
+                )?;
+            }
+        }
+        let assertions = {
+            let mut statement=db.prepare("SELECT id,revision FROM relationship_assertions WHERE source_type=?1 AND source_id=?2 AND deleted_at IS NULL")?;
+            let rows = statement
+                .query_map(params![source_type, source_id], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        for (id, revision) in assertions {
+            crate::conversation_invalidation::invalidate_source_in(
+                db,
+                "person_assertion",
+                &id,
+                Some(revision),
+                now(),
+            )?;
+        }
+    }
     crate::relationships_model::invalidate_source_in(db, source_type, source_id)?;
     let mut people = Vec::new();
     for sql in ["SELECT DISTINCT person_id FROM relationship_assertions WHERE source_type=?1 AND source_id=?2 AND deleted_at IS NULL","SELECT DISTINCT from_person_id FROM relationship_edges WHERE source_type=?1 AND source_id=?2 AND deleted_at IS NULL","SELECT DISTINCT to_person_id FROM relationship_edges WHERE source_type=?1 AND source_id=?2 AND deleted_at IS NULL","SELECT DISTINCT person_id FROM relationship_affinity_events WHERE source_type=?1 AND source_id=?2 AND deleted_at IS NULL"]{
@@ -1465,6 +1552,29 @@ pub fn forget_person(
     }
     invalidate_person_context(&tx, id).map_err(|_| ApiError::internal())?;
     identity_groups::detach_in(&tx, id).map_err(|_| ApiError::internal())?;
+    if crate::conversation_invalidation::initialized_schema(&tx)
+        .map_err(|_| ApiError::internal())?
+    {
+        let assertions = {
+            let mut statement=tx.prepare("SELECT id,revision FROM relationship_assertions WHERE person_id=?1 AND deleted_at IS NULL").api()?;
+            let rows = statement
+                .query_map([id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+                .api()?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .api()?;
+            rows
+        };
+        for (assertion, revision) in assertions {
+            crate::conversation_invalidation::invalidate_source_in(
+                &tx,
+                "person_assertion",
+                &assertion,
+                Some(revision),
+                now(),
+            )
+            .map_err(|_| ApiError::internal())?;
+        }
+    }
     tx.execute("UPDATE relationship_identity_group_history SET reason=NULL WHERE person_id=?1 OR other_person_id=?1",[id]).api()?;
     tx.execute("UPDATE relationship_assertion_versions SET value_json=NULL,reason=NULL WHERE assertion_id IN (SELECT id FROM relationship_assertions WHERE person_id=?1)",[id]).api()?;
     tx.execute("UPDATE relationship_assertions SET value_json=NULL,reason=NULL,status='forgotten',deleted_at=?1,updated_at=?1 WHERE person_id=?2",params![now(),id]).api()?;
@@ -1516,9 +1626,36 @@ fn invalidate_person_context(db: &Connection, id: &str) -> anyhow::Result<()> {
         .query_map([id], |r| r.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     drop(st);
+    if crate::conversation_invalidation::initialized_schema(db)? {
+        // A mapping change also invalidates transient views in its actual
+        // identity conversations, without expanding the legacy history floor.
+        let identity_conversations = {
+            let mut statement=db.prepare("SELECT DISTINCT c.owner_id,c.id FROM relationship_identities i JOIN conversations c ON c.id=i.conversation_id WHERE i.person_id=?1")?;
+            let rows = statement
+                .query_map([id], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        for (owner, conversation) in identity_conversations {
+            crate::conversation_invalidation::invalidate_conversation_in(
+                db,
+                &owner,
+                &conversation,
+                now(),
+            )?;
+        }
+    }
     let assistant =
         memory::identity(db).map_err(|_| anyhow::anyhow!("Assistant identity unavailable"))?;
     for c in conversations {
+        let owner: String = db.query_row(
+            "SELECT owner_id FROM conversations WHERE id=?1",
+            [&c],
+            |r| r.get(0),
+        )?;
+        crate::conversation_invalidation::invalidate_conversation_in(db, &owner, &c, now())?;
         crate::conversation_summary::invalidate(db, &assistant, &c)?;
         let through: i64 = db.query_row(
             "SELECT coalesce(max(rowid),0) FROM runs WHERE conversation_id=?1",
@@ -1548,6 +1685,23 @@ pub fn context_for_run_in(
     run_id: &str,
     max_bytes: usize,
 ) -> anyhow::Result<Value> {
+    context_for_run_with_usage_in(db, run_id, max_bytes, true)
+}
+/// Budget selection reads candidates first; only the chosen unchanged result
+/// is recorded as model usage in the same prompt-freezing transaction.
+pub fn context_candidate_for_run_in(
+    db: &Connection,
+    run_id: &str,
+    max_bytes: usize,
+) -> anyhow::Result<Value> {
+    context_for_run_with_usage_in(db, run_id, max_bytes, false)
+}
+fn context_for_run_with_usage_in(
+    db: &Connection,
+    run_id: &str,
+    max_bytes: usize,
+    record_usage: bool,
+) -> anyhow::Result<Value> {
     anyhow::ensure!(
         !db.is_autocommit(),
         "relationship context requires transaction"
@@ -1569,7 +1723,9 @@ pub fn context_for_run_in(
     if used > budget {
         return Ok(json!({"people":[],"status":"budget_exhausted"}));
     }
-    db.execute("INSERT OR IGNORE INTO relationship_context_uses(run_id,person_id,person_revision,assertion_id,assertion_revision) VALUES(?1,?2,?3,'',0)",params![run_id,p.id,p.revision])?;
+    if record_usage {
+        db.execute("INSERT OR IGNORE INTO relationship_context_uses(run_id,person_id,person_revision,assertion_id,assertion_revision) VALUES(?1,?2,?3,'',0)",params![run_id,p.id,p.revision])?;
+    }
     let roots = identity_groups::visible_roots(db, Access::Owner(&owner), &id)
         .map_err(|_| anyhow::anyhow!("Identity group unavailable"))?;
     let roots_json = serde_json::to_string(&roots)?;
@@ -1590,7 +1746,9 @@ pub fn context_for_run_in(
             [&a.person_id],
             |r| r.get(0),
         )?;
-        db.execute("INSERT OR IGNORE INTO relationship_context_uses(run_id,person_id,person_revision,assertion_id,assertion_revision) VALUES(?1,?2,?3,?4,?5)",params![run_id,a.person_id,revision,a.id,a.revision])?;
+        if record_usage {
+            db.execute("INSERT OR IGNORE INTO relationship_context_uses(run_id,person_id,person_revision,assertion_id,assertion_revision) VALUES(?1,?2,?3,?4,?5)",params![run_id,a.person_id,revision,a.id,a.revision])?;
+        }
         assertions.push(a);
     }
     // Edges are selected in SQL with field/source ACL before limiting or serializing.
@@ -1615,7 +1773,9 @@ pub fn context_for_run_in(
                 [person_id],
                 |r| r.get(0),
             )?;
-            db.execute("INSERT OR IGNORE INTO relationship_context_uses(run_id,person_id,person_revision,assertion_id,assertion_revision) VALUES(?1,?2,?3,'',0)",params![run_id,person_id,revision])?;
+            if record_usage {
+                db.execute("INSERT OR IGNORE INTO relationship_context_uses(run_id,person_id,person_revision,assertion_id,assertion_revision) VALUES(?1,?2,?3,'',0)",params![run_id,person_id,revision])?;
+            }
         }
     }
     Ok(

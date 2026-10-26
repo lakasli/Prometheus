@@ -1,16 +1,21 @@
 """Execute deployment stop/gate branches with synthetic paths and shell functions.
 
-These checks do not run either full deployment script. Every external command
-in the extracted branches is replaced, and an empty PATH rejects new unstubbed
-commands. No service, release pointer, database or network is accessed.
+These checks do not run either full deployment script. Service, pointer and
+network commands are replaced, and an empty PATH rejects unstubbed commands.
+The real-gate cases run the read-only checker against a disposable SQLite
+database. No actual service, release pointer or user database is accessed.
 """
+import json
 import os
 import pathlib
 import shlex
 import shutil
+import sqlite3
 import subprocess
+import sys
 import tempfile
 import unittest
+from contextlib import closing
 
 
 REPOSITORY = pathlib.Path(__file__).resolve().parents[2]
@@ -62,10 +67,11 @@ python3() {
   [[ $stopped == true ]] || { trace GATE_BEFORE_STOP; return 96; }
   if [[ "$1" == "$previous/source/deploy/check-compatibility.py" ]]; then
     trace GATE_CURRENT
-    return "$SIM_CURRENT_RC"
+    if [[ ${SIM_REAL_GATE:-0} == 1 ]]; then "$REAL_PYTHON" -s "$@"; else return "$SIM_CURRENT_RC"; fi
+  else
+    trace GATE_TARGET
+    if [[ ${SIM_REAL_GATE:-0} == 1 ]]; then "$REAL_PYTHON" -s "$@"; else return "$SIM_TARGET_RC"; fi
   fi
-  trace GATE_TARGET
-  return "$SIM_TARGET_RC"
 }
 ln() { trace LINK; }
 mv() { trace MOVE; }
@@ -108,7 +114,7 @@ class DeployStopGateTests(unittest.TestCase):
             gate.write_text("# Synthetic path marker; never executed.\n", encoding="utf-8")
 
     def run_branch(self, branch, code, events, *, active=1, target_rc=0,
-                   current_rc=0, start_fail=0, has_previous=True):
+                   current_rc=0, start_fail=0, has_previous=True, real_gate=False):
         assignments = {
             "root": self.root.as_posix(),
             "previous": self.previous.as_posix() if has_previous else "",
@@ -120,6 +126,8 @@ class DeployStopGateTests(unittest.TestCase):
             "SIM_TARGET_RC": str(target_rc),
             "SIM_CURRENT_RC": str(current_rc),
             "SIM_START_FAIL": str(start_fail),
+            "SIM_REAL_GATE": "1" if real_gate else "0",
+            "REAL_PYTHON": pathlib.Path(sys.executable).as_posix(),
         }
         script = STUBS + "\n".join(
             name + "=" + shlex.quote(value) for name, value in assignments.items()
@@ -135,6 +143,29 @@ class DeployStopGateTests(unittest.TestCase):
         ]
         self.assertEqual(result.returncode, code, result.stderr)
         self.assertEqual(actual, events, result.stderr)
+        return result
+
+    def real_gate_fixture(self, table, *, used=True, previous_capabilities=None,
+                          target_capabilities=None, unaware_target=False):
+        data = self.root / "shared/data"
+        data.mkdir(parents=True)
+        with closing(sqlite3.connect(data / "dsh.db")) as db:
+            with db:
+                db.execute(f"CREATE TABLE {table}(id TEXT,body TEXT)")
+                if used:
+                    db.execute(f"INSERT INTO {table} VALUES('retained-state',NULL)")
+        checker = (REPOSITORY / "deploy/check-compatibility.py").read_text(encoding="utf-8")
+        for release, capabilities in (
+            (self.previous, previous_capabilities or {}),
+            (self.release, target_capabilities or {}),
+        ):
+            (release / "source/deploy/check-compatibility.py").write_text(checker, encoding="utf-8")
+            (release / "source/deploy/release-capabilities.json").write_text(json.dumps(capabilities))
+        if unaware_target:
+            (self.release / "source/deploy/check-compatibility.py").write_text(
+                "# Older gate does not recognize the new durable feature.\n", encoding="utf-8",
+            )
+        return data / "dsh.db"
 
     def test_manual_rejection_stops_before_gate_and_restores_original_service(self):
         self.run_branch(self.manual, 2, ["STOP", "GATE_TARGET", "START"], target_rc=2)
@@ -180,6 +211,63 @@ class DeployStopGateTests(unittest.TestCase):
 
     def test_automatic_failure_without_previous_release_stays_stopped(self):
         self.run_branch(self.automatic, 1, ["STOP", "JOURNAL"], has_previous=False)
+
+    def test_real_manual_gate_preserves_source_tombstone_and_current_service(self):
+        database = self.real_gate_fixture("conversation_state_source_tombstones")
+        before = database.read_bytes()
+        result = self.run_branch(
+            self.manual, 2, ["STOP", "GATE_TARGET", "START"], real_gate=True,
+        )
+        self.assertIn("conversation_state", result.stderr)
+        self.assertEqual(database.read_bytes(), before)
+
+    def test_real_manual_gate_rejects_saved_policy_before_first_prompt(self):
+        database = self.real_gate_fixture("context_budget_policy_versions")
+        before = database.read_bytes()
+        result = self.run_branch(
+            self.manual, 2, ["STOP", "GATE_TARGET"], active=0, real_gate=True,
+        )
+        self.assertIn("context_budget", result.stderr)
+        self.assertEqual(database.read_bytes(), before)
+
+    def test_real_manual_gate_rejects_commitment_epoch_after_content_erasure(self):
+        self.real_gate_fixture("conversation_commitment_epochs")
+        result = self.run_branch(
+            self.manual, 2, ["STOP", "GATE_TARGET", "START"], real_gate=True,
+        )
+        self.assertIn("commitments", result.stderr)
+
+    def test_real_automatic_rollback_rejects_policy_and_stays_stopped(self):
+        self.real_gate_fixture("context_budget_policy_current")
+        result = self.run_branch(
+            self.automatic, 1, ["STOP", "JOURNAL", "GATE_TARGET"], real_gate=True,
+        )
+        self.assertIn("context_budget", result.stderr)
+
+    def test_real_current_gate_catches_new_state_unknown_to_old_target_gate(self):
+        self.real_gate_fixture("conversation_state_snapshots", unaware_target=True)
+        result = self.run_branch(
+            self.pre_switch, 2, ["STOP", "GATE_TARGET", "GATE_CURRENT", "START"],
+            real_gate=True,
+        )
+        self.assertIn("conversation_state", result.stderr)
+
+    def test_real_empty_phase2_table_allows_unused_rollback(self):
+        self.real_gate_fixture("conversation_state_entities", used=False)
+        self.run_branch(
+            self.manual, 0, ["STOP", "GATE_TARGET", "LINK", "MOVE", "RESTART", "HEALTH"],
+            real_gate=True,
+        )
+
+    def test_real_compatible_budget_reader_can_restore_previous_release(self):
+        self.real_gate_fixture(
+            "context_budget_policy_versions", previous_capabilities={"context_budget": 1},
+        )
+        self.run_branch(
+            self.automatic, 1,
+            ["STOP", "JOURNAL", "GATE_TARGET", "LINK", "MOVE", "RESTART", "HEALTH"],
+            real_gate=True,
+        )
 
 
 if __name__ == "__main__":

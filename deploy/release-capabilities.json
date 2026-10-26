@@ -27,5 +27,8 @@
   "schedule": 1,
   "conversation_identity": 2,
   "delivery_context": 1,
-  "turn_control": 1
+  "turn_control": 1,
+  "conversation_state": 1,
+  "commitments": 1,
+  "context_budget": 1
 }

@@ -699,6 +699,14 @@ pub fn forget(db: &mut Connection, actor: &str, id: &str, expected: i64) -> ApiR
 /// Called before changing/deleting source content, in the same transaction.
 pub fn invalidate_event_in(db: &Connection, id: &str) -> ApiResult<()> {
     let current = event(db, id, None)?;
+    crate::conversation_invalidation::invalidate_source_in(
+        db,
+        "diary_event",
+        id,
+        Some(current.revision),
+        now(),
+    )
+    .map_err(|_| ApiError::internal())?;
     db.execute(
         "UPDATE diary_meta SET deletion_epoch=deletion_epoch+1 WHERE id=1",
         [],
@@ -727,6 +735,24 @@ pub fn invalidate_event_in(db: &Connection, id: &str) -> ApiResult<()> {
     Ok(())
 }
 fn invalidate_entry_in(db: &Connection, id: &str) -> ApiResult<()> {
+    if let Some(revision) = db
+        .query_row(
+            "SELECT revision FROM diary_entries WHERE id=?1",
+            [id],
+            |r| r.get::<_, i64>(0),
+        )
+        .optional()
+        .api()?
+    {
+        crate::conversation_invalidation::invalidate_source_in(
+            db,
+            "diary_entry",
+            id,
+            Some(revision),
+            now(),
+        )
+        .map_err(|_| ApiError::internal())?;
+    }
     aggregation::clear(db, id)?;
     db.execute("UPDATE diary_entries SET facts='',feelings='',content='',status='invalidated',revision=revision+1,deletion_epoch=(SELECT deletion_epoch FROM diary_meta WHERE id=1),updated_at=?1 WHERE id=?2",params![now(),id]).api()?;
     db.execute(
@@ -743,15 +769,19 @@ fn invalidate_entry_in(db: &Connection, id: &str) -> ApiResult<()> {
 /// A conservative owner-domain invalidation also covers copied earlier answers.
 pub fn invalidate_contexts_in(db: &Connection, owner: Option<&str>) -> ApiResult<()> {
     let mut stmt = db
-        .prepare("SELECT id FROM conversations WHERE ?1 IS NULL OR owner_id=?1")
+        .prepare("SELECT id,owner_id FROM conversations WHERE ?1 IS NULL OR owner_id=?1")
         .api()?;
     let conversations = stmt
-        .query_map([owner], |r| r.get::<_, String>(0))
+        .query_map([owner], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
         .api()?
         .collect::<rusqlite::Result<Vec<_>>>()
         .api()?;
     drop(stmt);
-    for c in conversations {
+    for (c, source_owner) in conversations {
+        crate::conversation_invalidation::invalidate_conversation_in(db, &source_owner, &c, now())
+            .map_err(|_| ApiError::internal())?;
         let floor: i64 = db
             .query_row(
                 "SELECT coalesce(max(rowid),0) FROM runs WHERE conversation_id=?1",
@@ -895,14 +925,24 @@ pub fn save_policy(
         tx.execute("DELETE FROM diary_event_fts WHERE rowid IN (SELECT rowid FROM diary_events WHERE source_owner_id=?1)",[&input.source_owner_id]).api()?;
         let event_ids = {
             let mut st = tx
-                .prepare("SELECT id FROM diary_events WHERE source_owner_id=?1")
+                .prepare("SELECT id,revision FROM diary_events WHERE source_owner_id=?1")
                 .api()?;
             let rows = st
-                .query_map([&input.source_owner_id], |r| r.get::<_, String>(0))
+                .query_map([&input.source_owner_id], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+                })
                 .api()?;
             rows.collect::<rusqlite::Result<Vec<_>>>().api()?
         };
-        for id in event_ids {
+        for (id, revision) in event_ids {
+            crate::conversation_invalidation::invalidate_source_in(
+                &tx,
+                "diary_event",
+                &id,
+                Some(revision),
+                now(),
+            )
+            .map_err(|_| ApiError::internal())?;
             crate::relationships::invalidate_source_in(&tx, "diary_event", &id)
                 .map_err(|_| ApiError::internal())?;
         }
@@ -1272,9 +1312,22 @@ pub fn consolidate_in(
         ));
     }
     if kind != "day" {
-        return aggregation::consolidate(
-            db, visibility, owner, kind, start, end, timezone, timestamp,
-        );
+        let previous:Option<(String,i64)>=db.query_row("SELECT id,revision FROM diary_entries WHERE assistant_id=?1 AND visibility=?2 AND source_owner_id IS ?3 AND period=?4 AND period_start=?5 AND timezone=?6",params![memory::identity(db)?,visibility,owner,kind,start.to_string(),timezone],|r|Ok((r.get(0)?,r.get(1)?))).optional().api()?;
+        let result =
+            aggregation::consolidate(db, visibility, owner, kind, start, end, timezone, timestamp)?;
+        if let Some((id, revision)) = previous {
+            if result.revision != revision {
+                crate::conversation_invalidation::invalidate_source_in(
+                    db,
+                    "diary_entry",
+                    &id,
+                    Some(revision),
+                    now(),
+                )
+                .map_err(|_| ApiError::internal())?;
+            }
+        }
+        return Ok(result);
     }
     let assistant = memory::identity(db)?;
     let mut stmt=db.prepare(&format!("SELECT {EVENT_COLUMNS} FROM diary_events WHERE assistant_id=?1 AND visibility=?2 AND source_owner_id IS ?3 AND deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM diary_source_revocations v WHERE v.source_owner_id=diary_events.source_owner_id AND diary_events.rowid<=v.through_event_rowid) AND happened_at>=?4 AND happened_at<?5 ORDER BY happened_at,id LIMIT ?6")).api()?;
@@ -1335,7 +1388,19 @@ pub fn consolidate_in(
     {
         return entry(db, &id, None);
     }
-    let revision = old.map(|v| v.0 + 1).unwrap_or(1);
+    let revision = old.as_ref().map(|v| v.0 + 1).unwrap_or(1);
+    if let Some((previous, _, _)) = &old {
+        // This derived revision invalidates only actual transient consumers;
+        // it does not advance the legacy conversation history watermark.
+        crate::conversation_invalidation::invalidate_source_in(
+            db,
+            "diary_entry",
+            &id,
+            Some(*previous),
+            now(),
+        )
+        .map_err(|_| ApiError::internal())?;
+    }
     let facts = if events.is_empty() {
         if gap {
             "本时段无已记录互动；存在未观测时段，不能据此判断没有发生经历。".into()
@@ -1681,7 +1746,19 @@ pub fn commit_generation_in(
         return Err(ApiError::bad("invalid_generator", "生成器标识无效"));
     }
     if input.reduction.is_some() {
-        return aggregation::commit(db, input, output, model);
+        let previous = entry(db, &input.entry_id, None)?.revision;
+        let result = aggregation::commit(db, input, output, model)?;
+        if result.revision != previous {
+            crate::conversation_invalidation::invalidate_source_in(
+                db,
+                "diary_entry",
+                &input.entry_id,
+                Some(previous),
+                now(),
+            )
+            .map_err(|_| ApiError::internal())?;
+        }
+        return Ok(result);
     }
     let current = entry(db, &input.entry_id, None)?;
     let epoch: i64 = db
@@ -1715,6 +1792,14 @@ pub fn commit_generation_in(
         "{}\n\n主观感受（非他人事实）：\n{}",
         output.facts, output.feelings
     );
+    crate::conversation_invalidation::invalidate_source_in(
+        db,
+        "diary_entry",
+        &input.entry_id,
+        Some(current.revision),
+        now(),
+    )
+    .map_err(|_| ApiError::internal())?;
     db.execute("UPDATE diary_entries SET revision=revision+1,facts=?1,feelings=?2,content=?3,generator=?4,updated_at=?5 WHERE id=?6 AND revision=?7",params![output.facts,output.feelings,content,generator,now(),input.entry_id,input.entry_revision]).api()?;
     db.execute(
         "INSERT INTO diary_entry_versions VALUES(?1,?2,?3,?4,?5,'authorized_model',?6)",
