@@ -96,6 +96,13 @@ def main():
                 check('model URLs cannot become media actions', turn('[{"type":"image","text":"图片。","url":"http://127.0.0.1"}]')['status'] == 'failed')
                 fallback = turn('[{"type":"voice","text":"保留这句话。"}]')
                 check('disabled speech degrades to readable text', fallback['status'] == 'completed' and fallback['reply_plan']['items'][0]['type'] == 'text')
+                expanded_voice = turn('[{"type":"voice","text":"先保留这一句。再保留下一句。"}]')
+                expanded_items = expanded_voice.get('reply_plan', {}).get('items', [])
+                check('multiple voice sentences normalize before disabled speech preserves all text',
+                      expanded_voice['status'] == 'completed'
+                      and [item['text'] for item in expanded_items] == ['先保留这一句。', '再保留下一句。']
+                      and all(item['type'] == 'text' for item in expanded_items)
+                      and [item['delay_ms'] for item in expanded_items] == [0, 1500])
                 stage = 'media ownership and invalidation'
                 root = P + '/conversations/' + c + '/media'
                 h.request('GET', root, expected=401, authenticated=False)

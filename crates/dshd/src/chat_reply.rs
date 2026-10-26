@@ -137,7 +137,7 @@ pub fn parse(raw: &str, config: &ReplyConfig) -> Result<ReplyPlan, String> {
         .or_else(|| trimmed.strip_prefix("```\r\n"))
         .and_then(|s| s.strip_suffix("```"));
     let candidate = fenced.unwrap_or(trimmed).trim();
-    let (mut items, mut normalized) = if candidate.starts_with('[') {
+    let (proposed, mut normalized) = if candidate.starts_with('[') {
         (
             serde_json::from_str::<Vec<ReplyItem>>(candidate)
                 .map_err(|_| "模型回复未符合逐句JSON列表契约".to_owned())?,
@@ -172,10 +172,12 @@ pub fn parse(raw: &str, config: &ReplyConfig) -> Result<ReplyPlan, String> {
             true,
         )
     };
-    if items.is_empty() || items.len() > config.max_items.min(4) {
+    let limit = config.max_items.min(4);
+    if proposed.is_empty() || proposed.len() > limit {
         return Err("模型回复超过逐句消息数量限制，请缩短回答".into());
     }
-    for (index, item) in items.iter_mut().enumerate() {
+    let mut items = Vec::with_capacity(proposed.len());
+    for mut item in proposed {
         item.text = item.text.trim().to_owned();
         if !["text", "voice", "image", "video"].contains(&item.kind.as_str())
             || item.text.is_empty()
@@ -186,8 +188,41 @@ pub fn parse(raw: &str, config: &ReplyConfig) -> Result<ReplyPlan, String> {
         }
         let split = sentences(&item.text);
         if split.len() != 1 {
-            return Err("每个回复对象只允许一句话".into());
+            // Compatible providers sometimes put an entire spoken paragraph
+            // into one fresh voice proposal. Restore the per-sentence contract
+            // without broadening the schema or duplicating an existing asset.
+            // The original length bound still applies before any splitting.
+            if item.kind != "voice"
+                || item.asset_id.is_some()
+                || item.prompt.is_some()
+                || split.is_empty()
+            {
+                return Err("每个回复对象只允许一句话".into());
+            }
+            for (index, text) in split.into_iter().enumerate() {
+                items.push(ReplyItem {
+                    kind: "voice".into(),
+                    text,
+                    delay_ms: if index == 0 {
+                        item.delay_ms
+                    } else {
+                        config.min_interval_ms
+                    },
+                    asset_id: None,
+                    prompt: None,
+                });
+            }
+            normalized = true;
+        } else {
+            items.push(item);
         }
+        // Reject the whole response rather than dropping spoken content or
+        // consuming more passive replies than the configured channel budget.
+        if items.len() > limit {
+            return Err("模型回复超过逐句消息数量限制，请缩短回答".into());
+        }
+    }
+    for (index, item) in items.iter_mut().enumerate() {
         if let Some(id) = &item.asset_id {
             if uuid::Uuid::parse_str(id).is_err() {
                 return Err("媒体制品引用无效".into());
@@ -452,5 +487,106 @@ mod tests {
             .normalized
         );
         assert!(parse("```json\nnot JSON\n```", &c).is_err());
+    }
+    #[test]
+    fn fresh_voice_paragraphs_become_ordered_single_sentence_items_with_pacing() {
+        let c = ReplyConfig::default();
+        let p = parse(
+            r#"[{"type":"text","text":"先听我说。","delay_ms":99999},{"type":"voice","text":"第一句是3.14。第二句！","delay_ms":1},{"type":"text","text":"说完了。","delay_ms":99999}]"#,
+            &c,
+        )
+        .unwrap();
+        assert!(p.normalized);
+        assert_eq!(
+            p.items
+                .iter()
+                .map(|item| (item.kind.as_str(), item.text.as_str(), item.delay_ms))
+                .collect::<Vec<_>>(),
+            vec![
+                ("text", "先听我说。", 0),
+                ("voice", "第一句是3.14。", c.min_interval_ms),
+                ("voice", "第二句！", c.min_interval_ms),
+                ("text", "说完了。", c.max_interval_ms),
+            ]
+        );
+        assert_eq!(
+            p.readable(),
+            "先听我说。\n第一句是3.14。\n第二句！\n说完了。"
+        );
+        for item in p.items {
+            assert_eq!(sentences(&item.text).len(), 1);
+            assert!(item.asset_id.is_none() && item.prompt.is_none());
+        }
+        let single = parse(
+            r#"{"type":"voice","text":"“你好。”再见。","delay_ms":8000}"#,
+            &c,
+        )
+        .unwrap();
+        assert!(single.normalized);
+        assert_eq!(single.items.len(), 2);
+        assert_eq!(single.items[0].text, "“你好。”");
+        assert_eq!(single.items[0].delay_ms, 0);
+        assert_eq!(single.items[1].delay_ms, c.min_interval_ms);
+    }
+    #[test]
+    fn voice_expansion_enforces_the_whole_reply_budget_without_truncating() {
+        let c = ReplyConfig {
+            max_items: 2,
+            ..Default::default()
+        };
+        assert_eq!(
+            parse(r#"[{"type":"voice","text":"一句。两句。"}]"#, &c)
+                .unwrap()
+                .items
+                .len(),
+            2
+        );
+        for raw in [
+            r#"[{"type":"voice","text":"一句。两句。三句。"}]"#,
+            r#"[{"type":"text","text":"开头。"},{"type":"voice","text":"一句。两句。"}]"#,
+            r#"[{"type":"voice","text":"一句。两句。"},{"type":"text","text":"结尾。"}]"#,
+        ] {
+            assert_eq!(
+                parse(raw, &c).unwrap_err(),
+                "模型回复超过逐句消息数量限制，请缩短回答"
+            );
+        }
+        assert!(parse(
+            r#"[{"type":"voice","text":"一。二。三。四。五。"}]"#,
+            &ReplyConfig::default()
+        )
+        .is_err());
+        let oversized = json!([{"type":"voice","text":format!("{}。{}。", "字".repeat(500), "字".repeat(500))}]);
+        assert_eq!(
+            parse(&oversized.to_string(), &c).unwrap_err(),
+            "回复类型、单句长度或内容无效"
+        );
+    }
+    #[test]
+    fn voice_recovery_never_duplicates_assets_or_relaxes_other_presentations() {
+        let c = ReplyConfig::default();
+        let asset = "60fcd0a4-aa5c-4edc-a519-7d9bca09c197";
+        for item in [
+            json!({"type":"text","text":"一句。两句。"}),
+            json!({"type":"voice","text":"一句。两句。","asset_id":asset}),
+            json!({"type":"voice","text":"一句。两句。","prompt":"读给我听"}),
+            json!({"type":"image","text":"一句。两句。","asset_id":asset}),
+            json!({"type":"image","text":"一句。两句。","prompt":"一朵花"}),
+            json!({"type":"video","text":"一句。两句。","asset_id":asset}),
+            json!({"type":"voice","text":"一句。两句。","recipient":"other"}),
+            json!({"type":"voice","text":"一句。两句。","url":"https://example.invalid"}),
+            json!({"type":"shell","text":"一句。两句。"}),
+            json!({"type":"voice","text":"一句。\u{0}两句。"}),
+        ] {
+            assert!(parse(&json!([item]).to_string(), &c).is_err());
+        }
+        let existing = parse(
+            &json!([{"type":"voice","text":"原来的语音。","asset_id":asset}]).to_string(),
+            &c,
+        )
+        .unwrap();
+        assert_eq!(existing.items.len(), 1);
+        assert!(!existing.normalized);
+        assert_eq!(existing.items[0].asset_id.as_deref(), Some(asset));
     }
 }

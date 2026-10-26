@@ -1,0 +1,22 @@
+{
+  "kind": "multi-sentence voice reply signed synthetic QQ acceptance",
+  "status": "failed",
+  "started_at": "2026-10-26T07:59:45.040317+00:00",
+  "checks": [
+    "synthetic QQ account is enabled only behind a persistent outbound fence"
+  ],
+  "commit": "development",
+  "binary_sha256": "a797c5221625fcb2a52f5b8c47fa14f1ad9bfd2afdb06d47b424972a901ea02e",
+  "architecture": "AMD64",
+  "production_data_accessed": false,
+  "real_local_piper_tested": false,
+  "mock_model_http_tested": false,
+  "signed_webhook_tested": true,
+  "real_qq_tested": false,
+  "qq_outbound_http_tested": false,
+  "real_external_model_tested": false,
+  "outbound_safety": "synthetic account is durably fenced before enabling QQ and remains fenced on restart",
+  "failed_phase": "signed synthetic QQ request completes after a multi-sentence voice model reply",
+  "error_type": "AssertionError",
+  "finished_at": "2026-10-26T07:59:50.810678+00:00"
+}
