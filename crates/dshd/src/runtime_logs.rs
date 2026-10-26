@@ -87,6 +87,20 @@ pub fn initialize(db: &Connection) -> anyhow::Result<()> {
     )?;
     trigger(
         db,
+        "run_publication_events",
+        "run",
+        "(SELECT owner_id FROM runs WHERE id=NEW.run_id)",
+        "NEW.decision",
+        "NEW.run_id",
+        "(SELECT conversation_id FROM runs WHERE id=NEW.run_id)",
+        "'回复发布决策'",
+        "publication",
+        "NEW.run_id||':'||NEW.revision",
+        "json_object('revision',NEW.revision,'reason',NEW.reason,'successor_run_id',NEW.successor_run_id)",
+        false,
+    )?;
+    trigger(
+        db,
         "outbox",
         "delivery",
         "(SELECT owner_id FROM runs WHERE id=NEW.run_id)",

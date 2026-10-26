@@ -353,6 +353,10 @@ async fn chat(
         let value: Value = response.json().await?;
         match value["status"].as_str().unwrap_or("") {
             "completed" => {
+                if value["publication"]["state"] == "suppressed" {
+                    println!("该轮已由后续更正接续，未发布旧回复。");
+                    return Ok(());
+                }
                 println!("{}", value["response"].as_str().unwrap_or(""));
                 return Ok(());
             }

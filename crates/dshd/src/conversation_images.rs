@@ -168,7 +168,7 @@ pub fn enqueue(
         if !ready {return Ok(Err(ApiError::new(StatusCode::SERVICE_UNAVAILABLE,"conversation_images_unavailable","请先配置可用的DeepSeek官方模型凭据以进行图片理解")));}
         let pending:i64=tx.query_row("SELECT count(*) FROM conversation_images WHERE image IS NOT NULL",[],|r|r.get(0))?;
         if pending>=20 {return Ok(Err(ApiError::new(StatusCode::CONFLICT,"conversation_image_queue_full","暂存图片已达本地20张上限，请等待当前图片处理后重试")));}
-        let Some(run)=worker::enqueue_in(&tx,conversation,owner,client,content,None)? else{return Ok(Err(ApiError::new(StatusCode::CONFLICT,"queue_or_idempotency_conflict","会话队列已满")));};
+        let Some(run)=worker::enqueue_non_text_in(&tx,conversation,owner,client,content)? else{return Ok(Err(ApiError::new(StatusCode::CONFLICT,"queue_or_idempotency_conflict","会话队列已满")));};
         let test:bool=tx.query_row("SELECT coalesce(json_extract(character_snapshot_json,'$.is_test'),0) FROM runs WHERE id=?1",[&run],|r|r.get(0))?;
         if test {return Ok(Err(ApiError::forbidden("角色草稿测试暂不支持图片")));}
         let source:String=tx.query_row("SELECT id FROM messages WHERE run_id=?1 AND role='user'",[&run],|r|r.get(0))?;

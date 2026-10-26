@@ -728,6 +728,23 @@ pub fn claim_send(db: &mut Connection) -> Result<Option<PendingSend>> {
     }
     let item=tx.query_row("SELECT o.id,o.run_id,o.account_id,o.peer,a.base_url,o.credential_ref,o.generation,o.context_ref,o.client_id,o.content,o.deadline FROM weixin_outbox o JOIN weixin_account a ON a.account_id=o.account_id AND a.generation=o.generation WHERE o.status='queued' AND a.enabled=1 ORDER BY o.created_at,o.rowid LIMIT 1",[],|r|Ok(PendingSend{id:r.get(0)?,run_id:r.get(1)?,account_id:r.get(2)?,peer:r.get(3)?,base_url:r.get(4)?,credential_ref:r.get(5)?,generation:r.get(6)?,context_ref:r.get(7)?,client_id:r.get(8)?,attempt_id:uuid::Uuid::new_v4().to_string(),content:r.get(9)?,deadline:r.get(10)?})).optional().safe()?;
     if let Some(item) = &item {
+        let Some(revision) = crate::turn_control::active_revision_in(&tx, &item.run_id)
+            .map_err(|_| StoreError::Storage)?
+        else {
+            crate::turn_control::suppress_queued_in(
+                &tx,
+                &item.run_id,
+                crate::reply_delivery::now_ms(),
+            )
+            .map_err(|_| StoreError::Storage)?;
+            tx.commit().safe()?;
+            return Ok(None);
+        };
+        if !crate::turn_control::claim_allowed_in(&tx, &item.run_id, revision)
+            .map_err(|_| StoreError::Storage)?
+        {
+            return Err(StoreError::StaleGeneration);
+        }
         tx.execute("UPDATE weixin_outbox SET status='sending',attempt_id=?1,updated_at=?2 WHERE id=?3 AND status='queued'",params![item.attempt_id,now(),item.id]).safe()?;
     }
     tx.commit().safe()?;

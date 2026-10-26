@@ -937,14 +937,188 @@ pub fn save_policy(
     )
 }
 
-/// Capture only authorized completed real conversations; imports, controls,
-/// draft tests, automatic tasks and outgoing messages never become interactions.
+/// Install after delivery_context::ensure_schema, before serving requests. The
+/// one-time legacy pass completes in bounded transactions before readiness, so
+/// an old generated candidate cannot remain a usable diary fact during upgrade.
+pub fn initialize_delivery_capture(db: &Connection) -> anyhow::Result<()> {
+    db.execute_batch("CREATE TABLE IF NOT EXISTS diary_capture_delivery_state(
+      run_id TEXT PRIMARY KEY,event_id TEXT NOT NULL UNIQUE,event_revision INTEGER NOT NULL,
+      delivery_revision INTEGER NOT NULL,projection_digest TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS diary_capture_dirty(run_id TEXT PRIMARY KEY,revision INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS diary_capture_migrations(key TEXT PRIMARY KEY,value INTEGER NOT NULL);")?;
+    for action in ["INSERT", "UPDATE"] {
+        db.execute_batch(&format!("CREATE TRIGGER IF NOT EXISTS diary_delivery_dirty_{} AFTER {action} ON delivery_context_revisions
+          WHEN EXISTS(SELECT 1 FROM diary_events e WHERE e.origin_type='conversation_run' AND e.origin_id=new.run_id)
+          BEGIN INSERT INTO diary_capture_dirty VALUES(new.run_id,new.revision)
+          ON CONFLICT(run_id) DO UPDATE SET revision=max(revision,excluded.revision);END;",action.to_ascii_lowercase()))?;
+    }
+    let done: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM diary_capture_migrations WHERE key='receipt_projection_v1' AND value=1)",[],|r|r.get(0))?;
+    if done {
+        return Ok(());
+    }
+    anyhow::ensure!(
+        db.is_autocommit(),
+        "diary delivery migration must precede serving requests"
+    );
+    let mut after = 0i64;
+    loop {
+        let tx = db.unchecked_transaction()?;
+        let rows = {
+            let mut statement=tx.prepare("SELECT rowid,id,origin_id FROM diary_events e WHERE origin_type='conversation_run' AND rowid>?1 AND NOT EXISTS(SELECT 1 FROM diary_capture_delivery_state s WHERE s.event_id=e.id) ORDER BY rowid LIMIT 64")?;
+            let rows = statement
+                .query_map([after], |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                    ))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        if rows.is_empty() {
+            tx.execute(
+                "INSERT OR REPLACE INTO diary_capture_migrations VALUES('receipt_projection_v1',1)",
+                [],
+            )?;
+            tx.commit()?;
+            break;
+        }
+        for (rowid, event_id, run) in rows {
+            let manually_corrected:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM diary_event_versions WHERE event_id=?1 AND change_kind='corrected')",[&event_id],|r|r.get(0))?;
+            if manually_corrected {
+                // Human-authored corrections are already explicit evidence;
+                // receipt updates cannot replace them with an automatic recap.
+                tx.execute("INSERT OR IGNORE INTO diary_capture_delivery_state SELECT ?1,id,revision,-1,'manual_override' FROM diary_events WHERE id=?2",params![run,event_id])?;
+                after = rowid;
+                continue;
+            }
+            if !capture_completed_in(&tx, &run)
+                .map_err(|_| anyhow::anyhow!("legacy diary delivery projection failed"))?
+            {
+                // Tombstones and revoked events stay inaccessible. An active
+                // legacy record lacking an eligible source loses its derived
+                // candidate text; original messages are retained separately.
+                if let Ok(current) = event(&tx, &event_id, None) {
+                    if !tx.query_row("SELECT EXISTS(SELECT 1 FROM diary_capture_delivery_state WHERE event_id=?1)",[&event_id],|r|r.get::<_,bool>(0))? {
+                        invalidate_event_in(&tx,&event_id).map_err(|_|anyhow::anyhow!("legacy diary invalidation failed"))?;
+                        tx.execute("UPDATE diary_events SET content='旧自动采集记录缺少有效投递或来源证明；原始用户消息单独保留。',revision=revision+1 WHERE id=?1",[&event_id])?;
+                        tx.execute("UPDATE diary_event_versions SET content=NULL WHERE event_id=?1",[&event_id])?;
+                        tx.execute("INSERT OR IGNORE INTO diary_capture_skips VALUES(?1,'legacy_capture_source_unavailable')",[&run])?;
+                        tx.execute("INSERT OR IGNORE INTO diary_capture_delivery_state VALUES(?1,?2,?3,-1,'unavailable')",params![run,event_id,current.revision+1])?;
+                    }
+                }
+            }
+            after = rowid;
+        }
+        tx.commit()?;
+    }
+    Ok(())
+}
+
+fn capture_content(projection: &crate::delivery_context::RunProjection) -> String {
+    let delivery = &projection.delivery;
+    let evidence = if delivery.local_completion {
+        "Web/CLI结果已在本地可用，未确认有人阅读。".to_string()
+    } else if delivery.parts.is_empty() {
+        "尚无渠道投递证明；不据此断言已发送或从未尝试发送。".to_string()
+    } else {
+        let statuses = delivery
+            .parts
+            .iter()
+            .map(|part| {
+                format!(
+                    "{}:{}:outbox={}:{}",
+                    part.kind,
+                    part.status,
+                    part.outbox_status,
+                    if part.platform_accepted {
+                        "平台已接受"
+                    } else {
+                        "未获接受证明"
+                    }
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("；");
+        format!(
+            "{statuses}。结果未知不能当作未发出；平台接受不证明已读、已播放或媒体内容已被理解。"
+        )
+    };
+    format!(
+        "对方：{}\n我的已证实文本：{}\n投递说明：{}",
+        clip(&projection.user_content, 4000),
+        projection
+            .assistant_content
+            .as_deref()
+            .map(|s| clip(s, 4000))
+            .unwrap_or_else(|| "无可引用的已证实文本；媒体或未知结果另见投递证据。".into()),
+        evidence
+    )
+}
+
+fn invalidate_capture_event_in(db: &Connection, id: &str, legacy: bool) -> ApiResult<()> {
+    let derived:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM diary_entry_sources WHERE event_id=?1) OR EXISTS(SELECT 1 FROM relationship_assertions WHERE source_type='diary_event' AND source_id=?1 AND deleted_at IS NULL) OR EXISTS(SELECT 1 FROM relationship_edges WHERE source_type='diary_event' AND source_id=?1 AND deleted_at IS NULL) OR EXISTS(SELECT 1 FROM relationship_affinity_events WHERE source_type='diary_event' AND source_id=?1 AND deleted_at IS NULL)",[id],|r|r.get(0)).api()?;
+    if legacy || derived {
+        invalidate_event_in(db, id)
+    } else {
+        crate::relationships::invalidate_source_in(db, "diary_event", id)
+            .map_err(|_| ApiError::internal())
+    }
+}
+
+/// Capture authorized completed conversations using actual delivery evidence.
+/// Receipt changes may revise an existing automatic event, never a tombstone,
+/// revoked source, or a later human correction.
 pub fn capture_completed_in(db: &Connection, run_id: &str) -> ApiResult<bool> {
-    let row:Option<(String,String,String,String,i64,Option<String>)>=db.query_row("SELECT r.owner_id,r.conversation_id,r.input,coalesce(r.response,''),r.created_at,(SELECT id FROM messages WHERE run_id=r.id AND role='user') FROM runs r JOIN diary_source_policies p ON p.source_owner_id=r.owner_id WHERE r.id=?1 AND r.status='completed' AND r.run_kind IN ('model','skill_text') AND p.enabled=1 AND r.created_at>=p.authorized_at AND coalesce(CASE WHEN json_valid(r.character_snapshot_json) THEN json_extract(r.character_snapshot_json,'$.is_test') ELSE 0 END,0)=0 AND NOT EXISTS(SELECT 1 FROM conversation_character_bindings b WHERE b.conversation_id=r.conversation_id AND b.draft_card_json IS NOT NULL)",[run_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))).optional().api()?;
-    let Some((owner, conversation, input, response, happened, message)) = row else {
+    if db.is_autocommit() {
+        let tx = db.unchecked_transaction().api()?;
+        let result = capture_completed_in(&tx, run_id)?;
+        tx.commit().api()?;
+        return Ok(result);
+    }
+    let row:Option<(String,String,i64,Option<String>)>=db.query_row("SELECT r.owner_id,r.conversation_id,r.created_at,(SELECT id FROM messages WHERE run_id=r.id AND role='user') FROM runs r JOIN diary_source_policies p ON p.source_owner_id=r.owner_id WHERE r.id=?1 AND r.status='completed' AND r.run_kind IN ('model','skill_text') AND p.enabled=1 AND r.created_at>=p.authorized_at AND NOT EXISTS(SELECT 1 FROM diary_source_revocations v WHERE v.source_owner_id=r.owner_id AND r.created_at<=v.revoked_at) AND coalesce(CASE WHEN json_valid(r.character_snapshot_json) THEN json_extract(r.character_snapshot_json,'$.is_test') ELSE 0 END,0)=0 AND NOT EXISTS(SELECT 1 FROM conversation_character_bindings b WHERE b.conversation_id=r.conversation_id AND b.draft_card_json IS NOT NULL)",[run_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional().api()?;
+    let Some((owner, conversation, happened, message)) = row else {
         return Ok(false);
     };
-    if input.trim_start().starts_with('/') || sensitive(&input) || sensitive(&response) {
+    let existing:Option<(String,i64,Option<i64>,String)>=db.query_row("SELECT id,revision,deleted_at,coalesce(content,'') FROM diary_events WHERE origin_type='conversation_run' AND origin_id=?1",[run_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional().api()?;
+    if let Some((id, _, deleted, _)) = &existing {
+        if deleted.is_some() || event(db, id, Some(&owner)).is_err() {
+            return Ok(false);
+        }
+    }
+    let state:Option<(i64,i64,String)>=db.query_row("SELECT event_revision,delivery_revision,projection_digest FROM diary_capture_delivery_state WHERE run_id=?1",[run_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().api()?;
+    if state
+        .as_ref()
+        .is_some_and(|(_, _, digest)| digest == "manual_override")
+    {
+        return Ok(false);
+    }
+    if let (Some((_, revision, _, _)), Some((expected, _, _))) = (&existing, &state) {
+        if revision != expected {
+            return Ok(false);
+        } // A human correction wins.
+    }
+    let mut projection =
+        crate::delivery_context::project_capture_run_in(db, &owner, &conversation, run_id)
+            .map_err(|_| ApiError::internal())?;
+    let unsettled = projection.delivery.parts.iter().any(|part| {
+        part.status == "sending"
+            || (part.status == "queued"
+                && matches!(part.outbox_status.as_str(), "queued" | "sending"))
+    });
+    // New captures wait for bounded sending to settle. A legacy raw record is
+    // sanitized immediately during migration, including currently pending parts.
+    if unsettled && (existing.is_none() || state.is_some()) {
+        return Ok(false);
+    }
+    if projection.user_content.trim_start().starts_with('/')
+        || sensitive(&projection.user_content)
+        || projection
+            .assistant_content
+            .as_deref()
+            .is_some_and(sensitive)
+    {
         db.execute(
             "INSERT OR IGNORE INTO diary_capture_skips VALUES(?1,'control_or_sensitive')",
             [run_id],
@@ -952,19 +1126,87 @@ pub fn capture_completed_in(db: &Connection, run_id: &str) -> ApiResult<bool> {
         .api()?;
         return Ok(false);
     }
-    let exists:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM diary_events WHERE origin_type='conversation_run' AND origin_id=?1)",[run_id],|r|r.get(0)).api()?;
-    if exists {
+    if state.as_ref().is_some_and(|(_, revision, digest)| {
+        *revision == projection.delivery.delivery_revision
+            && digest == &projection.delivery.projection_digest
+    }) {
         return Ok(false);
     }
-    let id = uuid::Uuid::new_v4().to_string();
-    let content = format!(
-        "对方：{}\n我的回复：{}",
-        clip(&input, 4000),
-        clip(&response, 4000)
+    let mut content = capture_content(&projection);
+    let (id, revision, changed) = if let Some((id, revision, _, old)) = existing {
+        if old == content {
+            (id, revision, false)
+        } else {
+            invalidate_capture_event_in(db, &id, state.is_none())?;
+            // Invalidation may cancel not-yet-claimed output. Freeze evidence
+            // after that change, rather than storing a pre-cancellation claim.
+            projection =
+                crate::delivery_context::project_capture_run_in(db, &owner, &conversation, run_id)
+                    .map_err(|_| ApiError::internal())?;
+            content = capture_content(&projection);
+            db.execute(
+                "UPDATE diary_events SET content=?1,revision=revision+1,observed_at=?2 WHERE id=?3",
+                params![content, now(), id],
+            )
+            .api()?;
+            db.execute(
+                "UPDATE diary_event_versions SET content=NULL WHERE event_id=?1",
+                [&id],
+            )
+            .api()?;
+            (id, revision + 1, true)
+        }
+    } else {
+        let id = uuid::Uuid::new_v4().to_string();
+        db.execute("INSERT INTO diary_events(id,assistant_id,revision,visibility,source_owner_id,source_conversation_id,source_message_id,origin_type,origin_id,happened_at,observed_at,content,assertion_kind) VALUES(?1,?2,1,'private',?3,?4,?5,'conversation_run',?6,?7,?8,?9,'direct_experience')",params![id,memory::identity(db)?,owner,conversation,message,run_id,happened,now(),content]).api()?;
+        (id, 1, true)
+    };
+    if changed {
+        db.execute("INSERT INTO diary_event_versions VALUES(?1,?2,?3,'system:delivery_capture','delivery_projection',?4)",params![id,revision,content,now()]).api()?;
+        dirty_periods_in(db, "private", Some(&owner), happened)?;
+    }
+    let target = format!(
+        "{id}:r{revision}:d{}:{}",
+        projection.delivery.delivery_revision, projection.delivery.projection_digest
     );
-    db.execute("INSERT OR IGNORE INTO diary_events(id,assistant_id,revision,visibility,source_owner_id,source_conversation_id,source_message_id,origin_type,origin_id,happened_at,observed_at,content,assertion_kind) VALUES(?1,?2,1,'private',?3,?4,?5,'conversation_run',?6,?7,?8,?9,'direct_experience')",params![id,memory::identity(db)?,owner,conversation,message,run_id,happened,now(),content]).api()?;
-    dirty_periods_in(db, "private", Some(&owner), happened)?;
-    Ok(true)
+    crate::delivery_context::snapshot_sources_in(
+        db,
+        "diary_capture",
+        &target,
+        &owner,
+        &conversation,
+        std::slice::from_ref(&projection),
+        now().saturating_mul(1000),
+    )
+    .map_err(|_| ApiError::internal())?;
+    db.execute("INSERT INTO diary_capture_delivery_state VALUES(?1,?2,?3,?4,?5) ON CONFLICT(run_id) DO UPDATE SET event_revision=excluded.event_revision,delivery_revision=excluded.delivery_revision,projection_digest=excluded.projection_digest",params![run_id,id,revision,projection.delivery.delivery_revision,projection.delivery.projection_digest]).api()?;
+    Ok(changed)
+}
+
+fn refresh_delivery_captures_in(db: &Connection) -> ApiResult<usize> {
+    let rows = {
+        let mut statement = db
+            .prepare("SELECT run_id,revision FROM diary_capture_dirty ORDER BY rowid LIMIT 32")
+            .api()?;
+        let rows = statement
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            .api()?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .api()?;
+        rows
+    };
+    let mut changed = 0;
+    for (run, revision) in rows {
+        if capture_completed_in(db, &run)? {
+            changed += 1;
+        }
+        db.execute(
+            "DELETE FROM diary_capture_dirty WHERE run_id=?1 AND revision<=?2",
+            params![run, revision],
+        )
+        .api()?;
+    }
+    Ok(changed)
 }
 fn clip(s: &str, max: usize) -> String {
     let mut end = s.len().min(max);
@@ -1197,7 +1439,7 @@ pub fn tick_in(db: &Connection, timestamp: i64) -> ApiResult<Value> {
         let rows = stmt.query_map([], |r| r.get::<_, String>(0)).api()?;
         rows.collect::<rusqlite::Result<Vec<_>>>().api()?
     };
-    let mut captured = 0;
+    let mut captured = refresh_delivery_captures_in(db)?;
     for run in runs {
         if capture_completed_in(db, &run)? {
             captured += 1;
@@ -1606,3 +1848,7 @@ pub fn status(db: &Connection) -> ApiResult<Value> {
 #[cfg(test)]
 #[path = "diary_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "diary_delivery_tests.rs"]
+mod delivery_tests;

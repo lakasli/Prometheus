@@ -133,11 +133,31 @@ def summary_state(harness, conversation):
     return harness.request('GET', PREFIX + '/conversations/' + conversation + '/summary')
 
 
+class ModelTurnFailure(AssertionError):
+    def __init__(self, metadata):
+        super().__init__('isolated synthetic model turn failed')
+        self.metadata = metadata
+
+
 def turn(harness, conversation, question):
     run = harness.submit(conversation, question)
-    result = harness.wait_run(run)
+    try:
+        result = harness.wait_run(run)
+    except Exception as error:
+        with harness.db() as db:
+            row = db.execute('SELECT status,error FROM runs WHERE id=?', (run,)).fetchone()
+        raise ModelTurnFailure({
+            'phase': 'ordinary_model_turn', 'question_kind': question.split(' ', 1)[0],
+            'run_id': run, 'run_status': row['status'] if row else 'missing',
+            'host_error': (row['error'] or '')[:180] if row else None,
+            'wait_error_type': type(error).__name__,
+        }) from error
     if result['status'] != 'completed':
-        raise AssertionError('isolated summary model turn did not complete')
+        raise ModelTurnFailure({
+            'phase': 'ordinary_model_turn', 'question_kind': question.split(' ', 1)[0],
+            'run_id': run, 'run_status': result['status'],
+            'host_error': (result.get('error') or '')[:180],
+        })
     return run, result, harness.mock.for_question(question)
 
 
@@ -163,6 +183,27 @@ def seed_sources(harness, conversation, owner, count, prefix):
                            (str(uuid.uuid4()), conversation, run, role, content, timestamp))
             ids.append(run)
     return ids
+
+
+def seed_historical_oversized_source(harness, conversation, question):
+    """Import a synthetic legacy transcript; do not weaken new-reply limits."""
+    run = str(uuid.uuid4())
+    response = '起点' + '鲸' * 12000 + '终点'
+    timestamp = int(time.time())
+    with harness.db() as db:
+        db.execute('INSERT INTO runs(id,conversation_id,owner_id,client_message_id,input,config_json,'
+                   'status,response,created_at,updated_at,run_kind) '
+                   'VALUES(?,?,?,?,?,?,\'completed\',?,?,?,\'model\')',
+                   (run, conversation, harness.owner, 'historical-oversized-fixture:' + run,
+                    question, json.dumps(harness.applied),
+                    response, timestamp, timestamp))
+        for role, content in [('user', question), ('assistant', response)]:
+            db.execute('INSERT INTO messages(id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,?,?)',
+                       (str(uuid.uuid4()), conversation, run, role, content, timestamp))
+        rowid = db.execute('SELECT rowid FROM runs WHERE id=?', (run,)).fetchone()[0]
+    return {'kind': 'synthetic historical oversized transcript imported into temporary database',
+            'run_id': run, 'run_rowid': rowid, 'response_bytes': len(response.encode()),
+            'response_characters': len(response), 'fresh_model_generation': False}
 
 
 def main():
@@ -225,7 +266,11 @@ def main():
                     elif index == 3:
                         question = 'OVERSIZED ' + suffix
                     questions.append(question)
-                    turn(harness, chat, question)
+                    if index == 3:
+                        report['historical_oversized_source_fixture'] = seed_historical_oversized_source(
+                            harness, chat, question)
+                    else:
+                        turn(harness, chat, question)
                 recalled_run, recalled, payload = turn(harness, chat, 'RECALL long-window ' + suffix)
                 state, _, tag = summary_state(harness, chat)
                 summary = state['summary']
@@ -253,9 +298,17 @@ def main():
                       summary['redacted_source_count'] >= 1 and all(secret_fixture not in json.dumps(batch) for batch in batches))
                 check('ordinary token-budget discussion remains available to compaction',
                       any('token budget = 4096' in json.dumps(batch) for batch in batches))
+                historical = report['historical_oversized_source_fixture']
+                historical_turns = [item for batch in batches for item in batch['new_source_turns']
+                                    if item['run_id'] == historical['run_id']]
                 check('oversized source turns advance via explicitly marked bounded head-tail excerpts',
-                      summary['truncated_source_count'] >= 1 and any(turn.get('truncated') and turn.get('omitted_bytes', 0) > 0
-                          for batch in batches for turn in batch['new_source_turns']))
+                      historical['response_bytes'] > 24000 and summary['truncated_source_count'] >= 1
+                      and len(historical_turns) == 1 and historical_turns[0].get('truncated')
+                      and historical_turns[0].get('omitted_bytes', 0) > 0
+                      and '起点' in historical_turns[0].get('assistant', '')
+                      and '终点' in historical_turns[0].get('assistant', '')
+                      and len(historical_turns[0]['assistant'].encode()) <= 1600
+                      and through >= historical['run_rowid'])
                 version_before = summary['revision']
                 harness.stop(); harness.start(); harness.login()
                 _, restored, restored_payload = turn(harness, chat, 'RECALL persisted-summary ' + suffix)
@@ -368,6 +421,9 @@ def main():
     except Exception as error:
         failed = True
         report.update(status='failed', failure_after_check=stage, error_type=type(error).__name__)
+        if isinstance(error, ModelTurnFailure):
+            report['failure_phase'] = error.metadata['phase']
+            report['failed_synthetic_turn'] = error.metadata
         print('FAIL isolated summary acceptance; inspect check metadata', flush=True)
     finally:
         mock.hold_release.set()

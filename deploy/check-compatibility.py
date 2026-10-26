@@ -38,6 +38,15 @@ def check(data_dir, release_source):
         if "relationship_affinity_policies" in tables and int(capabilities.get("relationships", 0)) < 1:
             if db.execute("SELECT EXISTS(SELECT 1 FROM relationship_affinity_policies WHERE revision>1)").fetchone()[0]:
                 raise RuntimeError("Target release lacks relationships versioned affinity policy semantics")
+        for feature, required, feature_tables in (
+            ("conversation_identity", 2, ("run_conversation_bindings", "conversation_message_identities", "run_conversation_contexts")),
+            ("delivery_context", 1, ("delivery_context_snapshots", "conversation_summary_delivery_sources", "conversation_summary_delivery_versions", "diary_capture_delivery_state", "diary_capture_dirty")),
+            ("turn_control", 1, ("conversation_inputs", "run_publication_decisions", "conversation_corrections")),
+        ):
+            used = any(table in tables and db.execute(f"SELECT EXISTS(SELECT 1 FROM {table})").fetchone()[0]
+                       for table in feature_tables)
+            if used and int(capabilities.get(feature, 0)) < required:
+                raise RuntimeError(f"Target release lacks {feature} binding, publication or delivery history semantics")
         for table, capability in (("run_reply_plans", "structured_replies"), ("outbox_reply_parts", "structured_replies"), ("speech_assets", "local_piper_speech"), ("conversation_media_assets", "conversation_media")):
             if table in tables and db.execute(f"SELECT EXISTS(SELECT 1 FROM {table})").fetchone()[0] and int(capabilities.get(capability, 0)) < 1:
                 raise RuntimeError(f"Target release lacks {capability} authorization or delivery semantics")

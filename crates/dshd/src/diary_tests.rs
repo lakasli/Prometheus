@@ -9,6 +9,8 @@ fn database() -> Connection {
     crate::conversation_summary::initialize(&db).unwrap();
     crate::relationships::initialize(&db).unwrap();
     initialize(&mut db).unwrap();
+    crate::delivery_context::ensure_schema(&db).unwrap();
+    initialize_delivery_capture(&db).unwrap();
     db
 }
 fn timestamp(day: &str) -> i64 {

@@ -409,8 +409,10 @@ pub fn ingest_prepared(
         let snapshot_json=snapshot.as_ref().map(serde_json::to_string).transpose()?;
         let tail_snapshot:Option<String>=tx.query_row("SELECT character_snapshot_json FROM runs WHERE conversation_id=?1 ORDER BY rowid DESC LIMIT 1",[&id],|r|r.get(0)).optional()?.flatten();
         let eligible=text_batch::is_eligible(kind,&content,has_media,run_kind);
-        if eligible && tail_snapshot == snapshot_json {
+        if eligible && !crate::turn_control::is_explicit_correction(&content) && tail_snapshot == snapshot_json {
             if let Some(batch_run)=text_batch::try_append_in(&tx,&id,&owner,&content,&reply,received_at,received_ms,observed_ms,&config_json,snapshot.as_ref().map(|s|s.projection_digest.as_str()))? {
+                crate::conversation_identity::record_qq_message_in(&tx,&batch_run,event_type,data)?;
+                crate::turn_control::register_input_in(&tx,&batch_run,message_id,&content,&owner,true,received_ms)?;
                 tx.execute("INSERT INTO inbox(event_key,account_id,event_type,received_at,run_id) VALUES(?1,?2,?3,?4,?5)",params![event_key,account,event_type,received_at,batch_run])?;
                 if let Some(fence)=fence{incoming_media::finish_in(&tx,fence,"completed",media_code)?;}
                 tx.commit()?;return Ok(());
@@ -423,6 +425,10 @@ pub fn ingest_prepared(
         if pending>=500 || per_conversation>=10 {capacity_wait=true;anyhow::bail!("queue full");}
         tx.execute("INSERT INTO runs(id,conversation_id,owner_id,client_message_id,input,config_json,reply_json,status,response,created_at,updated_at,character_snapshot_json,character_digest,compiler_version,run_kind) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10,?11,?12,?13,?14)",params![run,id,owner,message_id,content,serde_json::to_string(&active_config)?,serde_json::to_string(&reply)?,status,command_response,now(),snapshot.as_ref().map(serde_json::to_string).transpose()?,snapshot.as_ref().map(|s|&s.projection_digest),snapshot.as_ref().map(|s|&s.compiler_version),run_kind])?;
         tx.execute("INSERT INTO messages(id,conversation_id,run_id,role,content,created_at) VALUES(?1,?2,?3,'user',?4,?5)",params![uuid::Uuid::new_v4().to_string(),id,run,content,received_at])?;
+        crate::conversation_identity::freeze_run_in(&tx,&run)?;
+        crate::conversation_identity::record_qq_message_in(&tx,&run,event_type,data)?;
+        crate::turn_control::register_input_in(&tx,&run,message_id,&content,
+            if kind=="c2c" {&owner} else {""},!has_media && run_kind=="model",received_ms)?;
         if eligible {text_batch::register_in(&tx,&run,&id,&owner,&content,&reply,received_at,received_ms,observed_ms,&config_json,snapshot.as_ref().map(|s|s.projection_digest.as_str()))?;}
         match prepared {
         incoming_media::Prepared::Image(image)=>{
@@ -848,7 +854,7 @@ pub async fn run_outbox(state: AppState, cancel: CancellationToken) {
         }
         let next=state.db(|db|{
             let tx=db.transaction()?;
-            let item=tx.query_row("SELECT id,target_json,content FROM outbox WHERE status='queued' ORDER BY created_at LIMIT 1",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?))).optional()?;
+            let item=tx.query_row("SELECT id,target_json,content FROM outbox o WHERE status='queued' AND NOT EXISTS(SELECT 1 FROM run_publication_decisions p WHERE p.run_id=o.run_id AND p.decision='suppressed') ORDER BY created_at LIMIT 1",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?))).optional()?;
             if let Some((id,_,_))=&item{tx.execute("UPDATE outbox SET status='sending' WHERE id=?1 AND status='queued'",[id])?;}
             tx.commit()?;Ok(item)
         });

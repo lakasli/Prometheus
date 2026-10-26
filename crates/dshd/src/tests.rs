@@ -24,6 +24,9 @@ use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:18419";
 
+#[path = "api_publication_tests.rs"]
+mod publication_tests;
+
 #[tokio::test]
 async fn credential_deletion_preserves_frozen_channel_replies_and_disabled_weixin_account() {
     let temporary = TempDir::new().unwrap();

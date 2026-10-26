@@ -24,5 +24,8 @@
   "task_triggers": 1,
   "diary": 2,
   "relationships": 1,
-  "schedule": 1
+  "schedule": 1,
+  "conversation_identity": 2,
+  "delivery_context": 1,
+  "turn_control": 1
 }

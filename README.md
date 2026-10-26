@@ -19,6 +19,7 @@ M0/M1原始部署与真实Harness / QQ联调已通过，历史证据见 [M0/M1�
 - 普通对话的逐句 JSON 回复计划、1–4条上限、账号与会话持久发送间隔；图片 / 视频私有制品和按需本地 Piper 中文 TTS，富媒体优先适配 QQ C2C。契约见 [逐句与媒体](docs/structured-replies.md) 和 [Piper](docs/speech.md)，部署、真实 QQ 客户端和未测范围见 [本轮验收](docs/voice-plugins-validation.md)。
 - QQ 当前官方非群 API 固定白名单管理、参数校验、只读探针及逐项结果状态。见 [范围与文档](docs/qq-non-group-api.md)；协议模拟覆盖不等同于账号获权或真实平台操作通过。
 - SQLite 入站去重、持久队列与回复 Outbox；排队任务重启可恢复，在途结果未知时明确标记，不盲目重发。
+- 会话身份与来源版本冻结，历史按实际投递句段构建；明确私聊纯文本更正可阻止尚未发布的旧候选，摘要与日记复用投递证据。范围、兼容回退与模拟 / 真实验收见 [会话协调](docs/conversation-coordination.md) 和 [本轮记录](docs/conversation-coordination-validation.md)。话题焦点、结构化约定、睡眠、主动联系与 Python 动作仍分别推进。
 - QQ 官方 WebSocket（默认）和签名 Webhook（可选），实际平台能力需由已授权账号联调。
 - QQ C2C 连续普通短文本可在 3.5 秒静默 / 最长 8 秒窗口内合并为一轮，保留每条来源及去重；命令、媒体与性格 / 配置变更分界。规则与部署证据见 [连续短文本](docs/qq-text-batches.md)。
 - M0 的真实 Cordis 四组生命周期实验与真实 Harness ACP 探针。M1 生产聊天使用 NativeBackend，尚不启用完整 Harness 执行环境。

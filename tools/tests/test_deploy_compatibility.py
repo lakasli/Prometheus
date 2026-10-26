@@ -40,6 +40,32 @@ class CompatibilityTests(unittest.TestCase):
     def test_legacy_database_can_use_legacy_release(self):
         compatibility.check(self.data, self.release)
 
+    def test_conversation_semantics_cannot_be_lost_on_downgrade(self):
+        for feature, required, table in (
+            ("conversation_identity", 2, "run_conversation_bindings"),
+            ("delivery_context", 1, "delivery_context_snapshots"),
+            ("turn_control", 1, "run_publication_decisions"),
+        ):
+            with self.subTest(feature=feature):
+                with connect(self.data / "dsh.db") as db:
+                    db.execute(f"CREATE TABLE {table}(id TEXT)")
+                compatibility.check(self.data, self.release)
+                with connect(self.data / "dsh.db") as db:
+                    db.execute(f"INSERT INTO {table} VALUES('durable-decision')")
+                with self.assertRaisesRegex(RuntimeError, feature):
+                    compatibility.check(self.data, self.release)
+                manifest = self.release / "deploy/release-capabilities.json"
+                manifest.write_text(json.dumps({feature: required}))
+                compatibility.check(self.data, self.release)
+                with connect(self.data / "dsh.db") as db:
+                    db.execute(f"DROP TABLE {table}")
+                manifest.unlink()
+
+    def test_delivery_bookkeeping_alone_does_not_prevent_safe_unused_rollback(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE delivery_context_revisions(run_id TEXT,revision INTEGER); INSERT INTO delivery_context_revisions VALUES('old-outbox',1); CREATE TABLE diary_capture_migrations(key TEXT,value INTEGER); INSERT INTO diary_capture_migrations VALUES('receipt_projection_v1',1);")
+        compatibility.check(self.data, self.release)
+
     def test_knowledge_and_schedule_state_requires_its_reader(self):
         for feature, table in (("diary", "diary_events"),
                                ("relationships", "relationship_people"),

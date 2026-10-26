@@ -142,6 +142,7 @@ async fn capabilities(_admin: Admin) -> Json<Value> {
         json!({"mode":"single","versioned":true,"effective_from":"next_run"});
     result.0["runtime_logs"] =
         json!({"persistent":true,"authenticated":true,"subagent":false,"asr":false});
+    result.0["conversation_coordination"] = json!({"version":1,"identity_snapshot":2,"delivery_history":"confirmed_parts","correction_policy":"explicit_private_plain_text","frozen_delivery_snapshots":true,"focus":false,"commitments":false});
     result.0["diary"] = json!({"schema_version":2,"hierarchical_reductions":true,"periods":["day","week","month"],"source_authorization":"explicit","model_generation":true,"source_tracing":true,"revisioned":true});
     result.0["relationships"] = json!({"reviewed_fields":true,"directed_edges":true,"identity_confirmation":true,"contact_delivery":false});
     result.0["schedule"] = json!({"calendar_views":["month","week","day","agenda"],"text_reading":true,"video":false,"proactive_delivery":false,"legacy_triggers":true});
@@ -511,6 +512,13 @@ async fn messages(
         for(message,role,content,created,run,native_image)in rows {
             let mut item=json!({"id":message,"role":role,"content":content,"created_at":created});
             if let Some(run)=run {
+                let publication=db.query_row("SELECT decision,revision,reason FROM run_publication_decisions WHERE run_id=?1",[&run],|r|Ok(json!({"state":r.get::<_,String>(0)?,"revision":r.get::<_,i64>(1)?,"reason":r.get::<_,String>(2)?}))).optional()?.unwrap_or(json!({"state":"active","revision":0,"reason":"legacy"}));
+                if role=="assistant" && publication["state"]=="suppressed" {
+                    item["content"]=json!("[该候选因后续更正未发布；原始生成结果保留于运行审计]");
+                    item["publication"]=publication;
+                    items.push(item);continue;
+                }
+                item["publication"]=publication;
                 if role=="assistant" {item["reply_plan"]=json!(crate::chat_reply::get_in(db,&run)?);}
                 if native_image {item["generated_image_url"]=json!(crate::skills_api::image_url(&run));}
                 if role=="user" {if let Some(image)=crate::conversation_images::metadata(db,&run)? {item["image"]=image;}}
@@ -566,6 +574,17 @@ async fn run(
     record["deliveries"] = state.db(|db| crate::reply_delivery::status_in(db, &id))?;
     record["character"] = run_character(&state, &id)?;
     record["legacy"] = json!(record["character"].is_null());
+    record["publication"] = state.db(|db| {
+        Ok(db.query_row("SELECT decision,revision,reason FROM run_publication_decisions WHERE run_id=?1",[&id],|r|Ok(json!({"state":r.get::<_,String>(0)?,"revision":r.get::<_,i64>(1)?,"reason":r.get::<_,String>(2)?}))).optional()?.unwrap_or(json!({"state":"active","revision":0,"reason":"legacy"})))
+    })?;
+    if record["publication"]["state"] == "suppressed" {
+        record["response"] = Value::Null;
+        record["reply_plan"] = Value::Null;
+        record
+            .as_object_mut()
+            .expect("run object")
+            .remove("generated_image_url");
+    }
     if record["status"] == "completed"
         && state.db(|db| crate::conversation_images::used_vision(db, &id))?
     {
@@ -591,7 +610,7 @@ fn run_character(state: &AppState, id: &str) -> ApiResult<Value> {
     )
 }
 async fn runs(State(state): State<AppState>, admin: Admin) -> ApiResult<Json<Value>> {
-    let items=state.db(|db|{let mut stmt=db.prepare("SELECT id,status,CASE WHEN run_kind IN ('skill_image','trigger_image') AND response IS NOT NULL THEN '[原生生图结果]' ELSE response END,error,conversation_id,created_at FROM runs WHERE owner_id=?1 ORDER BY created_at DESC LIMIT 100")?;let rows=stmt.query_map([admin.id],|r|Ok(json!({"id":r.get::<_,String>(0)?,"status":r.get::<_,String>(1)?,"response":r.get::<_,Option<String>>(2)?,"error":r.get::<_,Option<String>>(3)?,"conversation_id":r.get::<_,String>(4)?,"created_at":r.get::<_,i64>(5)?})))?;Ok(rows.collect::<Result<Vec<_>,_>>()?)})?;
+    let items=state.db(|db|{let mut stmt=db.prepare("SELECT id,status,CASE WHEN EXISTS(SELECT 1 FROM run_publication_decisions p WHERE p.run_id=runs.id AND p.decision='suppressed') THEN NULL WHEN run_kind IN ('skill_image','trigger_image') AND response IS NOT NULL THEN '[原生生图结果]' ELSE response END,error,conversation_id,created_at FROM runs WHERE owner_id=?1 ORDER BY created_at DESC LIMIT 100")?;let rows=stmt.query_map([admin.id],|r|Ok(json!({"id":r.get::<_,String>(0)?,"status":r.get::<_,String>(1)?,"response":r.get::<_,Option<String>>(2)?,"error":r.get::<_,Option<String>>(3)?,"conversation_id":r.get::<_,String>(4)?,"created_at":r.get::<_,i64>(5)?})))?;Ok(rows.collect::<Result<Vec<_>,_>>()?)})?;
     Ok(Json(json!({"items":items})))
 }
 async fn cancel_run(
