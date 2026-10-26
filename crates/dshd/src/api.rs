@@ -26,6 +26,7 @@ pub fn router(state: AppState) -> Router {
         .merge(crate::runtime_logs::router())
         .merge(crate::conversation_commitments_api::router())
         .merge(crate::context_budget_api::router())
+        .merge(crate::rest_api::router())
         .merge(crate::conversation_images_api::router())
         .merge(crate::skills_api::router())
         .merge(crate::trigger_api::router())
@@ -436,7 +437,8 @@ async fn delete_secret(
         let diary_in_use=crate::diary_model::credential_in_use(&tx,&id)?;
         let schedule_in_use=crate::schedule_model::credential_in_use(&tx,&id)?;
         let relationships_in_use=crate::relationships_model::credential_in_use(&tx,&id)?;
-        if config.model.credential_ref.as_ref()==Some(&id) || config.qq.credential_ref.as_ref()==Some(&id) || pending || weixin_in_use || candidate_in_use || image_in_use || wasm_in_use || factory_in_use || diary_in_use || schedule_in_use || relationships_in_use {
+        let rest_in_use=crate::rest_consolidation::credential_in_use(&tx,&id)?;
+        if config.model.credential_ref.as_ref()==Some(&id) || config.qq.credential_ref.as_ref()==Some(&id) || pending || weixin_in_use || candidate_in_use || image_in_use || wasm_in_use || factory_in_use || diary_in_use || schedule_in_use || relationships_in_use || rest_in_use {
             return Ok(Err(ApiError::new(StatusCode::CONFLICT,"credential_in_use","凭据仍被配置、任务或渠道发送引用，请先停止引用再删除")));
         }
         if tx.execute("DELETE FROM secrets WHERE id=?1",[&id])?==0 {return Ok(Err(ApiError::not_found()));}
@@ -626,7 +628,7 @@ async fn cancel_run(
             "请在任务触发中停止自动任务，以同步更新执行与投递状态",
         ));
     }
-    let changed=state.db(|db|{let tx=db.transaction()?;let changed=tx.execute("UPDATE runs SET status='cancelled',updated_at=?1 WHERE id=?2 AND owner_id=?3 AND status IN ('queued','running')",params![now(),id,admin.id])?;if changed!=0 {crate::conversation_images::finish_run_in(&tx,&id,"cancelled")?;}tx.commit()?;Ok(changed)})?;
+    let changed=state.db(|db|{let tx=db.transaction()?;let changed=tx.execute("UPDATE runs SET status='cancelled',updated_at=?1 WHERE id=?2 AND owner_id=?3 AND status IN ('queued','running')",params![now(),id,admin.id])?;if changed!=0 {crate::conversation_images::finish_run_in(&tx,&id,"cancelled")?;tx.execute("DELETE FROM rest_deferred_presentations WHERE run_id=?1",[&id])?;}tx.commit()?;Ok(changed)})?;
     if changed == 0 {
         return Err(ApiError::not_found());
     }

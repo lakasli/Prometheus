@@ -661,7 +661,7 @@ pub struct ClaimedJob {
 }
 pub fn claim_next(state: &AppState) -> ApiResult<Option<ClaimedJob>> {
     state.db(|db|{
-        let tx=db.transaction()?;let (_,config)=character::current_config_in(&tx)?;
+        let tx=db.transaction()?;if !crate::rest_runtime::automatic_allowed_in(&tx)? {return Ok(None);}let (_,config)=character::current_config_in(&tx)?;
         let running=worker::running_count(&tx)?+crate::memory_candidates::running_count(&tx)?+crate::image_analysis::running_count(&tx)?+crate::wasm_workbench::running_count(&tx)?+running_count(&tx)?;
         if running>=config.assistant.max_concurrent_runs.min(2)as i64{return Ok(None);}
         let row=tx.query_row("SELECT id,owner_id,version_id,kind,config_json FROM plugin_factory_jobs WHERE status='queued' ORDER BY created_at,rowid LIMIT 1",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,Option<String>>(4)?))).optional()?;

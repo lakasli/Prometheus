@@ -756,7 +756,7 @@ async fn gateway_session(
                         .map_err(|error| websocket_failure(&error, "hello_pong"))?;
                 }
                 Message::Close(frame) => {
-                    return Err(closed(frame.map(|f| u16::from(f.code)).unwrap_or(1006)))
+                    return Err(closed(frame.map(|f| u16::from(f.code)).unwrap_or(1006)));
                 }
                 data => {
                     if let Some(payload) = parse_gateway_message(&data)? {
@@ -854,13 +854,49 @@ pub(crate) fn claim_legacy_outbox_in(
 ) -> anyhow::Result<Option<LegacyOutboxClaim>> {
     let tx = db.transaction()?;
     crate::conversation_context::fence_queued_delivery_candidates_in(&tx, true)?;
+    let rest = crate::rest_publication::schema_present_in(&tx)?;
+    let ack = if rest {
+        "EXISTS(SELECT 1 FROM rest_ack_permits ack WHERE ack.source_run_id=o.run_id)"
+    } else {
+        "0"
+    };
+    let query = format!(
+        "SELECT id,target_json,content,run_id,deadline FROM outbox o WHERE status='queued' AND o.id NOT IN(SELECT value FROM json_each(?1)) AND NOT EXISTS(SELECT 1 FROM run_publication_decisions p WHERE p.run_id=o.run_id AND p.decision='suppressed') AND NOT EXISTS(SELECT 1 FROM outbox held JOIN runs prior ON prior.id=held.run_id JOIN runs current ON current.id=o.run_id WHERE prior.conversation_id=current.conversation_id AND held.rowid<o.rowid AND held.status IN('sending','unknown')) ORDER BY CASE WHEN {ack} THEN 0 ELSE 1 END,created_at,o.rowid LIMIT 1"
+    );
+    let mut skipped = Vec::<String>::new();
     for _ in 0..64 {
-        let item=tx.query_row("SELECT id,target_json,content,run_id FROM outbox o WHERE status='queued' AND NOT EXISTS(SELECT 1 FROM run_publication_decisions p WHERE p.run_id=o.run_id AND p.decision='suppressed') ORDER BY created_at,o.rowid LIMIT 1",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?))).optional()?;
-        let Some((id, target, content, run)) = item else {
+        let item = tx
+            .query_row(&query, [serde_json::to_string(&skipped)?], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, i64>(4)?,
+                ))
+            })
+            .optional()?;
+        let Some((id, target, content, run, deadline)) = item else {
             tx.commit()?;
             return Ok(None);
         };
+        skipped.push(id.clone());
         if !crate::conversation_context::claim_delivery_allowed_in(&tx, &run)? {
+            continue;
+        }
+        let target_proof: ReplyTarget = match serde_json::from_str(&target) {
+            Ok(value) => value,
+            Err(_) => {
+                tx.execute("UPDATE outbox SET status='failed',error='无效目标记录' WHERE id=?1 AND status='queued'",[&id])?;
+                continue;
+            }
+        };
+        if !crate::rest_publication::claim_allowed_in(
+            &tx,
+            &run,
+            Some(deadline.min(target_proof.deadline)),
+            &content,
+        )? {
             continue;
         }
         tx.execute(

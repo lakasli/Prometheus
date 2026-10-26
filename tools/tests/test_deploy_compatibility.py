@@ -2,7 +2,10 @@
 import importlib.util
 import json
 import pathlib
+import re
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import contextmanager
@@ -35,6 +38,52 @@ PHASE2_TABLES = {
 }
 
 
+def rest_schema_sql():
+    """Use actual Rust DDL, independently of the deployment column manifest."""
+    root = pathlib.Path(__file__).resolve().parents[2] / "crates/dshd/src"
+    statements = []
+    for source in ("rest_store.rs", "rest_consolidation.rs", "rest_api.rs", "rest_runtime.rs"):
+        text = (root / source).read_text(encoding="utf-8")
+        statements.extend(re.findall(
+            r"CREATE TABLE IF NOT EXISTS (?:rest_\w+|assistant_rest_states|consolidation_jobs)\(.*?\);",
+            text, re.DOTALL,
+        ))
+    assert len(statements) == 21, "Rest schema changed: update the deployment reader contract"
+    return "\n".join(statements)
+
+
+REST_SEED_POLICY = {
+    "natural_enabled": False, "schedule_enabled": False, "time_zone": "Asia/Shanghai",
+    "sleep_local": None, "wake_local": None, "default_sleep_seconds": None,
+    "max_sleep_seconds": 86400, "drain_seconds": 30, "consolidation_seconds": 300,
+    "queue_limit": 128, "max_job_attempts": 3, "max_cycle_calls": 8,
+    "max_cycle_reserved_tokens": 24000, "ack_seconds": 30,
+}
+
+
+def seed_rest(db):
+    db.executescript(rest_schema_sql())
+    db.execute("INSERT INTO rest_meta VALUES(1,1)")
+    db.execute("INSERT INTO rest_policies VALUES('fixture-assistant',1,?,'initial_disabled',0)",
+               (json.dumps(REST_SEED_POLICY),))
+    db.execute("INSERT INTO assistant_rest_states VALUES('fixture-assistant',0,1,'awake',NULL,NULL,NULL,NULL,0,NULL,NULL,NULL)")
+
+
+def rest_row(db, table, **overrides):
+    """Populate one semantic row with synthetic metadata, never production data."""
+    columns = list(db.execute(f"PRAGMA table_info({table})"))
+    integers = {"policy_revision", "grant_revision", "seq", "ordinal", "revision",
+                "generation", "job_fence", "stage", "fence", "attempts", "nominal_at"}
+    values = {name: (1 if "INT" in kind.upper() or name in integers else "synthetic")
+              for _, name, kind, *_ in columns}
+    values.update({"assistant_id": "fixture-assistant", "status": "unknown",
+                   "run_id": "synthetic-run", "operation": "wake", "kind": "diary_day"})
+    values.update(overrides)
+    names = [row[1] for row in columns]
+    db.execute(f"INSERT INTO {table}({','.join(names)}) VALUES({','.join('?' for _ in names)})",
+               [values[name] for name in names])
+
+
 @contextmanager
 def connect(path):
     db = sqlite3.connect(path)
@@ -59,6 +108,178 @@ class CompatibilityTests(unittest.TestCase):
 
     def test_legacy_database_can_use_legacy_release(self):
         compatibility.check(self.data, self.release)
+
+    def test_rest_empty_complete_additive_schema_and_exact_default_seeds_allow_legacy(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript(rest_schema_sql())
+        compatibility.check(self.data, self.release)
+        with connect(self.data / "dsh.db") as db:
+            seed_rest(db)
+            # Host time sampling is bookkeeping, not a sleep/control decision.
+            db.execute("UPDATE assistant_rest_states SET logical_at=1793000000,clock_epoch='synthetic-boot',mono_ms=654321")
+        compatibility.check(self.data, self.release)
+
+    def test_rest_default_json_whitespace_and_key_order_do_not_prevent_unused_rollback(self):
+        with connect(self.data / "dsh.db") as db:
+            seed_rest(db)
+            db.execute("UPDATE rest_policies SET policy_json=?", (json.dumps(REST_SEED_POLICY, sort_keys=True, indent=2),))
+        compatibility.check(self.data, self.release)
+
+    def test_rest_saved_policy_requires_reader_even_when_unchanged_off_and_never_requested(self):
+        with connect(self.data / "dsh.db") as db:
+            seed_rest(db)
+            db.execute("UPDATE rest_policies SET revision=2,actor_ref='admin-synthetic'")
+        with self.assertRaisesRegex(RuntimeError, "Rest durable"):
+            compatibility.check(self.data, self.release)
+        (self.release / "deploy/release-capabilities.json").write_text(json.dumps({"rest": 1}))
+        compatibility.check(self.data, self.release)
+
+    def test_rest_nondefault_or_enabled_policy_needs_reader_without_revision_increment(self):
+        with connect(self.data / "dsh.db") as db:
+            seed_rest(db)
+        for key, value in (("natural_enabled", True), ("schedule_enabled", True),
+                           ("default_sleep_seconds", 300), ("max_cycle_calls", 4),
+                           ("time_zone", "UTC"), ("sleep_local", "23:00")):
+            with self.subTest(field=key):
+                policy = {**REST_SEED_POLICY, key: value}
+                with connect(self.data / "dsh.db") as db:
+                    db.execute("UPDATE rest_policies SET policy_json=?", (json.dumps(policy),))
+                with self.assertRaisesRegex(RuntimeError, "Rest durable"):
+                    compatibility.check(self.data, self.release)
+
+    def test_rest_every_semantic_auxiliary_row_requires_reader_even_if_erased_or_finished(self):
+        with connect(self.data / "dsh.db") as db:
+            seed_rest(db)
+        manifest = self.release / "deploy/release-capabilities.json"
+        for table in set(compatibility.REST_COLUMNS) - {"rest_meta", "rest_policies", "assistant_rest_states"}:
+            with self.subTest(table=table):
+                with connect(self.data / "dsh.db") as db:
+                    rest_row(db, table, **({"status": "pending"} if table == "rest_control_candidates" else {}))
+                with self.assertRaisesRegex(RuntimeError, "Rest durable"):
+                    compatibility.check(self.data, self.release)
+                manifest.write_text(json.dumps({"rest": 1}))
+                compatibility.check(self.data, self.release)
+                manifest.unlink()
+                with connect(self.data / "dsh.db") as db:
+                    db.execute(f"DELETE FROM {table}")
+        compatibility.check(self.data, self.release)
+
+    def test_rest_revoke_unknown_pending_and_cached_raw_result_never_become_unused(self):
+        with connect(self.data / "dsh.db") as db:
+            seed_rest(db)
+        for table, values in (
+            ("rest_control_grants", {"can_sleep": 0, "can_wake": 0, "valid_until": 1}),
+            ("consolidation_jobs", {"status": "unknown", "result_digest": None}),
+            ("rest_job_attempts", {"finished_at": None, "outcome": None}),
+            ("rest_control_candidates", {"status": "pending", "finished_at": None}),
+            ("rest_deferred_presentations", {"raw_generation": "private-synthetic-cache-canary", "media_inflight": 0}),
+            ("rest_deferred_presentations", {"raw_generation": "private-synthetic-cache-canary", "media_inflight": 1}),
+        ):
+            with self.subTest(table=table, values=values):
+                with connect(self.data / "dsh.db") as db:
+                    rest_row(db, table, **values)
+                with self.assertRaisesRegex(RuntimeError, "Rest durable") as captured:
+                    compatibility.check(self.data, self.release)
+                self.assertNotIn("private-synthetic-cache-canary", str(captured.exception))
+                with connect(self.data / "dsh.db") as db:
+                    db.execute(f"DELETE FROM {table}")
+
+    def test_rest_generation_cycle_or_nonawake_state_requires_reader(self):
+        with connect(self.data / "dsh.db") as db:
+            seed_rest(db)
+        for clause in ("generation=1", "revision=2", "phase='sleep_pending'", "phase='unknown'",
+                       "cycle_id='synthetic-cycle'", "wake_at=1793000000", "reason='explicit_wake'"):
+            with self.subTest(clause=clause):
+                with connect(self.data / "dsh.db") as db:
+                    db.execute("UPDATE assistant_rest_states SET generation=0,revision=1,phase='awake',cycle_id=NULL,wake_at=NULL,reason=NULL")
+                    db.execute(f"UPDATE assistant_rest_states SET {clause}")
+                with self.assertRaisesRegex(RuntimeError, "Rest durable"):
+                    compatibility.check(self.data, self.release)
+
+    def test_rest_future_schema_rejects_old_and_current_lower_readers(self):
+        with connect(self.data / "dsh.db") as db:
+            seed_rest(db)
+            db.execute("UPDATE rest_meta SET schema_version=2")
+        manifest = self.release / "deploy/release-capabilities.json"
+        for reader in (0, 1):
+            with self.subTest(reader=reader):
+                manifest.write_text(json.dumps({"rest": reader}))
+                with self.assertRaisesRegex(RuntimeError, "Rest schema version"):
+                    compatibility.check(self.data, self.release)
+        manifest.write_text(json.dumps({"rest": 2}))
+        compatibility.check(self.data, self.release)
+
+    def test_rest_partial_table_schema_fails_closed_for_both_readers_even_if_empty(self):
+        with connect(self.data / "dsh.db") as db:
+            seed_rest(db)
+        manifest = self.release / "deploy/release-capabilities.json"
+        for table in compatibility.REST_COLUMNS:
+            with self.subTest(table=table):
+                with connect(self.data / "dsh.db") as db:
+                    db.execute(f"ALTER TABLE {table} RENAME TO missing_rest_table")
+                for reader in (0, 1):
+                    manifest.write_text(json.dumps({"rest": reader}))
+                    with self.assertRaisesRegex(RuntimeError, "Rest schema is incomplete"):
+                        compatibility.check(self.data, self.release)
+                with connect(self.data / "dsh.db") as db:
+                    db.execute(f"ALTER TABLE missing_rest_table RENAME TO {table}")
+
+    def test_rest_missing_or_unknown_column_fails_closed_for_capable_reader(self):
+        with connect(self.data / "dsh.db") as db:
+            seed_rest(db)
+            db.execute("ALTER TABLE rest_deferred_presentations DROP COLUMN media_inflight")
+        manifest = self.release / "deploy/release-capabilities.json"
+        manifest.write_text(json.dumps({"rest": 1}))
+        with self.assertRaisesRegex(RuntimeError, "Rest schema columns"):
+            compatibility.check(self.data, self.release)
+        with connect(self.data / "dsh.db") as db:
+            db.execute("ALTER TABLE rest_deferred_presentations ADD COLUMN media_inflight INTEGER")
+            db.execute("ALTER TABLE rest_control_grants ADD COLUMN unknown_future_grant TEXT")
+        with self.assertRaisesRegex(RuntimeError, "Rest schema columns"):
+            compatibility.check(self.data, self.release)
+
+    def test_rest_missing_seed_or_malformed_policy_never_counts_as_unused(self):
+        with connect(self.data / "dsh.db") as db:
+            seed_rest(db)
+        duplicate = '{"natural_enabled":true,' + json.dumps(REST_SEED_POLICY)[1:]
+        for policy in ("not-json", "{}", "[]", duplicate, json.dumps({**REST_SEED_POLICY, "natural_enabled": 0}),
+                       json.dumps({**REST_SEED_POLICY, "default_sleep_seconds": False})):
+            with self.subTest(policy=policy):
+                with connect(self.data / "dsh.db") as db:
+                    db.execute("UPDATE rest_policies SET policy_json=?", (policy,))
+                with self.assertRaisesRegex(RuntimeError, "Rest policy"):
+                    compatibility.check(self.data, self.release)
+        with connect(self.data / "dsh.db") as db:
+            db.execute("DELETE FROM rest_policies")
+        with self.assertRaisesRegex(RuntimeError, "Rest initial state is incomplete"):
+            compatibility.check(self.data, self.release)
+
+    def test_rest_gate_is_read_only_and_manifest_advertises_reader(self):
+        with connect(self.data / "dsh.db") as db:
+            seed_rest(db)
+            rest_row(db, "rest_control_candidates", status="pending")
+        database = self.data / "dsh.db"
+        before = database.read_bytes()
+        with self.assertRaisesRegex(RuntimeError, "Rest durable"):
+            compatibility.check(self.data, self.release)
+        self.assertEqual(before, database.read_bytes())
+        current_manifest = pathlib.Path(__file__).resolve().parents[2] / "deploy/release-capabilities.json"
+        self.assertEqual(json.loads(current_manifest.read_text())["rest"], 1)
+
+    def test_rest_cli_returns_exit_two_for_unsafe_downgrade_without_printing_cache(self):
+        with connect(self.data / "dsh.db") as db:
+            seed_rest(db)
+            rest_row(db, "rest_deferred_presentations", raw_generation="private-cli-cache-canary")
+        script = pathlib.Path(__file__).resolve().parents[2] / "deploy/check-compatibility.py"
+        result = subprocess.run([sys.executable, "-S", "-B", str(script), str(self.data), str(self.release)],
+                                capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Rest durable", result.stderr)
+        self.assertNotIn("private-cli-cache-canary", result.stdout + result.stderr)
+        (self.release / "deploy/release-capabilities.json").write_text(json.dumps({"rest": 1}))
+        accepted = subprocess.run([sys.executable, "-S", "-B", str(script), str(self.data), str(self.release)],
+                                  capture_output=True, text=True, check=False)
+        self.assertEqual(accepted.returncode, 0)
 
     def test_conversation_semantics_cannot_be_lost_on_downgrade(self):
         for feature, required, table in (

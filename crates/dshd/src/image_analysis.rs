@@ -633,6 +633,8 @@ pub struct ClaimedJob {
 }
 pub fn claim_next(state: &AppState) -> ApiResult<Option<ClaimedJob>> {
     state.db(|db|Ok(transaction(db,|tx| {
+        if !crate::rest_runtime::automatic_allowed_in(tx).map_err(internal)? {return Ok(None);}
+
         let (_,config)=crate::character::current_config_in(tx).map_err(internal)?;
         let queued_chat:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM runs q WHERE status='queued' AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.conversation_id=q.conversation_id AND r.status='running'))",[],|r|r.get(0)).api()?;
         let queued_candidate=if table_exists(tx,"memory_candidate_jobs").map_err(internal)? {tx.query_row("SELECT EXISTS(SELECT 1 FROM memory_candidate_jobs WHERE status='queued' AND expires_at>?1)",[now()],|r|r.get::<_,bool>(0)).api()?}else{false};

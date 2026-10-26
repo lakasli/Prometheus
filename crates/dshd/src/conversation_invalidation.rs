@@ -111,7 +111,14 @@ fn fence_consumers(
     let publication_events = state::table_exists(db, "run_publication_events")?;
     let prompts = state::table_exists(db, "run_prompt_snapshots")?;
     let delivery = state::table_exists(db, "delivery_context_snapshots")?;
+    let deferred = state::table_exists(db, "rest_deferred_presentations")?;
     for run in &runs {
+        if deferred {
+            db.execute(
+                "DELETE FROM rest_deferred_presentations WHERE run_id=?1",
+                [run],
+            )?;
+        }
         summary.cancelled_runs+=db.execute("UPDATE runs SET status='cancelled',error='conversation_source_invalidated',updated_at=?1 WHERE id=?2 AND status IN ('queued','running')",params![at,run])?;
         // This is a future-publication fence, not a claim that already accepted
         // content was withdrawn. The original effect-started flag is retained.

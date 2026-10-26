@@ -144,6 +144,8 @@ async fn run_app(cli: Cli) -> Result<()> {
                 cookie_secure: secure_cookie,
                 web_dir,
             })?;
+            dshd::rest_runtime::recover_after_confirmed_exit(&state)
+                .map_err(|_| anyhow::anyhow!("rest startup recovery unavailable"))?;
             dshd::wasm_workbench::initialize_runtime(&state).await;
             dshd::plugin_supervisor::initialize_runtime(&state).await;
             state

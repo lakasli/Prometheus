@@ -262,6 +262,13 @@ pub fn prompt(config: &RuntimeConfig, assets: &Value) -> String {
     format!("\n宿主回复协议（优先于表达偏好）：仅返回JSON数组，不加代码围栏；1到{}个对象，每个对象仅一句话，简洁自然，不把多句话塞进同一对象。对象字段为type、text、delay_ms，可选asset_id或prompt。type=text普通文字；type=voice朗读text，仅用户要求语音且speech_available=true时可用；type=image使用已列出的图片asset_id或在image_generation_available=true时提供prompt请求宿主绘画；type=video仅使用已列出的视频asset_id。video发送可用不代表视频理解或生成，本阶段不读取视频帧或音轨；回答只能依据用户说明，无说明时只确认已保存且可回发，用户要求回传时须输出type=video并逐字复制白名单asset_id。image_send_available和image_generation_available分别表示发送已有图片和生成新图片，不能混淆；生成不可用仍可发送已列出的图片。只有media类型对象才会触发实际发送，text中的“发回原图”等口头承诺不会发送任何文件；用户要求回传图片时，必须输出type=image并从当前assets逐字复制asset_id，不能只发文字声称已发送。不得编造文件、URL、制品或权限，不输出shell/路径/接收者/凭证。第一项delay_ms=0，后续{}到{}毫秒，由宿主强制节流。没有可用媒体时诚实说明并使用text。例：[{{\"type\":\"text\",\"text\":\"我在这里。\",\"delay_ms\":0}},{{\"type\":\"text\",\"text\":\"你今天过得怎么样？\",\"delay_ms\":2000}}]。宿主当前能力及当前会话允许引用的制品：{}",config.reply.max_items,config.reply.min_interval_ms,config.reply.max_interval_ms,assets)
 }
 
+/// Repeat only the host output contract after optional style/history blocks.
+/// It is required budgeted policy, never source text or a tool permission.
+pub fn completion_contract(config: &ReplyConfig, detail: Option<&str>) -> String {
+    let preference=match detail{Some("detailed")=>"当前适用的临时偏好是详细，只在本题内展开，仍须遵守整轮句数上限。",Some("brief")=>"当前适用的临时偏好是简短，直接回答当前问题。",_=>"当前没有适用的临时详略偏好；按当前完整输入和已配置性格回答，不能把历史中对另一题的详细要求带入本题，简单问题可直接给出结果。"};
+    format!("DSH_REPLY_COMPLETION_CONTRACT_V1\n{preference}\n本轮最终输出必须服从宿主回复协议：只输出JSON数组，共1到{}个对象；整轮完整句总数也不得超过{}，每个对象恰好一个完整句。详细、展开、解题、证明及性格示例都不能增加这个上限；在这些句子内给出完整核心步骤，省去重复开场和结尾复述，不输出超量内容等待宿主截断。只使用已规定的type/text/delay_ms及获准的asset_id/prompt；这里不授予任何媒体、工具或发送权限。首项delay_ms=0，其余仍须{}到{}毫秒。",config.max_items,config.max_items,config.min_interval_ms,config.max_interval_ms)
+}
+
 pub fn store_in(db: &Connection, run: &str, plan: &ReplyPlan) -> anyhow::Result<()> {
     require_reader(db, 9)?;
     db.execute(
@@ -315,8 +322,18 @@ pub async fn materialize(
         })
         .map_err(|_| "回复来源不可用".to_owned())?
         .ok_or("任务已取消或上下文已失效".to_owned())?;
-    for item in &mut plan.items {
+    for index in 0..plan.items.len() {
+        if !crate::rest_runtime::checkpoint_plan(state, run_id, plan)? {
+            return Err("睡眠期间暂缓后续媒体阶段".into());
+        }
+        let item = &mut plan.items[index];
         materialization_active(state, &source, owner, conversation, cancel)?;
+        if item.kind != "text"
+            && item.asset_id.is_none()
+            && !crate::rest_runtime::begin_media_stage(state, run_id)?
+        {
+            return Err("睡眠期间暂缓新的媒体阶段".into());
+        }
         let result: Result<String, String> = match item.kind.as_str() {
             "text" => continue,
             "voice" => {
@@ -401,6 +418,9 @@ pub async fn materialize(
                 plan.normalized = true;
             }
         }
+    }
+    if !crate::rest_runtime::checkpoint_plan(state, run_id, plan)? {
+        return Err("睡眠期间暂缓发布已完成的媒体计划".into());
     }
     Ok(())
 }
