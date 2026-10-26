@@ -86,7 +86,25 @@ if [[ -e $root/current || -L $root/current ]]; then
 fi
 systemctl --user daemon-reload
 systemctl --user enable dsh.service
+was_active=false
+if systemctl --user is-active --quiet dsh.service; then was_active=true; fi
 systemctl --user stop dsh.service
+# Recheck after stopping: acknowledged events can introduce a durable feature
+# between the online preflight and stop. The current gate also knows features
+# that an older target release's gate cannot recognize.
+compatible=true
+if ! python3 "$release/source/deploy/check-compatibility.py" "$root/shared/data" "$release/source"; then compatible=false; fi
+if [[ -n $previous && -f $previous/source/deploy/check-compatibility.py ]] && ! python3 "$previous/source/deploy/check-compatibility.py" "$root/shared/data" "$release/source"; then compatible=false; fi
+if [[ $compatible != true ]]; then
+  if [[ $was_active == true ]]; then
+    if ! systemctl --user start dsh.service; then
+      echo 'Deployment rejected; current release pointer is unchanged, but its service could not be restarted. Preserve data and inspect the service.' >&2
+      exit 1
+    fi
+  fi
+  echo 'Deployment rejected by stopped-database compatibility check; current release pointer and database are unchanged.' >&2
+  exit 2
+fi
 mkdir -p "$root/shared/backups"
 if ! python3 - "$root/shared/data/dsh.db" "$root/shared/backups/pre-$sha-$(date -u +%Y%m%dT%H%M%S%N).sqlite" <<'PY'
 import os,pathlib,sqlite3,sys
@@ -113,10 +131,11 @@ for attempt in $(seq 1 30); do
 done
 if [[ $healthy != true ]]; then
   echo 'New release did not become healthy' >&2
+  # Stop new receipts before testing whether the previous binary is still safe.
+  systemctl --user stop dsh.service
   journalctl --user -u dsh.service -n 30 --no-pager || true
   if [[ -n $previous ]]; then
     if ! python3 "$release/source/deploy/check-compatibility.py" "$root/shared/data" "$previous/source"; then
-      systemctl --user stop dsh.service
       echo 'Previous release is incompatible with durable features; service stopped. Preserve data and inspect the private pre-upgrade backup.' >&2
       exit 1
     fi
@@ -126,7 +145,6 @@ if [[ $healthy != true ]]; then
     curl --retry 5 --retry-delay 1 --max-time 2 -fsS http://127.0.0.1:8419/health/ready >/dev/null
     echo 'Previous release restored and health checked' >&2
   else
-    systemctl --user stop dsh.service || true
     echo 'No previous application release exists; failed service stopped' >&2
   fi
   exit 1

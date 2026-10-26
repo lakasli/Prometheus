@@ -74,6 +74,35 @@ class CompatibilityTests(unittest.TestCase):
         manifest.write_text(json.dumps({"conversation_media":1,"media_source_runs":1}))
         compatibility.check(self.data, self.release)
 
+    def test_empty_qq_text_batch_tables_allow_prebatch_rollback(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE qq_text_batches(run_id TEXT,status TEXT); CREATE TABLE qq_text_fragments(run_id TEXT,message_id TEXT);")
+        compatibility.check(self.data, self.release)
+
+    def test_completed_qq_text_batch_still_requires_follower_deduplication_reader(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE qq_text_batches(run_id TEXT,status TEXT); INSERT INTO qq_text_batches VALUES('finished-run','completed');")
+        manifest = self.release / "deploy/release-capabilities.json"
+        manifest.write_text(json.dumps({"schema_reader": 10, "qq_durable_receive": 1}))
+        with self.assertRaisesRegex(RuntimeError, "QQ text batch.*deduplication"):
+            compatibility.check(self.data, self.release)
+
+    def test_qq_text_batches_and_fragments_allow_the_feature_capable_reader(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE qq_text_batches(run_id TEXT,status TEXT); CREATE TABLE qq_text_fragments(run_id TEXT,message_id TEXT); INSERT INTO qq_text_batches VALUES('merged-run','queued'); INSERT INTO qq_text_fragments VALUES('merged-run','follower-message');")
+        manifest = self.release / "deploy/release-capabilities.json"
+        manifest.write_text(json.dumps({"qq_text_batches": 1}))
+        compatibility.check(self.data, self.release)
+
+    def test_residual_qq_text_fragment_alone_blocks_old_reader(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE qq_text_fragments(run_id TEXT,message_id TEXT); INSERT INTO qq_text_fragments VALUES('historical-run','follower-message');")
+        with self.assertRaisesRegex(RuntimeError, "QQ text batch.*deduplication"):
+            compatibility.check(self.data, self.release)
+        manifest = self.release / "deploy/release-capabilities.json"
+        manifest.write_text(json.dumps({"qq_text_batches": 1}))
+        compatibility.check(self.data, self.release)
+
     def test_persona_work_blocks_legacy_but_allows_capable_release(self):
         with connect(self.data / "dsh.db") as db:
             db.execute("INSERT INTO runs VALUES('fixture','{}')")

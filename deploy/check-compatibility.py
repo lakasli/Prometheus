@@ -23,6 +23,14 @@ def check(data_dir, release_source):
                 raise RuntimeError(f"Target release lacks {capability} authorization or delivery semantics")
         if "qq_received_events" in tables and db.execute("SELECT EXISTS(SELECT 1 FROM qq_received_events WHERE status IN ('queued','processing'))").fetchone()[0] and int(capabilities.get("qq_durable_receive", 0)) < 1:
             raise RuntimeError("Target release lacks durable QQ reception of acknowledged events")
+        # Completed batches still retain follower message IDs for deduplication.
+        # Neither a settled Run nor an orphaned fragment makes an old reader safe.
+        uses_qq_text_batches = any(
+            table in tables and db.execute(f"SELECT EXISTS(SELECT 1 FROM {table})").fetchone()[0]
+            for table in ("qq_text_batches", "qq_text_fragments")
+        )
+        if uses_qq_text_batches and int(capabilities.get("qq_text_batches", 0)) < 1:
+            raise RuntimeError("Target release lacks QQ text batch ordering and follower message deduplication semantics")
         if "plugin_factory_versions" in tables and db.execute("SELECT EXISTS(SELECT 1 FROM plugin_factory_versions)").fetchone()[0] and int(capabilities.get("plugin_factory", 0)) < 1:
             raise RuntimeError("Target release lacks Component plugin approvals and active routes")
         for table in ("speech_assets", "conversation_media_assets"):

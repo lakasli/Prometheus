@@ -7,6 +7,7 @@
   "conversation_media": 1,
   "qq_non_group_api": 1,
   "qq_durable_receive": 1,
+  "qq_text_batches": 1,
   "character_snapshot": 1,
   "single_assistant_personality": 1,
   "runtime_logs": 1,

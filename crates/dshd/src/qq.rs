@@ -30,6 +30,8 @@ const MAX_GATEWAY_MESSAGE: usize = 128 * 1024;
 
 #[path = "qq_incoming_media.rs"]
 pub mod incoming_media;
+#[path = "qq_text_batch.rs"]
+pub mod text_batch;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ClosePolicy {
@@ -360,10 +362,16 @@ pub fn ingest_prepared(
         // This deadline was frozen at durable receipt, before media download.
         deadline,
     };
-    state.db(|db| {
+    let mut capacity_wait = false;
+    let result=state.db(|db| {
         let tx=db.transaction()?;
         if let Some(fence)=fence{incoming_media::verify_fence_in(&tx,fence)?;}
         if tx.query_row("SELECT 1 FROM inbox WHERE event_key=?1",[&event_key],|r|r.get::<_,i64>(0)).optional()?.is_some(){if let Some(fence)=fence{incoming_media::finish_in(&tx,fence,"completed",media_code)?;}tx.commit()?;return Ok(());}
+        if let Some(run)=text_batch::existing_run_in(&tx,&owner,message_id)? {
+            tx.execute("INSERT INTO inbox(event_key,account_id,event_type,received_at,run_id) VALUES(?1,?2,?3,?4,?5)",params![event_key,account,event_type,received_at,run])?;
+            if let Some(fence)=fence{incoming_media::finish_in(&tx,fence,"completed",media_code)?;}
+            tx.commit()?;return Ok(());
+        }
         // A retransmission after a persona switch still belongs to the original Run.
         if let Some(run)=tx.query_row("SELECT id FROM runs WHERE owner_id=?1 AND client_message_id=?2 ORDER BY rowid LIMIT 1",params![owner,message_id],|r|r.get::<_,String>(0)).optional()? {
             tx.execute("INSERT INTO inbox(event_key,account_id,event_type,received_at,run_id) VALUES(?1,?2,?3,?4,?5)",params![event_key,account,event_type,received_at,run])?;
@@ -386,16 +394,36 @@ pub fn ingest_prepared(
             if kind!="c2c" {Some("本助手仅使用一个性格，请在 Web 助手与模型中编辑。".to_string())}
             else {let(next,response)=handle_persona_command(&tx,&id,&source_key,&owner,command,&active_config)?;id=next;Some(response)}
         }else{None};
-        let pending:i64=tx.query_row("SELECT count(*) FROM runs WHERE status='queued'",[],|r|r.get(0))?;
-        let per_conversation:i64=tx.query_row("SELECT count(*) FROM runs WHERE conversation_id=?1 AND status IN ('queued','running')",[&id],|r|r.get(0))?;
-        anyhow::ensure!(pending<500&&per_conversation<10,"queue full");
         // Local control replies must stay usable when a preferred model mapping expires.
         let snapshot=if command_response.is_some()||memory_command{None}else{character::freeze_for_run(&tx,&id,config_revision,&active_config,"用户")?};
         let status=if command_response.is_some(){"completed"}else{"queued"};
         let selected=if command_response.is_some()||memory_command||has_media {None}else{crate::skills::select(&tx,&content,None,false,false)?};
         let run_kind=if command_response.is_some(){if has_media{"media_notice"}else{"character_command"}}else if memory_command{"memory_command"}else if selected.is_some(){"skill_text"}else{"model"};
+        let observed_ms=text_batch::now_ms();
+        let received_ms=if let Some(fence)=fence {
+            tx.query_row("SELECT coalesce(received_ms,received_at*1000) FROM qq_received_events WHERE event_key=?1",[&fence.event_key],|r|r.get::<_,i64>(0))?
+        } else {
+            observed_ms.min(received_at.saturating_mul(1000).saturating_add(999))
+        };
+        let config_json=serde_json::to_string(&active_config)?;
+        let snapshot_json=snapshot.as_ref().map(serde_json::to_string).transpose()?;
+        let tail_snapshot:Option<String>=tx.query_row("SELECT character_snapshot_json FROM runs WHERE conversation_id=?1 ORDER BY rowid DESC LIMIT 1",[&id],|r|r.get(0)).optional()?.flatten();
+        let eligible=text_batch::is_eligible(kind,&content,has_media,run_kind);
+        if eligible && tail_snapshot == snapshot_json {
+            if let Some(batch_run)=text_batch::try_append_in(&tx,&id,&owner,&content,&reply,received_at,received_ms,observed_ms,&config_json,snapshot.as_ref().map(|s|s.projection_digest.as_str()))? {
+                tx.execute("INSERT INTO inbox(event_key,account_id,event_type,received_at,run_id) VALUES(?1,?2,?3,?4,?5)",params![event_key,account,event_type,received_at,batch_run])?;
+                if let Some(fence)=fence{incoming_media::finish_in(&tx,fence,"completed",media_code)?;}
+                tx.commit()?;return Ok(());
+            }
+        }
+        // A command, media item, changed revision, or expired/full batch is a boundary.
+        text_batch::close_tail_in(&tx,&id,observed_ms)?;
+        let pending:i64=tx.query_row("SELECT count(*) FROM runs WHERE status='queued'",[],|r|r.get(0))?;
+        let per_conversation:i64=tx.query_row("SELECT count(*) FROM runs WHERE conversation_id=?1 AND status IN ('queued','running')",[&id],|r|r.get(0))?;
+        if pending>=500 || per_conversation>=10 {capacity_wait=true;anyhow::bail!("queue full");}
         tx.execute("INSERT INTO runs(id,conversation_id,owner_id,client_message_id,input,config_json,reply_json,status,response,created_at,updated_at,character_snapshot_json,character_digest,compiler_version,run_kind) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10,?11,?12,?13,?14)",params![run,id,owner,message_id,content,serde_json::to_string(&active_config)?,serde_json::to_string(&reply)?,status,command_response,now(),snapshot.as_ref().map(serde_json::to_string).transpose()?,snapshot.as_ref().map(|s|&s.projection_digest),snapshot.as_ref().map(|s|&s.compiler_version),run_kind])?;
-        tx.execute("INSERT INTO messages(id,conversation_id,run_id,role,content,created_at) VALUES(?1,?2,?3,'user',?4,?5)",params![uuid::Uuid::new_v4().to_string(),id,run,content,now()])?;
+        tx.execute("INSERT INTO messages(id,conversation_id,run_id,role,content,created_at) VALUES(?1,?2,?3,'user',?4,?5)",params![uuid::Uuid::new_v4().to_string(),id,run,content,received_at])?;
+        if eligible {text_batch::register_in(&tx,&run,&id,&owner,&content,&reply,received_at,received_ms,observed_ms,&config_json,snapshot.as_ref().map(|s|s.projection_digest.as_str()))?;}
         match prepared {
         incoming_media::Prepared::Image(image)=>{
             let pending:i64=tx.query_row("SELECT count(*) FROM conversation_images WHERE image IS NOT NULL",[],|r|r.get(0))?;
@@ -411,14 +439,22 @@ pub fn ingest_prepared(
         if let Some(selected)=selected {crate::skills::store(&tx,&run,&selected)?;}
         if let Some(response)=command_response {
             let pending:i64=tx.query_row("SELECT count(*) FROM outbox WHERE status IN ('queued','sending')",[],|r|r.get(0))?;
-            anyhow::ensure!(pending<200,"reply queue full");
+            if pending>=200 {capacity_wait=true;anyhow::bail!("reply queue full");}
             tx.execute("INSERT INTO messages(id,conversation_id,run_id,role,content,created_at) VALUES(?1,?2,?3,'assistant',?4,?5)",params![uuid::Uuid::new_v4().to_string(),id,run,response,now()])?;
             tx.execute("INSERT INTO outbox(id,run_id,account_id,credential_ref,target_json,content,status,deadline,created_at) VALUES(?1,?2,?3,?4,?5,?6,'queued',?7,?8)",params![uuid::Uuid::new_v4().to_string(),run,reply.account_id,reply.credential_ref,serde_json::to_string(&reply)?,response,reply.deadline,now()])?;
         }
         tx.execute("INSERT INTO inbox(event_key,account_id,event_type,received_at,run_id) VALUES(?1,?2,?3,?4,?5)",params![event_key,account,event_type,received_at,run])?;
         if let Some(fence)=fence{incoming_media::finish_in(&tx,fence,"completed",media_code)?;}
         tx.commit()?;Ok(())
-    })?;
+    });
+    if capacity_wait {
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "qq_run_queue_full",
+            "QQ运行队列暂满，保留已接收消息等待处理",
+        ));
+    }
+    result?;
     state.0.notify.notify_waiters();
     Ok(())
 }

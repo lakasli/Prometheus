@@ -59,6 +59,17 @@ struct Receipt {
 
 pub fn initialize(db: &Connection) -> anyhow::Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS qq_received_events(event_key TEXT PRIMARY KEY,account_id TEXT NOT NULL,event_type TEXT NOT NULL,message_id TEXT NOT NULL,credential_ref TEXT NOT NULL,config_json TEXT,payload_json TEXT,status TEXT NOT NULL,generation INTEGER NOT NULL DEFAULT 0,received_at INTEGER NOT NULL,deadline INTEGER NOT NULL,error_code TEXT,finished_at INTEGER,UNIQUE(account_id,event_type,message_id));CREATE INDEX IF NOT EXISTS qq_received_queue ON qq_received_events(status,received_at);")?;
+    let has_ms = {
+        let mut statement = db.prepare("PRAGMA table_info(qq_received_events)")?;
+        let columns = statement.query_map([], |r| r.get::<_, String>(1))?;
+        columns
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .iter()
+            .any(|name| name == "received_ms")
+    };
+    if !has_ms {
+        db.execute_batch("ALTER TABLE qq_received_events ADD COLUMN received_ms INTEGER;")?;
+    }
     // A fetch has no outbound side effect. Durable Inbox dedup prevents a second
     // Run if the previous consumer committed immediately before a process crash.
     db.execute("UPDATE qq_received_events SET status='queued',generation=generation+1 WHERE status='processing'",[])?;
@@ -106,7 +117,8 @@ pub fn receive(state: &AppState, config: &RuntimeConfig, payload: &Value) -> Api
         return Err(ApiError::bad("event_too_large", "QQ事件超过128KiB"));
     }
     let config_json = serde_json::to_string(config).map_err(|_| ApiError::internal())?;
-    let received = now();
+    let received_ms = crate::qq::text_batch::now_ms();
+    let received = received_ms / 1000;
     let deadline = reply_deadline(payload, received);
     let key = format!("qq:{}:{event_type}:{event}", config.qq.app_id);
     let credential = config
@@ -122,7 +134,7 @@ pub fn receive(state: &AppState, config: &RuntimeConfig, payload: &Value) -> Api
         let (count,total):(i64,i64)=tx.query_row("SELECT count(*),coalesce(sum(length(payload_json)+length(config_json)),0) FROM qq_received_events WHERE status IN ('queued','processing')",[],|r|Ok((r.get(0)?,r.get(1)?)))?;
         if count>=MAX_PENDING||total+(raw.len()+config_json.len())as i64>MAX_PENDING_BYTES{return Ok(false);}
         crate::chat_reply::require_reader(&tx,9)?;
-        tx.execute("INSERT INTO qq_received_events(event_key,account_id,event_type,message_id,credential_ref,config_json,payload_json,status,received_at,deadline) VALUES(?1,?2,?3,?4,?5,?6,?7,'queued',?8,?9)",params![key,config.qq.app_id,event_type,message,credential,config_json,raw,received,deadline])?;
+        tx.execute("INSERT INTO qq_received_events(event_key,account_id,event_type,message_id,credential_ref,config_json,payload_json,status,received_at,deadline,received_ms) VALUES(?1,?2,?3,?4,?5,?6,?7,'queued',?8,?9,?10)",params![key,config.qq.app_id,event_type,message,credential,config_json,raw,received,deadline,received_ms])?;
         tx.commit()?;Ok(true)
     })?;
     if !queued {
@@ -140,7 +152,7 @@ fn claim(state: &AppState) -> ApiResult<Option<Receipt>> {
     state.db(|db|{
         let tx=db.transaction()?;
         prune_in(&tx)?;
-        let row=tx.query_row("SELECT event_key,generation,config_json,payload_json,received_at,deadline FROM qq_received_events WHERE status='queued' ORDER BY received_at,rowid LIMIT 1",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,i64>(4)?,r.get::<_,i64>(5)?))).optional()?;
+        let row=tx.query_row("SELECT event_key,generation,config_json,payload_json,received_at,deadline FROM qq_received_events WHERE status='queued' ORDER BY rowid LIMIT 1",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,i64>(4)?,r.get::<_,i64>(5)?))).optional()?;
         let Some((key,generation,config,payload,received_at,deadline))=row else{tx.commit()?;return Ok(None);};
         let config:RuntimeConfig=serde_json::from_str(&config)?;
         let payload:Value=serde_json::from_str(&payload)?;
@@ -162,6 +174,11 @@ pub fn finish_in(
     code: Option<&str>,
 ) -> anyhow::Result<()> {
     let changed=db.execute("UPDATE qq_received_events SET status=?1,error_code=?2,payload_json=NULL,config_json=NULL,finished_at=?3 WHERE event_key=?4 AND generation=?5 AND status='processing'",params![status,code,now(),fence.event_key,fence.generation])?;
+    anyhow::ensure!(changed == 1, "QQ receive lease no longer held");
+    Ok(())
+}
+fn requeue_capacity_in(db: &Connection, fence: &Fence) -> anyhow::Result<()> {
+    let changed=db.execute("UPDATE qq_received_events SET status='queued',generation=generation+1,error_code='run_queue_full' WHERE event_key=?1 AND generation=?2 AND status='processing'",params![fence.event_key,fence.generation])?;
     anyhow::ensure!(changed == 1, "QQ receive lease no longer held");
     Ok(())
 }
@@ -188,7 +205,7 @@ async fn process(state: &AppState, receipt: &Receipt) -> ApiResult<()> {
         _ => ("channel", data["channel_id"].as_str().unwrap_or("")),
     };
     let owner = format!("qq:{}:{kind}:{target}", receipt.config.qq.app_id);
-    let duplicate=state.db(|db|Ok(db.query_row("SELECT EXISTS(SELECT 1 FROM inbox WHERE event_key=?1) OR EXISTS(SELECT 1 FROM runs WHERE owner_id=?2 AND client_message_id=?3)",params![receipt.fence.event_key,owner,data["id"].as_str().unwrap_or("")],|r|r.get::<_,bool>(0))?))?;
+    let duplicate=state.db(|db|Ok(db.query_row("SELECT EXISTS(SELECT 1 FROM inbox WHERE event_key=?1) OR EXISTS(SELECT 1 FROM runs WHERE owner_id=?2 AND client_message_id=?3) OR EXISTS(SELECT 1 FROM qq_text_fragments WHERE owner_id=?2 AND message_id=?3)",params![receipt.fence.event_key,owner,data["id"].as_str().unwrap_or("")],|r|r.get::<_,bool>(0))?))?;
     if duplicate {
         return state.db(|db| finish_in(db, &receipt.fence, "completed", None));
     }
@@ -245,6 +262,13 @@ pub async fn run(state: AppState, cancel: CancellationToken) {
         let result = tokio::select! {_=cancel.cancelled()=>break,result=tokio::time::timeout(Duration::from_secs(20),process(&state,&receipt))=>result};
         match result {
             Ok(Ok(())) => {}
+            Ok(Err(error)) if error.code == "qq_run_queue_full" => {
+                // Only pre-Run capacity failures are retried, keeping the original
+                // payload, receive times and passive deadline. Never replay a model
+                // request or an unknown delivery. The consumer applies backpressure.
+                let _ = state.db(|db| requeue_capacity_in(db, &receipt.fence));
+                tokio::select! {_=cancel.cancelled()=>break,_=tokio::time::sleep(Duration::from_millis(500))=>{}}
+            }
             Ok(Err(_)) => {
                 let _ =
                     state.db(|db| finish_in(db, &receipt.fence, "failed", Some("ingest_failed")));
@@ -457,6 +481,76 @@ mod tests {
             web_dir: dir.path().into(),
         })
         .unwrap()
+    }
+    #[tokio::test]
+    async fn acknowledged_text_waits_for_run_capacity_without_losing_original_receipt() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let state = state(&directory);
+        let config = state
+            .db(|db| {
+                let (_, mut config) = crate::character::current_config_in(db)?;
+                config.qq.enabled = true;
+                config.qq.app_id = "capacity_app".into();
+                config.qq.credential_ref = Some("capacity_key".into());
+                db.execute(
+                    "UPDATE config_revisions SET config_json=?1 WHERE revision=1",
+                    [serde_json::to_string(&config)?],
+                )?;
+                Ok(config)
+            })
+            .unwrap();
+        for index in 0..10 {
+            let event = json!({"t":"C2C_MESSAGE_CREATE","id":format!("full_{index}"),"d":{"id":format!("full_message_{index}"),"content":"x".repeat(257),"author":{"user_openid":"peer"}}});
+            crate::qq::ingest(&state, &config, &event).unwrap();
+        }
+        let event = json!({"t":"C2C_MESSAGE_CREATE","id":"kept_event","d":{"id":"kept_message","content":"keep this acknowledged text","author":{"user_openid":"peer"}}});
+        receive(&state, &config, &event).unwrap();
+        let receipt = claim(&state).unwrap().unwrap();
+        let original_ms = state
+            .db(|db| {
+                Ok(db.query_row(
+                    "SELECT received_ms FROM qq_received_events WHERE event_key=?1",
+                    [&receipt.fence.event_key],
+                    |r| r.get::<_, i64>(0),
+                )?)
+            })
+            .unwrap();
+        assert_eq!(
+            process(&state, &receipt).await.unwrap_err().code,
+            "qq_run_queue_full"
+        );
+        state
+            .db(|db| requeue_capacity_in(db, &receipt.fence))
+            .unwrap();
+        let retained=state.db(|db|Ok(db.query_row("SELECT status,payload_json IS NOT NULL AND config_json IS NOT NULL,received_ms,deadline FROM qq_received_events WHERE event_key=?1",[&receipt.fence.event_key],|r|Ok((r.get::<_,String>(0)?,r.get::<_,bool>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?)))?)).unwrap();
+        assert_eq!(
+            retained,
+            ("queued".into(), true, original_ms, receipt.deadline)
+        );
+        assert!(state
+            .db(|db| finish_in(db, &receipt.fence, "failed", None))
+            .is_err());
+        state
+            .db(|db| {
+                db.execute(
+                    "UPDATE runs SET status='cancelled' WHERE client_message_id='full_message_0'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        let retry = claim(&state).unwrap().unwrap();
+        process(&state, &retry).await.unwrap();
+        let final_state=state.db(|db|Ok(db.query_row("SELECT e.status,e.payload_json IS NULL, f.content,f.received_ms FROM qq_received_events e JOIN qq_text_fragments f ON f.message_id=e.message_id WHERE e.event_key=?1",[&retry.fence.event_key],|r|Ok((r.get::<_,String>(0)?,r.get::<_,bool>(1)?,r.get::<_,String>(2)?,r.get::<_,i64>(3)?)))?)).unwrap();
+        assert_eq!(
+            final_state,
+            (
+                "completed".into(),
+                true,
+                "keep this acknowledged text".into(),
+                original_ms
+            )
+        );
     }
     #[test]
     fn cdn_allowlist_rejects_credentials_redirect_hosts_private_urls_and_spoofed_suffixes() {

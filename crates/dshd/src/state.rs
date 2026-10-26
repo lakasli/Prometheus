@@ -137,6 +137,7 @@ impl AppState {
         crate::speech::initialize(&db)?;
         crate::qq_api::initialize(&db)?;
         crate::qq::incoming_media::initialize(&db)?;
+        crate::qq::text_batch::initialize(&db)?;
         crate::plugin_factory::initialize(&db)?;
         crate::skills::initialize(&db)?;
         // Queued items survive restart. An interrupted external request is not blindly replayed.

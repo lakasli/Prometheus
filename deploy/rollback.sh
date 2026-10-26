@@ -11,7 +11,21 @@ release=$root/releases/$sha
 gate=$root/current/source/deploy/check-compatibility.py
 [[ -f $gate ]] || gate=$release/source/deploy/check-compatibility.py
 [[ -f $gate ]] || { echo 'No compatibility gate is available; preserve data and use a compatible deployment tool' >&2; exit 2; }
-python3 "$gate" "$root/shared/data" "$release/source"
+# A live receiver could commit its first durable feature after an online check.
+# Keep the current pointer until the stopped database passes the current gate.
+was_active=false
+if systemctl --user is-active --quiet dsh.service; then was_active=true; fi
+systemctl --user stop dsh.service
+if ! python3 "$gate" "$root/shared/data" "$release/source"; then
+  if [[ $was_active == true ]]; then
+    if ! systemctl --user start dsh.service; then
+      echo 'Rollback rejected; current release pointer is unchanged, but its service could not be restarted. Preserve data and inspect the service.' >&2
+      exit 1
+    fi
+  fi
+  echo 'Rollback rejected; current release pointer and database are unchanged.' >&2
+  exit 2
+fi
 ln -sfn "$release" "$root/current.next"
 mv -Tf "$root/current.next" "$root/current"
 systemctl --user restart dsh.service
