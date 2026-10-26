@@ -64,8 +64,8 @@ async function screenshot(page: Page, name: string) {
   if (await page.locator(".personality-panel").count())
     await expect(
       page
-        .getByRole("region", { name: "助手性格", exact: true })
-        .getByLabel("助手名称", { exact: true }),
+        .getByRole("region", { name: "她的性格", exact: true })
+        .getByLabel("姓名", { exact: true }),
     ).toBeVisible();
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.evaluate(() => document.fonts.ready);
@@ -102,23 +102,36 @@ test("single assistant personality and authenticated runtime journal replace ret
       navigation.getByRole("button", { name: retired, exact: true }),
     ).toHaveCount(0);
   await navigation
-    .getByRole("button", { name: "助手与模型", exact: true })
+    .getByRole("button", { name: "性格与模型", exact: true })
     .click();
-  const panel = page.getByRole("region", { name: "助手性格", exact: true });
-  await expect(panel.getByLabel("助手名称", { exact: true })).toBeVisible();
+  const panel = page.getByRole("region", { name: "她的性格", exact: true });
+  await expect(panel.getByLabel("姓名", { exact: true })).toBeVisible();
   const original = await (
     await page.request.get("/api/admin/v1/assistant/personality")
   ).json();
+  expect(original.personality.name).toBe("刘嘉卉");
+  await expect(panel.getByLabel("姓名", { exact: true })).toHaveValue("刘嘉卉");
+  const displayedPersonality = await panel
+    .locator("input, textarea")
+    .evaluateAll((fields) =>
+      fields
+        .map((field) => (field as HTMLInputElement | HTMLTextAreaElement).value)
+        .join("\n"),
+    );
+  expect(
+    `${await page.locator("body").innerText()}\n${displayedPersonality}`,
+  ).not.toMatch(/助手|\bAI\b|工具|\bassistant\b/i);
+  await screenshot(page, "00-liu-jiahui-initial-desktop.png");
   const csrf = (await (await page.request.get("/api/admin/v1/auth/me")).json())
     .csrf_token as string;
   const mutationHeaders = {
     Origin: new URL(baseURL!).origin,
     "X-CSRF-Token": csrf,
   };
-  const assistantName = `验收唯一助手-${crypto.randomBytes(3).toString("hex")}`;
-  await panel.getByLabel("助手名称", { exact: true }).fill(assistantName);
+  const assistantName = `验收性格-${crypto.randomBytes(3).toString("hex")}`;
+  await panel.getByLabel("姓名", { exact: true }).fill(assistantName);
   await panel
-    .getByLabel("稳定性格", { exact: true })
+    .getByLabel("性情与脾气", { exact: true })
     .fill("温和、坦诚，统一服务所有会话。");
   await panel
     .getByRole("button", { name: "保存并应用性格", exact: true })
@@ -163,7 +176,7 @@ test("single assistant personality and authenticated runtime journal replace ret
   await panel
     .getByRole("button", { name: "重新载入性格", exact: true })
     .click();
-  await expect(panel.getByLabel("身份与背景", { exact: true })).toHaveValue(
+  await expect(panel.getByLabel("个人简介", { exact: true })).toHaveValue(
     "另一个配置窗口保存",
   );
   await panel.getByText("性格版本与恢复", { exact: true }).click();
@@ -274,7 +287,7 @@ test("single assistant personality and authenticated runtime journal replace ret
   ).toHaveCount(0);
   await expect(page.locator(".conversation-composer")).toHaveCount(0);
   await expect(
-    page.getByText("Subagent 尚未接入。", { exact: false }),
+    page.getByText("协作分工尚未接入。", { exact: false }),
   ).toBeVisible();
   await selectValue(
     page,
@@ -303,10 +316,10 @@ test("single assistant personality and authenticated runtime journal replace ret
     await screenshot(page, `03-runtime-logs-${width}.png`);
     await page.getByRole("button", { name: "打开导航", exact: true }).click();
     await navigation
-      .getByRole("button", { name: "助手与模型", exact: true })
+      .getByRole("button", { name: "性格与模型", exact: true })
       .click();
     await expect(
-      page.getByRole("heading", { name: "助手性格", exact: true }),
+      page.getByRole("heading", { name: "她的性格", exact: true }),
     ).toBeVisible();
     expect(
       await page.evaluate(

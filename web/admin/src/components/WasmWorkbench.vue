@@ -712,7 +712,7 @@ async function execute() {
     executionAttempt = null;
     pollCount = 0;
     notice.value =
-      "已提交一次手动计算，未注册聊天工具，也未授予文件、网络或其他宿主权限。";
+      "已提交一次手动计算，未注册聊天能力，也未授予文件、网络或其他宿主权限。";
     armExpiry();
     if (result.status !== "queued" && result.status !== "running")
       await refresh();
@@ -766,7 +766,7 @@ onUnmounted(() => {
     <div class="panel-heading wasm-heading">
       <div>
         <h2>计算工坊</h2>
-        <p>独立的纯整数 WASM，不注册聊天工具，不授予宿主权限。</p>
+        <p>独立的纯整数 WASM，不注册聊天能力，不授予宿主权限。</p>
       </div>
       <button
         type="button"

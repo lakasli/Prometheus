@@ -148,7 +148,7 @@ defineExpose({ hasUnsaved });
       <div class="panel-heading">
         <div>
           <h2>Skill 库</h2>
-          <p>让助手按你的方法完成任务。</p>
+          <p>让每次任务都按你熟悉的方法完成。</p>
         </div>
         <span class="badge neutral">{{ items.length }} 个</span>
       </div>
@@ -302,7 +302,7 @@ defineExpose({ hasUnsaved });
         </p>
       </template>
       <div v-else class="skill-empty">
-        <h2>为助手添加一种工作方法</h2>
+        <h2>添加一种做事方法</h2>
         <p>选择左侧 Skill 查看全部指令，或新建自己的 Skill。</p>
         <p>
           默认的「制作

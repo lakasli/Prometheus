@@ -739,7 +739,7 @@ onUnmounted(() => {
           <p v-else class="footnote">
             终态候选不再展示正文。{{
               item.status === "accepted"
-                ? "可在助手记忆库查看已保存的独立记忆。"
+                ? "可在记忆库查看已保存的独立记忆。"
                 : "此候选不会写入新的记忆。"
             }}
           </p>

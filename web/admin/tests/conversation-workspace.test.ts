@@ -64,7 +64,7 @@ function setup(hash = "") {
         etag: "one",
         revision: 1,
         personality: {
-          name: "唯一助手",
+          name: "刘嘉卉",
           description: "",
           personality: "温和",
           scenario: "",
@@ -92,32 +92,34 @@ it("shows a single assistant settings page and a read-only log page", async () =
   const fetch = setup();
   await flushPromises();
   const navigation = wrapper!.get("nav");
-  expect(navigation.text()).toContain("助手与模型");
+  expect(navigation.text()).toContain("性格与模型");
   expect(navigation.text()).toContain("日志记录");
   expect(navigation.text()).not.toContain("角色卡");
   expect(navigation.text()).not.toContain("对话工作台");
   expect(navigation.text()).not.toContain("任务与诊断");
+  expect(wrapper!.text()).not.toMatch(/助手|\bAI\b|工具|assistant/i);
   await navigation
     .findAll("button")
     .find((button) => button.text() === "日志记录")!
     .trigger("click");
   await flushPromises();
-  expect(wrapper!.find('[aria-label="Agent 运行日志"]').exists()).toBe(true);
+  expect(wrapper!.find('[aria-label="运行日志"]').exists()).toBe(true);
   expect(wrapper!.text()).not.toContain("新建对话");
   expect(wrapper!.find(".conversation-composer").exists()).toBe(false);
   await navigation
     .findAll("button")
-    .find((button) => button.text() === "助手与模型")!
+    .find((button) => button.text() === "性格与模型")!
     .trigger("click");
   await flushPromises();
-  expect(wrapper!.get('[aria-label="助手性格"]').text()).toContain(
-    "一位助手，一种性格",
+  expect(wrapper!.get('[aria-label="她的性格"]').text()).toContain(
+    "在这里写下她的性情、说话方式与相处习惯。",
   );
+  expect(wrapper!.text()).not.toMatch(/助手|\bAI\b|工具|assistant/i);
   expect(
     wrapper!
       .findAll("input")
       .filter(
-        (input) => (input.element as HTMLInputElement).value === "唯一助手",
+        (input) => (input.element as HTMLInputElement).value === "刘嘉卉",
       ),
   ).toHaveLength(1);
   expect(
@@ -135,7 +137,7 @@ for (const legacy of ["chat", "diagnostics", "images", "wasm"]) {
     const fetch = setup(`#${legacy}`);
     await flushPromises();
     expect(location.hash).toBe("#logs");
-    expect(wrapper!.find('[aria-label="Agent 运行日志"]').exists()).toBe(true);
+    expect(wrapper!.find('[aria-label="运行日志"]').exists()).toBe(true);
     expect(
       fetch.mock.calls.every(
         ([url]) =>
@@ -148,7 +150,7 @@ it("maps old character links to the single personality and keeps unsaved text on
   setup("#characters");
   await flushPromises();
   expect(location.hash).toBe("#assistant");
-  await wrapper!.get('[aria-label="助手性格"] textarea').setValue("未保存文本");
+  await wrapper!.get('[aria-label="她的性格"] textarea').setValue("未保存文本");
   vi.stubGlobal(
     "confirm",
     vi.fn(() => false),
@@ -161,7 +163,7 @@ it("maps old character links to the single personality and keeps unsaved text on
   expect(location.hash).toBe("#assistant");
   expect(
     (
-      wrapper!.get('[aria-label="助手性格"] textarea')
+      wrapper!.get('[aria-label="她的性格"] textarea')
         .element as HTMLTextAreaElement
     ).value,
   ).toBe("未保存文本");

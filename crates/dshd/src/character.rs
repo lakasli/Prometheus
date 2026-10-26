@@ -160,6 +160,26 @@ CREATE TRIGGER IF NOT EXISTS character_revision_no_delete BEFORE DELETE ON chara
 pub fn template(name: &str, prompt: &str) -> Value {
     json!({"spec":"chara_card_v3","spec_version":"3.0","data":{"name":name,"description":"","personality":"","scenario":"","first_mes":"","mes_example":"","creator_notes":"","system_prompt":prompt,"post_history_instructions":"","alternate_greetings":[],"group_only_greetings":[],"tags":[],"creator":"","character_version":"1.0.0","extensions":{"dsh":{"schema_version":1,"modules":{"chat":{"mode":"inherit"},"vision":{"mode":"disabled"},"speech":{"mode":"disabled"}}}}}})
 }
+/// One bundled definition supplies both first-install runtime behavior and the
+/// editable fields. Existing saved personalities and custom configuration win.
+pub(crate) fn built_in_personality_card() -> Value {
+    let fields: Value = serde_json::from_str(include_str!(
+        "../../../docs/examples/liu-jiahui-personality-v1.json"
+    ))
+    .expect("bundled personality must be valid JSON");
+    let mut card = template(fields["name"].as_str().unwrap(), "");
+    for field in [
+        "name",
+        "description",
+        "personality",
+        "scenario",
+        "system_prompt",
+        "mes_example",
+    ] {
+        card["data"][field] = fields[field].clone();
+    }
+    card
+}
 fn issue(errors: &mut Vec<Value>, field: &str, message: &str) {
     errors.push(json!({"field":field,"message":message}));
 }
@@ -733,7 +753,7 @@ pub fn bind_new_conversation(
 pub fn single_personality_only() -> CharacterError {
     CharacterError {
         code: "single_personality_only",
-        message: "本助手仅使用一个性格，请在助手与模型中编辑；不再支持角色卡切换".into(),
+        message: "每个实例仅保留一种性格，请在性格与模型中编辑；不再支持角色卡切换".into(),
         status: StatusCode::GONE,
     }
 }
@@ -811,7 +831,14 @@ fn personality_card(
     let card = if let Some(reference) = default_reference(db)? {
         revision_card(db, &reference, true)?
     } else {
-        template(&config.assistant.name, &config.assistant.system_prompt)
+        let defaults = crate::config::AssistantConfig::default();
+        if config.assistant.name == defaults.name
+            && config.assistant.system_prompt == defaults.system_prompt
+        {
+            built_in_personality_card()
+        } else {
+            template(&config.assistant.name, &config.assistant.system_prompt)
+        }
     };
     Ok((card, 0, false))
 }
@@ -1393,6 +1420,64 @@ mod tests {
             .as_array()
             .unwrap()
             .is_empty());
+    }
+    #[test]
+    fn new_instances_use_the_complete_bundled_personality_without_saving_overrides() {
+        let db = database();
+        let config = RuntimeConfig::default();
+        let card = built_in_personality_card();
+        assert!(validate(&card).is_empty());
+        let initial = personality_state(&db, &config).unwrap();
+        assert_eq!(initial["personality"]["name"], "刘嘉卉");
+        assert_eq!(
+            initial["personality"]["description"],
+            card["data"]["description"]
+        );
+        assert_eq!(
+            initial["personality"]["personality"],
+            card["data"]["personality"]
+        );
+        assert_eq!(
+            initial["personality"]["mes_example"],
+            card["data"]["mes_example"]
+        );
+        assert_eq!(initial["saved"], false);
+        assert_eq!(initial["revision"], 0);
+        let frozen = freeze_personality(&db, 1, &config, "用户").unwrap();
+        assert_eq!(frozen.name, "刘嘉卉");
+        assert_eq!(frozen.system_prompt, compile(&card, "用户").unwrap().0);
+        assert_eq!(frozen.system_prompt, config.assistant.system_prompt);
+        assert!(personality_history(&db).unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        // Rendering defaults must never silently create a saved personality.
+        assert_eq!(
+            db.query_row(
+                "SELECT count(*) FROM settings WHERE key=?1",
+                [PERSONALITY_KEY],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+    }
+    #[test]
+    fn a_custom_unsaved_instance_keeps_its_exact_name_and_prompt() {
+        let db = database();
+        let mut config = RuntimeConfig::default();
+        config.assistant.name = "原有姓名".into();
+        config.assistant.system_prompt = "原有指令 {{user}}".into();
+        let initial = personality_state(&db, &config).unwrap();
+        assert_eq!(initial["personality"]["name"], "原有姓名");
+        assert_eq!(initial["personality"]["description"], "");
+        assert_eq!(initial["personality"]["system_prompt"], "原有指令 {{user}}");
+        assert_eq!(
+            freeze_personality(&db, 1, &config, "用户")
+                .unwrap()
+                .system_prompt,
+            "原有指令 {{user}}"
+        );
     }
     #[test]
     fn unsaved_legacy_prompts_keep_their_full_valid_byte_budget_without_truncation() {

@@ -11,16 +11,16 @@ export function validateConfig(value: RuntimeConfig): FieldError[] {
       errors.push({field:"reply.max_items",message:"每轮回复应为1到4条。"});
   }
   if (!value.assistant.name.trim())
-    errors.push({ field: "assistant.name", message: "请为助手填写一个名称。" });
+    errors.push({ field: "assistant.name", message: "请填写姓名。" });
   if (new TextEncoder().encode(value.assistant.name).length > 128)
     errors.push({
       field: "assistant.name",
-      message: "助手名称请控制在 128 字节以内。",
+      message: "姓名请控制在 128 字节以内。",
     });
   if (new TextEncoder().encode(value.assistant.system_prompt).length > 32000)
     errors.push({
       field: "assistant.system_prompt",
-      message: "系统提示词请控制在 32,000 字节以内。",
+      message: "相处约定请控制在 32,000 字节以内。",
     });
   if (
     !Number.isInteger(value.assistant.max_concurrent_runs) ||

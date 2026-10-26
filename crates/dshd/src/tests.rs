@@ -1015,7 +1015,7 @@ fn qq_unshared_cards_and_group_persona_commands_do_not_change_bindings() {
             );
             assert_eq!(
                 db.query_row(
-                    "SELECT count(*) FROM outbox WHERE content LIKE '本助手仅使用一个性格%'",
+                    "SELECT count(*) FROM outbox WHERE content LIKE '每个实例仅保留一种性格%'",
                     [],
                     |r| r.get::<_, i64>(0)
                 )?,

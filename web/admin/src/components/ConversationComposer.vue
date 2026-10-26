@@ -433,7 +433,7 @@ defineExpose({ hasUnconfirmed });
       v-model="content"
       rows="2"
       maxlength="16000"
-      :placeholder="imageFile ? '针对这张图片问点什么…' : '给助手发条消息…'"
+      :placeholder="imageFile ? '针对这张图片问点什么…' : '给嘉卉发条消息…'"
       aria-label="对话消息"
       :disabled="locked"
       :aria-describedby="`${fieldId}-image-help`"
@@ -441,7 +441,7 @@ defineExpose({ hasUnconfirmed });
     ></textarea>
     <p v-if="imageFile" class="conversation-image-note">
       图片由 DeepSeek Flash
-      生成视觉描述，再由当前文本助手基于描述回答。角色卡的独立视觉偏好尚未接入。
+      先生成视觉描述，再结合当前对话回答。独立的视觉偏好尚未接入。
     </p>
     <p v-if="imageCommand" class="composer-alert" role="alert">
       有图片时不能发送任何 / 开头的控制命令。请移除图片后再使用记忆或角色命令。

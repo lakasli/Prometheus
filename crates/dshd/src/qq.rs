@@ -391,7 +391,7 @@ pub fn ingest_prepared(
         if command.is_none() && !memory_command && (fresh || (!has_binding && !has_model_work)) {character::bind_new_conversation(&tx,&id,None,&active_config)?;}
         let run=uuid::Uuid::new_v4().to_string();
         let command_response=if let Some(notice)=media_notice{Some(notice.to_string())}else if let Some(command)=command {
-            if kind!="c2c" {Some("本助手仅使用一个性格，请在 Web 助手与模型中编辑。".to_string())}
+            if kind!="c2c" {Some("每个实例仅保留一种性格，请在 Web 性格与模型中编辑。".to_string())}
             else {let(next,response)=handle_persona_command(&tx,&id,&source_key,&owner,command,&active_config)?;id=next;Some(response)}
         }else{None};
         // Local control replies must stay usable when a preferred model mapping expires.
@@ -482,7 +482,7 @@ fn handle_persona_command(
     Ok((
         conversation.into(),
         format!(
-            "当前助手：{}。本助手仅有一个性格，不再支持角色切换；请在 Web 助手与模型中编辑性格。",
+            "当前姓名：{}。每个实例仅保留一种性格，不再支持角色切换；请在 Web 性格与模型中编辑。",
             current["personality"]["name"].as_str().unwrap_or("DSH")
         ),
     ))

@@ -129,7 +129,7 @@ async fn put_personality(
             ApiError::new(
                 StatusCode::PRECONDITION_REQUIRED,
                 "if_match_required",
-                "请提供当前助手性格版本If-Match",
+                "请提供当前性格版本If-Match",
             )
         })?;
     Ok(Json(tx(&state, |conn| {

@@ -44,7 +44,7 @@ it("renders real event content as text and pages with the same filters", async (
   wrapper = mount(RuntimeLogs);
   await flushPromises();
   expect(wrapper.text()).toContain("语音识别尚未接入");
-  expect(wrapper.text()).toContain("Subagent 尚未接入");
+  expect(wrapper.text()).toContain("协作分工尚未接入");
   expect(wrapper.find("script").exists()).toBe(false);
   await wrapper.get(".runtime-log-summary").trigger("click");
   expect(wrapper.get(".runtime-log-detail").text()).toContain("run-one");

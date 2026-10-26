@@ -358,16 +358,16 @@ onUnmounted(() => {
     <header class="factory-heading">
       <div>
         <h2>Rust 插件工厂</h2>
-        <p>把需求生成为有版本的工具，审阅、构建、测试后分别批准与启用。</p>
+        <p>把需求生成为有版本的插件，审阅、构建、测试后分别批准与启用。</p>
       </div>
       <button class="button" :disabled="busy" @click="check">检查构建环境</button>
     </header>
     <p class="muted">
       当前策略支持无外部权限的无状态 JSON
-      工具。网络、记忆、消息发送和进程能力尚不授予插件；源码和调用结果仅当前管理账户可见。
+      插件。网络、记忆、消息发送和进程能力尚不授予插件；源码和调用结果仅当前管理账户可见。
     </p>
     <p v-if="page && !page.available" role="status">
-      隔离构建器或 Rust WASM 工具链尚不可用。可保存需求，构建保持关闭。
+      隔离构建器或 Rust WASM 编译环境尚不可用。可保存需求，构建保持关闭。
     </p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <p v-if="notice" role="status">{{ notice }}</p>
@@ -560,14 +560,14 @@ onUnmounted(() => {
         </button>
       </div>
       <form v-if="selected.status === 'active'" @submit.prevent="invoke">
-        <h4>调用已启用工具</h4>
+        <h4>调用已启用插件</h4>
         <label
           >JSON 输入<textarea
             v-model="invocation"
             rows="3"
             :disabled="busy"
           /></label
-        ><button class="button" :disabled="busy">调用工具</button>
+        ><button class="button" :disabled="busy">调用插件</button>
         <pre v-if="output" aria-label="插件输出">{{ output }}</pre>
       </form>
     </article>

@@ -157,8 +157,8 @@ describe("normal conversation PNG composer", () => {
     await choose();
     await write();
     expect(wrapper!.get("img").attributes("src")).toBe("blob:conversation-1");
-    expect(wrapper!.text()).toContain("再由当前文本助手基于描述回答");
-    expect(wrapper!.text()).toContain("角色卡的独立视觉偏好尚未接入");
+    expect(wrapper!.text()).toContain("再结合当前对话回答");
+    expect(wrapper!.text()).toContain("独立的视觉偏好尚未接入");
     await vi.advanceTimersByTimeAsync(10000);
     expect(writes(fetch)).toEqual([]);
     expect(store).not.toHaveBeenCalled();

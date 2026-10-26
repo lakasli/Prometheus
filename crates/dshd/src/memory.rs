@@ -342,10 +342,7 @@ fn check_quota(db: &Connection, assistant: &str, private_owner: Option<&str>) ->
         )
         .api()?;
     if count >= MAX_RECORDS {
-        return Err(ApiError::bad(
-            "memory_limit",
-            "助手有效记忆已达到5000条上限",
-        ));
+        return Err(ApiError::bad("memory_limit", "有效记忆已达到5000条上限"));
     }
     check_private_quota(db, assistant, private_owner)
 }

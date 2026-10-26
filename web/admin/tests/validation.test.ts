@@ -5,7 +5,7 @@ import type { RuntimeConfig } from "../src/types";
 function fixture(): RuntimeConfig {
   return {
     assistant: {
-      name: "我的助手",
+      name: "刘嘉卉",
       system_prompt: "",
       max_concurrent_runs: 2,
       timeout_seconds: 120,

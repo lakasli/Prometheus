@@ -53,7 +53,7 @@ pub fn initialize(db: &Connection) -> anyhow::Result<()> {
         )?;
         if !seeded {
             for (id, name, description, instructions, kind) in [
-                ("skill-creator", "制作 Skill", "把需求整理成可复用的 Skill 草稿，审核保存后才生效。", "你正在帮助用户制作可复用 Skill。先理解目标、适用场景、输入、步骤和输出；信息足够时输出一个 fenced json 代码块，内容为 {\"name\":\"简短名称\",\"description\":\"何时使用及边界\",\"instructions\":\"清晰步骤、输入输出与验证方式\",\"kind\":\"instruction\"}。只制作指令草稿，不声称已安装或保存，不执行任意 shell，不索取或嵌入密钥。用户在管理页面审核并保存后才启用；Skill 本身不能授予工具、网络、文件或系统权限。", "instruction"),
+                ("skill-creator", "制作 Skill", "把需求整理成可复用的 Skill 草稿，审核保存后才生效。", "你正在帮助用户制作可复用 Skill。先理解目标、适用场景、输入、步骤和输出；信息足够时输出一个 fenced json 代码块，内容为 {\"name\":\"简短名称\",\"description\":\"何时使用及边界\",\"instructions\":\"清晰步骤、输入输出与验证方式\",\"kind\":\"instruction\"}。只制作指令草稿，不声称已安装或保存，不执行任意 shell，不索取或嵌入密钥。用户在管理页面审核并保存后才启用；Skill 本身不会扩大操作权限，也不授予网络、文件或系统权限。", "instruction"),
                 ("drawing", "绘画", "模型支持生图时直接生成图片，否则用 HTML / CSS / SVG 绘制并展示。", "根据用户要求制作视觉作品，遵循用户要求的主体、构图、配色和风格。使用当前已配置的绘画方式；表达清楚，画面细节协调，适合直接展示。", "drawing"),
             ] {
                 db.execute("INSERT OR IGNORE INTO skills(id,name,description,instructions,kind,enabled,revision,builtin,updated_at) VALUES(?1,?2,?3,?4,?5,1,1,1,?6)", params![id,name,description,instructions,kind,now()])?;

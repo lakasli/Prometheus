@@ -39,7 +39,7 @@ pub async fn execute(
             .map_err(|_| "无法读取当前身份的已启用插件".to_owned())?;
         if tools.is_empty() {
             return Ok(Some(
-                "当前聊天身份尚未启用插件工具；管理账户的私有插件不会自动授权给QQ或其他聊天身份。"
+                "当前聊天身份尚未启用插件；管理账户的私有插件不会自动授权给QQ或其他聊天身份。"
                     .into(),
             ));
         }
@@ -60,7 +60,7 @@ pub async fn execute(
     }
     let Some((id, args)) = rest.split_once(char::is_whitespace) else {
         return Ok(Some(
-            "使用 /plugin 查看工具，或使用 /plugin 插件ID JSON输入 调用。".into(),
+            "使用 /plugin 查看插件，或使用 /plugin 插件ID JSON输入 调用。".into(),
         ));
     };
     if args.len() > crate::plugin_component_worker::MAX_INPUT {
@@ -74,7 +74,7 @@ pub async fn execute(
             .map_err(|error| {
                 match error.code {
                     "plugin_revision_conflict" => "插件版本已变化，请重新调用",
-                    "plugin_input_contract_invalid" => "插件输入不符合已启用工具的契约",
+                    "plugin_input_contract_invalid" => "插件输入不符合已启用版本的要求",
                     "plugin_worker_busy" => "插件工作器繁忙，请稍后重试",
                     "plugin_call_failed" | "plugin_output_contract_invalid" => {
                         "插件执行失败，此版本已隔离"

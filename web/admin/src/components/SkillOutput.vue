@@ -44,7 +44,7 @@ function download() {
       ><img
         class="skill-generated-image"
         :src="image"
-        alt="助手生成的绘画"
+        alt="生成的绘画"
         loading="lazy"
       /><a
         class="button secondary small"

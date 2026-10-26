@@ -13,7 +13,7 @@ afterEach(() => {
   clearCsrfToken();
 });
 const personality = {
-  name: "唯一助手",
+  name: "刘嘉卉",
   description: "身份背景",
   personality: "温和坦诚",
   scenario: "日常相处",

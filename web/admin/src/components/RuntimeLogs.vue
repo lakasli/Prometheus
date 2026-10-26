@@ -27,8 +27,8 @@ const kindLabels: Record<string, string> = {
   input: "输入",
   output: "输出",
   run: "运行状态",
-  tool: "工具调用",
-  subagent: "Subagent",
+  tool: "能力调用",
+  subagent: "协作分工",
   tts: "语音合成",
   asr: "语音识别",
   vision: "图片理解",
@@ -152,11 +152,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="runtime-logs" aria-label="Agent 运行日志">
+  <section class="runtime-logs" aria-label="运行日志">
     <div class="panel runtime-log-toolbar">
       <div class="panel-heading">
         <div>
-          <h2>Agent 运行日志</h2>
+          <h2>运行日志</h2>
           <p>按时间查看运行过程，展开记录核对输入、输出与调用详情。</p>
         </div>
         <button
@@ -237,7 +237,7 @@ onUnmounted(() => {
         {{ snapshot.retention.max_events.toLocaleString() }} 条。{{
           !snapshot.capabilities.asr ? "语音识别尚未接入。" : ""
         }}{{
-          !snapshot.capabilities.subagent ? "Subagent 尚未接入。" : ""
+          !snapshot.capabilities.subagent ? "协作分工尚未接入。" : ""
         }}未接入能力不产生执行记录。
       </p>
     </div>

@@ -7,7 +7,7 @@ use crate::{
 };
 use rusqlite::{params, Connection, OptionalExtension};
 
-const HELP: &str = "记忆属于助手自身。共享记忆可跨渠道使用；本命令新建的是当前来源账号域的私有记录。\n/memory list [关键词]\n/memory show <ID>\n/memory remember <内容>\n/memory correct <ID>@<版本> <新内容>\n/memory forget <ID>@<版本>\n全库管理、共享发布和JSON导出请使用管理页面的“助手记忆”。";
+const HELP: &str = "记忆在同一实例中延续。共享记忆可跨渠道使用；本命令新建的是当前来源账号域的私有记录。\n/memory list [关键词]\n/memory show <ID>\n/memory remember <内容>\n/memory correct <ID>@<版本> <新内容>\n/memory forget <ID>@<版本>\n全库管理、共享发布和JSON导出请使用管理页面的“记忆”。";
 
 pub fn is_command(input: &str) -> bool {
     let input = input.trim();
@@ -54,7 +54,7 @@ fn action(
         ).map_err(|_|ApiError::internal())?;
         if is_test {
             return Err(ApiError::forbidden(
-                "角色草稿测试会话不会写入或修改助手长期记忆，请在正式会话或管理页面操作。",
+                "角色草稿测试会话不会写入或修改长期记忆，请在正式会话或管理页面操作。",
             ));
         }
         let reply: Option<String> = db
@@ -85,7 +85,7 @@ fn action(
                 return Ok("当前可见范围内没有匹配记忆。".into());
             }
             let mut response = format!(
-                "助手记忆：共{}条匹配，显示前{}条。\n",
+                "记忆：共{}条匹配，显示前{}条。\n",
                 page.total,
                 page.items.len()
             );
@@ -118,7 +118,7 @@ fn action(
                 item.id,
                 item.revision,
                 if item.visibility == Visibility::Shared {
-                    "助手共享记忆，只能由管理员更改"
+                    "共享记忆，只能由管理员更改"
                 } else {
                     "来源账号域私有"
                 },
@@ -146,7 +146,7 @@ fn action(
                     publish: false,
                 },
             )?;
-            Ok(format!("已记住：{}@{}。这条记忆属于助手，对当前来源账号域保密；不会自动向其他用户或群聊公开。", item.id, item.revision))
+            Ok(format!("已记住：{}@{}。这条记忆保留在当前实例中，对当前来源账号域保密；不会自动向其他用户或群聊公开。", item.id, item.revision))
         }
         "correct" => {
             let (target, content) = arguments.split_once(char::is_whitespace).ok_or_else(|| {

@@ -145,7 +145,7 @@ test("conversation summary management rebuilds derived data with an opaque versi
       },
     });
   });
-  await page.getByRole("button", { name: "助手记忆", exact: true }).click();
+  await page.getByRole("button", { name: "记忆", exact: true }).click();
   const panel = page.getByRole("region", { name: "会话摘要", exact: true });
   await expect(
     panel.getByRole("heading", { name: "长会话摘要", exact: true }),

@@ -370,7 +370,7 @@ pub fn validate(def: &TaskDefinition) -> Result<(), String> {
                 || a.context_policy != "isolated"
                 || !["text", "html_drawing", "native_image"].contains(&a.output_mode.as_str())
             {
-                return Err("助手任务内容、隔离策略、输出方式或预算无效".into());
+                return Err("任务内容、隔离策略、输出方式或预算无效".into());
             }
             if let Some(skill) = &a.skill {
                 if !nonempty(&skill.id, 64) || skill.revision < 1 {

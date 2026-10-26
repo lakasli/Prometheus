@@ -505,7 +505,7 @@ pub fn queue(
         return Err(ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "plugin_build_unavailable",
-            "隔离构建器或Rust WASM工具链不可用",
+            "隔离构建器或Rust WASM编译环境不可用",
         ));
     }
     state.db(|db|Ok((||->ApiResult<Job>{
@@ -868,7 +868,7 @@ pub async fn invoke_active_with_run(
         "running",
         run,
         conversation.as_deref(),
-        "插件工具调用",
+        "插件调用",
         json!({"operation_id":operation,"plugin_id":plugin_id,"input_bytes":input.to_string().len(),"input_sha256":hash(input.to_string().as_bytes())}),
     );
     let result = invoke_active_operation(state, owner, plugin_id, input, cancel).await;
@@ -889,7 +889,7 @@ pub async fn invoke_active_with_run(
         status,
         run,
         conversation.as_deref(),
-        "插件工具结果",
+        "插件结果",
         details,
     );
     result

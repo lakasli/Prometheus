@@ -88,7 +88,7 @@ function sourceTitle(id: string | null) {
   return conversation ? `${conversation.title}（${id}）` : id;
 }
 function visibilityTitle(value: Visibility) {
-  return value === "shared" ? "助手共享" : "来源账号域私有";
+  return value === "shared" ? "跨渠道共享" : "来源账号域私有";
 }
 async function loadList() {
   controller?.abort();
@@ -174,7 +174,7 @@ async function createMemory() {
     return;
   }
   if (createForm.visibility === "shared" && !createForm.publish) {
-    error.value = "请明确确认允许助手在所有渠道使用这条共享记忆。";
+    error.value = "请明确确认允许在所有渠道使用这条共享记忆。";
     return;
   }
   await task("保存记忆", async () => {
@@ -316,12 +316,12 @@ async function exportMemory() {
     );
     const link = document.createElement("a");
     link.href = url;
-    link.download = "dsh-assistant-memory.json";
+    link.download = "dsh-memories.json";
     document.body.appendChild(link);
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 0);
-    notice.value = "已导出助手记忆库的有效条目。文件包含私有内容，请妥善保存。";
+    notice.value = "已导出记忆库的有效条目。文件包含私有内容，请妥善保存。";
   });
 }
 
@@ -338,12 +338,12 @@ onUnmounted(() => {
     <section class="panel">
       <div class="panel-heading memory-heading">
         <div>
-          <h2>助手记忆库</h2>
+          <h2>记忆库</h2>
           <p>
-            记忆属于助手，不随渠道、会话或角色卡版本丢失。共享条目可用于各渠道，私有条目仅用于来源账号域。
+            记忆不会因渠道、会话或性格版本变化而丢失。共享条目可用于各渠道，私有条目仅用于来源账号域。
           </p>
           <p v-if="assistantId" class="memory-identity">
-            助手标识
+            记忆归属标识
             <code :title="assistantId">{{ assistantId.slice(0, 12) }}…</code>
           </p>
         </div>
@@ -357,7 +357,7 @@ onUnmounted(() => {
         </button>
       </div>
       <p class="memory-scope-note">
-        这里只保存你明确录入或审核通过的内容。私有记忆是助手为来源账号保留的保密记录；公开共享需要管理员明确确认。请勿录入密码、验证码或密钥。
+        这里只保存你明确录入或审核通过的内容。私有记忆是为来源账号保留的保密记录；公开共享需要管理员明确确认。请勿录入密码、验证码或密钥。
       </p>
       <div v-if="error" role="alert" class="alert error">
         <span>{{ error }}</span>
@@ -387,7 +387,7 @@ onUnmounted(() => {
             :disabled="!!busy"
             :options="[
               { value: '', label: '全部范围' },
-              { value: 'shared', label: '助手共享' },
+              { value: 'shared', label: '跨渠道共享' },
               { value: 'private', label: '来源账号域私有' },
             ]"
         /></label>
@@ -566,7 +566,7 @@ onUnmounted(() => {
             "
             :disabled="!!busy"
             :options="[
-              { value: 'shared', label: '助手共享' },
+              { value: 'shared', label: '跨渠道共享' },
               {
                 value: 'private',
                 label: '来源账号域私有',
@@ -582,10 +582,10 @@ onUnmounted(() => {
         <label v-if="editNeedsPublish" class="memory-checkbox"
           ><input
             v-model="editForm.publish"
-            aria-label="允许助手在所有渠道使用这条记忆，包括群聊。"
+            aria-label="允许在所有渠道使用这条记忆，包括群聊。"
             type="checkbox"
             :disabled="!!busy"
-          /><span>允许助手在所有渠道使用这条记忆，包括群聊。</span></label
+          /><span>允许在所有渠道使用这条记忆，包括群聊。</span></label
         >
         <section v-if="conflict" class="memory-conflict">
           <p>草稿仍保留。先载入最新版本，再对照内容合并，避免覆盖其他修改。</p>
@@ -640,7 +640,7 @@ onUnmounted(() => {
       <div class="panel-heading">
         <div>
           <h2>明确保存一条记忆</h2>
-          <p>写下希望助手保留的事实或经历，并选择使用范围。</p>
+          <p>写下希望保留的事实或经历，并选择使用范围。</p>
         </div>
       </div>
       <form @submit.prevent="createMemory">
@@ -669,7 +669,7 @@ onUnmounted(() => {
               @change="createForm.publish = false"
               :options="[
                 { value: 'private', label: '来源账号域私有' },
-                { value: 'shared', label: '助手共享' },
+                { value: 'shared', label: '跨渠道共享' },
               ]" /></label
           ><label class="field"
             ><span
@@ -711,10 +711,10 @@ onUnmounted(() => {
         <label v-if="createForm.visibility === 'shared'" class="memory-checkbox"
           ><input
             v-model="createForm.publish"
-            aria-label="允许助手在所有渠道使用这条记忆，包括群聊。"
+            aria-label="允许在所有渠道使用这条记忆，包括群聊。"
             type="checkbox"
             :disabled="!!busy"
-          /><span>允许助手在所有渠道使用这条记忆，包括群聊。</span></label
+          /><span>允许在所有渠道使用这条记忆，包括群聊。</span></label
         >
         <button
           type="submit"

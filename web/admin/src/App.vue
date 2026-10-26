@@ -72,35 +72,35 @@ const navigation: {
     icon: "grid",
     title: "运行总览",
     eyebrow: "WORKSPACE OVERVIEW",
-    description: "助手的运行状态，一目了然。",
+    description: "运行状态，一目了然。",
   },
   {
     id: "assistant",
     icon: "settings",
-    title: "助手与模型",
-    eyebrow: "ASSISTANT & MODELS",
-    description: "为你的助手选择模型、个性和工作节奏。",
+    title: "性格与模型",
+    eyebrow: "PERSONALITY & MODELS",
+    description: "她的性情、说话方式，以及与你相处的节奏。",
   },
   {
     id: "skills",
     icon: "bolt",
     title: "Skill 管理",
-    eyebrow: "AGENT SKILLS",
-    description: "管理助手的工作方法，让每次任务都有章可循。",
+    eyebrow: "SKILLS & METHODS",
+    description: "管理做事的方法，让每次任务都有章可循。",
   },
   {
     id: "triggers",
     icon: "clock",
     title: "任务触发",
     eyebrow: "TASK TRIGGERS",
-    description: "按日期、间隔、工作日或可信事件安排助手任务。",
+    description: "按日期、间隔、工作日或可信事件安排任务。",
   },
   {
     id: "qq",
     icon: "channel",
     title: "QQ 连接",
     eyebrow: "CONNECTED CHANNELS",
-    description: "把助手连接到你的 QQ 机器人。",
+    description: "通过 QQ 保持联系。",
   },
   {
     id: "weixin",
@@ -127,15 +127,15 @@ const navigation: {
     id: "logs",
     icon: "chat",
     title: "日志记录",
-    eyebrow: "AGENT RUNTIME LOGS",
-    description: "追踪助手的输入、输出、工具调用与语音处理。",
+    eyebrow: "RUNTIME JOURNAL",
+    description: "查看消息往来、能力调用与语音处理过程。",
   },
   {
     id: "memory",
     icon: "sparkles",
-    title: "助手记忆",
-    eyebrow: "ASSISTANT MEMORY",
-    description: "管理助手自己的长期记忆，保留经历与来源。",
+    title: "记忆",
+    eyebrow: "MEMORIES",
+    description: "保留重要的经历与约定，记得每段内容的来源。",
   },
   {
     id: "history",
@@ -380,7 +380,7 @@ function refreshStatus(quiet = false): Promise<void> {
 function mayLeavePage() {
   if (
     personalityPanel.value?.hasUnsaved &&
-    !window.confirm("助手性格有未保存的修改，确定离开？")
+    !window.confirm("性格有未保存的修改，确定离开？")
   )
     return false;
   if (
@@ -526,7 +526,7 @@ async function logout() {
     return;
   if (
     personalityPanel.value?.hasUnsaved &&
-    !window.confirm("助手性格有未保存的修改，确定退出登录？")
+    !window.confirm("性格有未保存的修改，确定退出登录？")
   )
     return;
   await task("退出登录", async () => {
@@ -719,19 +719,19 @@ onUnmounted(() => {
     <section class="auth-story">
       <a href="/admin/" class="brand auth-brand"
         ><img class="brand-mark" :src="brandMarkUrl" alt="DSH 鲸鱼标志" />
-        <strong>DSH<span>助手控制台</span></strong></a
+        <strong>DSH<span>日常空间</span></strong></a
       >
       <div class="story-content">
         <span class="eyebrow light">A QUIET COMPANION, ALWAYS NEAR.</span>
-        <h1>一方深海，<br />一位贴心助手。</h1>
-        <p>把日常交给熟悉的陪伴，<br />在自己的设备上，安放心中的小小世界。</p>
+        <h1>山有嘉卉，<br />日子温柔生长。</h1>
+        <p>刘嘉卉，温柔而有主见。<br />一起把平常的日子，过得有声有色。</p>
         <div class="story-portrait">
           <span class="portrait-halo" aria-hidden="true"></span>
           <Icon class="portrait-spark" name="sparkles" :size="30" />
           <img
             class="mascot-image"
             :src="mascotUrl"
-            alt="蓝发蓝眼、身着白色蕾丝与深蓝裙装的鲸鱼主题 DSH 助手"
+            alt="蓝发蓝眼、身着白色蕾丝与深蓝裙装的鲸鱼主题插画"
             width="320"
             height="360"
           />
@@ -748,7 +748,7 @@ onUnmounted(() => {
     <main class="auth-main">
       <div v-if="authState === 'loading'" class="auth-form centered">
         <span class="spinner big"></span>
-        <h2>正在连接你的助手</h2>
+        <h2>正在打开日常空间</h2>
         <p class="muted">读取服务与登录状态…</p>
       </div>
       <div v-else-if="authState === 'unavailable'" class="auth-form">
@@ -771,8 +771,8 @@ onUnmounted(() => {
         <p class="auth-subtitle">
           {{
             authState === "setup"
-              ? "完成首次设置，开始配置你的 AI 助手。"
-              : "登录控制台，继续管理你的助手。"
+              ? "完成首次设置，认识刘嘉卉。"
+              : "登录空间，接着写下你们的日常。"
           }}
         </p>
         <div v-if="error" class="alert error" role="alert">{{ error }}</div>
@@ -856,7 +856,7 @@ onUnmounted(() => {
       <div class="sidebar-header">
         <a href="#overview" class="brand" @click.prevent="navigate('overview')"
           ><img class="brand-mark" :src="brandMarkUrl" alt="DSH 鲸鱼标志" />
-          <strong>DSH<span>助手控制台</span></strong></a
+          <strong>DSH<span>日常空间</span></strong></a
         >
         <button
           class="icon-button sidebar-close"
@@ -1016,8 +1016,8 @@ onUnmounted(() => {
               <p>
                 {{
                   configuredModel
-                    ? "助手的模型已配置，可在日志中查看助手运行情况。"
-                    : "连接一个模型，让你的专属助手从这里启航。"
+                    ? "模型已配置，可在日志中查看消息与运行情况。"
+                    : "连接一个模型，让日常的交流从这里开始。"
                 }}
               </p>
               <button
@@ -1034,7 +1034,7 @@ onUnmounted(() => {
               <img
                 class="mascot-image"
                 :src="mascotUrl"
-                alt="DSH Q 版助手"
+                alt="刘嘉卉的鲸鱼主题插画"
                 width="240"
                 height="270"
               />
@@ -1108,7 +1108,7 @@ onUnmounted(() => {
             <section class="panel">
               <div class="panel-heading">
                 <div>
-                  <h2>让助手开始工作</h2>
+                  <h2>从这里开始</h2>
                   <p>完成这几步，建立第一个工作闭环。</p>
                 </div>
                 <span class="progress-pill">{{ setupProgress }} / 3</span>
@@ -1122,7 +1122,7 @@ onUnmounted(() => {
                       :size="16"
                     /><template v-else>01</template></span
                   ><span
-                    ><strong>连接 AI 模型</strong
+                    ><strong>连接模型</strong
                     ><small>填写模型地址、名称与 API Key</small></span
                   ><Icon name="chevron" :size="18" /></button
                 ><button @click="navigate('logs')">
@@ -1148,7 +1148,7 @@ onUnmounted(() => {
                       :size="16"
                     /><template v-else>03</template></span
                   ><span
-                    ><strong>接入 QQ 机器人</strong
+                    ><strong>接入 QQ</strong
                     ><small>配置 App ID、凭证与连接方式</small></span
                   ><Icon name="chevron" :size="18" />
                 </button>
@@ -1663,7 +1663,7 @@ onUnmounted(() => {
           <PluginFactoryPanel @unauthorized="expireSession" />
         </section>
         <footer class="page-footer">
-          <span>DSH · 你的助手，你来掌控</span
+          <span>DSH · 你的日常，由你安排</span
           ><span title="前端构建提交"
             >Web {{ frontendBuild.slice(0, 10) }} · Rust 服务</span
           >

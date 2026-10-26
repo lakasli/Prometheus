@@ -370,7 +370,7 @@ onUnmounted(() => {
       >
         <h3>重建“{{ selectedTitle }}”的派生摘要？</h3>
         <p>
-          清除当前派生摘要，下次普通消息时重建，原始消息保留。此操作不会遗忘原始消息，也不会清除助手记忆库中的独立记忆。
+          清除当前派生摘要，下次普通消息时重建，原始消息保留。此操作不会遗忘原始消息，也不会清除记忆库中的独立记忆。
         </p>
         <p v-if="view.summary" class="summary-content">
           {{ view.summary.content }}

@@ -175,7 +175,7 @@ describe("independent explicit image analysis", () => {
     expect(wrapper!.text()).toContain("发送至 DeepSeek");
     expect(wrapper!.text()).toContain("结果最多保留 24 小时");
     expect(wrapper!.text()).toContain("原数据库/WAL及离线备份采用独立保留策略");
-    expect(wrapper!.text()).toContain("不自动接入普通聊天或助手记忆");
+    expect(wrapper!.text()).toContain("不自动接入普通聊天或记忆");
     expect(
       wrapper!.get('img[alt="待发送 PNG 的本地预览"]').attributes("src"),
     ).toBe("blob:synthetic-1");

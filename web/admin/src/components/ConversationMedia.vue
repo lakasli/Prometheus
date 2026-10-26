@@ -115,7 +115,7 @@ async function upload(event: Event) {
     if (token !== epoch) return;
     assets.value = [asset, ...assets.value];
     notice.value =
-      "已保存到当前会话；在消息中要求助手回发即可，尚未发送到聊天平台。";
+      "已保存到当前会话；在消息中明确要求回发即可，尚未发送到聊天平台。";
   } catch (cause) {
     if (token === epoch && !pending.signal.aborted) failed(cause);
   } finally {

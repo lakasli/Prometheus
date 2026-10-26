@@ -574,7 +574,7 @@ onUnmounted(() => {
     <div class="panel-heading image-analysis-heading">
       <div>
         <h2>图片分析</h2>
-        <p>独立工作台，不自动接入普通聊天或助手记忆。</p>
+        <p>独立工作台，不自动接入普通聊天或记忆。</p>
       </div>
       <button
         type="button"

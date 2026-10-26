@@ -117,7 +117,7 @@ describe("assistant memory management", () => {
     });
     await flushPromises();
     expect(wrapper!.text()).toContain(
-      "记忆属于助手，不随渠道、会话或角色卡版本丢失",
+      "记忆不会因渠道、会话或性格版本变化而丢失",
     );
     expect(wrapper!.get("code").attributes("title")).toBe(item.assistant_id);
     expect(wrapper!.text()).toContain("message-1");
@@ -212,7 +212,7 @@ describe("assistant memory management", () => {
     await form.get("textarea").setValue("可公开使用的项目事实");
     await selectValue(form.findAll('[role="combobox"]')[0]!, "shared");
     await form.trigger("submit");
-    expect(wrapper!.text()).toContain("请明确确认允许助手在所有渠道使用");
+    expect(wrapper!.text()).toContain("请明确确认允许在所有渠道使用");
     expect(
       fetch.mock.calls.filter(([, options]) => options?.method === "POST"),
     ).toHaveLength(0);

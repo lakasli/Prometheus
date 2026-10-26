@@ -370,7 +370,7 @@ test("memory candidate browser fixtures require explicit sources and private rev
     });
   });
 
-  await page.getByRole("button", { name: "助手记忆", exact: true }).click();
+  await page.getByRole("button", { name: "记忆", exact: true }).click();
   const panel = page.getByRole("region", { name: "记忆候选审核", exact: true });
   const selector = panel.getByLabel("提取来源会话", { exact: true });
   await selector.click();

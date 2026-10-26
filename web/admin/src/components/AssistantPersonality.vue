@@ -32,14 +32,14 @@ const emit = defineEmits<{
 const fields = [
   {
     key: "description",
-    label: "身份与背景",
+    label: "个人简介",
     limit: 8000,
     rows: 4,
-    hint: "助手的身份、背景与职责。",
+    hint: "她的名字、来历，以及你希望了解的她。",
   },
   {
     key: "personality",
-    label: "稳定性格",
+    label: "性情与脾气",
     limit: 4000,
     rows: 4,
     hint: "贯穿所有对话的性格、语气与表达习惯。",
@@ -49,14 +49,14 @@ const fields = [
     label: "相处情境",
     limit: 4000,
     rows: 3,
-    hint: "助手与用户的关系和日常情境。",
+    hint: "彼此如何相处，以及日常交流的情境。",
   },
   {
     key: "system_prompt",
-    label: "系统提示词",
+    label: "相处约定",
     limit: 8000,
     rows: 5,
-    hint: "行为要求与边界。性格设置不会授予工具权限。",
+    hint: "表达习惯与相处分寸。修改这些内容不会改变已授予的权限。",
   },
   {
     key: "mes_example",
@@ -133,7 +133,7 @@ async function request(save = false) {
       emit("unauthorized");
     conflict.value = caught instanceof ApiError && caught.status === 409;
     error.value = conflict.value
-      ? "助手性格已被更新。你的修改仍保留，请复制所需内容后重新载入并合并。"
+      ? "性格已被更新。你的修改仍保留，请复制所需内容后重新载入并合并。"
       : errorMessage(caught);
   } finally {
     if (!disposed) loading.value = false;
@@ -193,22 +193,22 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="panel personality-panel" aria-label="助手性格">
+  <section class="panel personality-panel" aria-label="她的性格">
     <div class="panel-heading">
       <div>
-        <h2>助手性格</h2>
-        <p>一位助手，一种性格。统一用于各渠道、会话和触发任务。</p>
+        <h2>她的性格</h2>
+        <p>在这里写下她的性情、说话方式与相处习惯。</p>
       </div>
       <span v-if="state" class="badge green">已生效 v{{ state.revision }}</span>
     </div>
     <p v-if="error" class="runtime-error" role="alert">{{ error }}</p>
     <p v-if="notice" class="runtime-notice" role="status">{{ notice }}</p>
     <p v-if="!state && loading" class="muted" role="status">
-      正在载入助手性格…
+      正在载入性格…
     </p>
     <form v-if="state" @submit.prevent="request(true)">
       <label class="field"
-        ><span>助手名称</span
+        ><span>姓名</span
         ><input
           v-model="edited.name"
           maxlength="64"

@@ -48,9 +48,12 @@ pub struct QqConfig {
 
 impl Default for AssistantConfig {
     fn default() -> Self {
+        let card = crate::character::built_in_personality_card();
         Self {
-            name: "DSH".into(),
-            system_prompt: "你是 DSH，一个清晰、可靠的中文 AI 助手。".into(),
+            name: card["data"]["name"].as_str().unwrap().into(),
+            system_prompt: crate::character::compile(&card, "用户")
+                .expect("bundled personality must compile")
+                .0,
             max_concurrent_runs: 2,
             timeout_seconds: 120,
         }

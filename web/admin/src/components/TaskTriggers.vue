@@ -710,7 +710,7 @@ defineExpose({ hasUnsaved });
       <div class="panel-heading">
         <div>
           <h2>触发任务</h2>
-          <p>设置规则，让助手适时处理任务。</p>
+          <p>设置规则，在合适的时间处理任务。</p>
         </div>
         <span class="badge neutral">{{ total }}</span>
       </div>
@@ -1059,12 +1059,12 @@ defineExpose({ hasUnsaved });
             ><span>任务动作</span
             ><select v-model="form.action.type" @change="changeAction">
               <option value="notify">固定提醒（不调用模型）</option>
-              <option value="assistant_run">助手执行（调用模型）</option>
+              <option value="assistant_run">按要求处理（调用模型）</option>
             </select></label
           >
           <label class="field"
             ><span id="trigger-action-label">{{
-              isModel ? "助手执行要求" : "固定提醒内容"
+              isModel ? "处理要求" : "固定提醒内容"
             }}</span
             ><textarea
               v-model="actionText"

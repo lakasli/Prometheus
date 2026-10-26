@@ -19,7 +19,7 @@ fn published_persona(
 ) -> anyhow::Result<Option<StaticSnapshot>> {
     ensure!(
         action["persona"]["mode"] == "instance_snapshot",
-        "本助手不再支持任务角色切换，请使用当前助手性格"
+        "不再支持为任务切换角色，请使用当前性格"
     );
     Ok(Some(character::freeze_personality(
         db, revision, config, user,
