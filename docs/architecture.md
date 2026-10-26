@@ -1,6 +1,6 @@
 # DSH 项目架构设计
 
-> 设计版本：0.12；资料核实日期：2026-10-25；状态：完整目标架构。用户本次确认以现有Ubuntu为正式部署基线，图片理解接入普通对话，阶段原型归开发诊断。本轮Web单PNG对话与入口调整已部署并通过 [独立验收](conversation-images-validation.md)；此前M0/M1、角色卡、记忆、摘要、候选、受限微信文字适配和独立PNG底层的实测范围以各 [历史验证记录](long-run-progress.md) 为准，不由本文更新扩张。真实微信扫码与收发、完整M4 / M5仍未验收。
+> 设计版本：0.13；产品决策更新日期：2026-10-26；状态：完整目标架构。现有Ubuntu仍为正式部署基线。当前管理页采用单一助手性格与只读运行日志，删除多角色切换、Web 对话工作台和“任务与诊断”入口，见 [当前契约](assistant-runtime-logs.md)。历史Web单PNG对话与原型入口调整曾通过 [独立验收](conversation-images-validation.md)；此前M0/M1、角色卡、记忆、摘要、候选、受限微信文字适配和独立PNG底层的实测范围以各 [历史验证记录](long-run-progress.md) 为准，不由本文更新扩张。本轮发布状态见 [验收记录](assistant-runtime-logs-validation.md)。真实微信扫码与收发、完整M4 / M5仍未验收。
 
 ## 1. 项目目标与范围
 
@@ -124,7 +124,7 @@ flowchart TB
 | `dsh-ingress` | Inbox、去重、游标、回调快速响应 | 等待模型完成后才响应回调 |
 | `dsh-session` | 会话键、排队、Run 状态、取消和超时 | 第二套 Harness 内部推理循环 |
 | `dsh-agent` | AgentBackend 接口、NativeBackend | 平台专属消息发送 |
-| `CharacterService / PromptCompiler` | 角色卡草稿、版本、绑定、导入转换与人格投影；首期在dshd内实现 | 模型凭证、用户长期记忆、插件授权或显示模型运行时 |
+| `CharacterService / PromptCompiler` | 单一助手性格、历史版本恢复与入队人格投影；旧角色卡、草稿和绑定仅保留历史读取，写入与选择接口停用 | 模型凭证、用户长期记忆、插件授权或显示模型运行时 |
 | `dsh-harness` | ACP、worker 池、协议适配、权限请求 | 把用户输入拼接为启动命令 |
 | `dsh-tools` | 工具目录、授权、幂等、预算、MCP 桥 | 信任模型自行声明权限 |
 | `dsh-memory` | 写入、检索、摘要、纠正、遗忘 | 默认跨用户共享私人记忆 |
@@ -452,7 +452,7 @@ tool call
 
 同一任务不把附件发给多个云 provider 竞速，除非用户策略明确允许。对私密附件可限定本地模型；provider 切换不能静默改变数据出域策略。
 
-本轮按图像理解目标接入Web普通对话：单张受限PNG经Rust校验、解码和去元数据后，由固定DeepSeek-flash VisionProvider生成有来源的视觉描述，再作为不可信的user-role资料交给当前Native文本模型，结合冻结的人格与会话上下文回答。文本模型不得声称直接看到了原图；回复标明`vision_description`来源。图片Run不进入自动摘要或记忆候选，视觉描述按来源会话 / owner / 遗忘水位过滤。原始上传文件不落盘，处理期间仍会暂存规范PNG的私有BLOB，视觉完成即清图；描述在成功会话中保留为来源，更正 / 遗忘时失效。实现与验收边界见 [图片对话契约](image-analysis.md) 和 [本轮记录](conversation-images-validation.md)；仅Web单PNG已验证，不扩展为完整M4。
+历史Web单PNG对话切片曾按图像理解目标接入普通对话；2026-10-26 起该管理页改为只读日志，相关后端保留。该切片中，单张受限PNG经Rust校验、解码和去元数据后，由固定DeepSeek-flash VisionProvider生成有来源的视觉描述，再作为不可信的user-role资料交给当前Native文本模型，结合冻结的人格与会话上下文回答。文本模型不得声称直接看到了原图；回复标明`vision_description`来源。图片Run不进入自动摘要或记忆候选，视觉描述按来源会话 / owner / 遗忘水位过滤。原始上传文件不落盘，处理期间仍会暂存规范PNG的私有BLOB，视觉完成即清图；描述在成功会话中保留为来源，更正 / 遗忘时失效。实现与验收边界见 [图片对话契约](image-analysis.md) 和 [历史图片对话记录](conversation-images-validation.md)；该记录仅验证当时Web单PNG流程，不代表当前仍提供Web对话入口，也不扩展为完整M4。
 
 此前独立PNG分析保留为已发布的底层 / 诊断兼容接口，其历史结果保留策略不替代会话来源规则；不再作为独立产品主导航。首期图片对话不扩展QQ / 微信媒体、音频、ASR / TTS、角色草稿测试或完整附件服务，不能因此标记M4完成。
 
@@ -576,7 +576,7 @@ Wasmtime 内存限额、fuel / epoch、总调用期限和输出上限共同使�
 2026-10-25本轮新增真实Rust模板、`dsh:plugin@1.0.0` WIT Component、Wasmtime 36.0.19与独立Landlock / seccomp工作器，生成、测试、摘要审批、激活与回滚分别进行。当前只开放空权限无状态JSON工具，显式聊天调用按当前owner隔离；完整受控host imports / broker和模型自主工具循环保留为本章目标，不将此纵切称为完整M5。实现与验证命令见 [工厂契约](plugin-factory.md)，实际Linux隔离、构建、真实模型和运行SHA以独立验收记录为准。
 
 
-已有WAT / Wasmi纯整数原型仅在“任务与诊断 → 开发诊断”默认折叠区域保留，用于检查无导入guest VM、制品哈希、显式测试和审批。它只支持`calc(i32,i32)->i32`，未实现本章的Rust模板、WIT Component、受控host imports、工具注册、激活与完整回滚；不能称为M5插件工厂，也不替代第11.4节的长期选型。当前同用户资源限额不证明M3宿主隔离；权限桥维持不可用。原型的历史范围见 [开发诊断说明](wasm-workbench.md)，入口重定位已通过 [本轮验收](conversation-images-validation.md)。
+已有WAT / Wasmi纯整数原型保留受原权限约束的后台实验API，用于检查无导入guest VM、制品哈希、显式测试和审批。2026-10-26 起删除“任务与诊断”页，不再提供该原型的管理页入口。它只支持`calc(i32,i32)->i32`，未实现本章的Rust模板、WIT Component、受控host imports、工具注册、激活与完整回滚；不能称为M5插件工厂，也不替代第11.4节的长期选型。当前同用户资源限额不证明M3宿主隔离；权限桥维持不可用。原型的历史范围见 [开发诊断说明](wasm-workbench.md)，旧入口重定位曾通过 [历史验收](conversation-images-validation.md)，当前入口移除以 [单助手与运行日志](assistant-runtime-logs.md) 为准。
 
 ## 12. 持久化与一致性
 

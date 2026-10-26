@@ -9,6 +9,7 @@
 - 日志覆盖输入 / 输出、实际模型请求上下文、Run 状态、工具 / 插件工作、图片、Piper、投递、记忆作业及管理事件。支持筛选 / 逆序游标分页与详情展开，30 天 / 20,000 条事件限额。
 - 正文引用原始数据而非复制；记忆水位 / 快照清理后不从日志恢复正文。认证与 Web owner 隔离，实例管理员可读渠道日志，响应 no-store，已配置凭证脱敏。
 - 工具与 TTS 记录操作 ID、状态、长度 / 摘要及错误码，不保存原始语音正文或工具正文副本。ASR / subagent 尚未实现，页面显示未接入，不生成虚构成功事件。
+- 首次升级从现存 Run、消息、模型快照与语音制品统一按时间导入历史观察；不补造以前没有记录的工具起止、语音失败或其他事件。新事件由同事务触发器和实际调用路径持续记录。
 - 旧 WAT 与独立图片诊断不再提供管理页入口，后台原权限边界保留；正式插件工厂、任务触发与记忆管理继续保留。
 
 ## 本地检查
@@ -38,4 +39,31 @@
 
 目标已核验：`campanus@192.168.189.191`，Raspberry Pi 5 Model B Rev 1.1、8GB、Ubuntu 24.04.4 LTS / aarch64，Rust / Cargo 1.88.0。部署前目录归属 campanus，repo origin 匹配且工作区干净；此前可用版本 `ad9c13082f511a309db0124ddfffefad540b8ecc`。
 
-正式发布证据待固定 SHA 部署及远端测试完成后补入，不能把本节准备状态当成部署通过。真实配置 / 数据保持独立，部署脚本在切换前备份 SQLite。已保存单性格后回退旧程序须经过 `single_assistant_personality` 兼容检查；数据恢复与代码回退分开，不通过删除用户性格来绕过检查。
+正式运行 SHA 为 `6b9b5dae0eacdf8e448ea4403ba0c8c48eda6337`，2026-10-26 09:43（+08:00）完成切换；09:46 复核 systemd active、health ready，源码 HEAD、前端 release.json 与健康接口 SHA 完全一致。部署命令退出 0，发布构建耗时 8 分 16 秒；[部署证据](validation/assistant-logs-deployment-6b9b5da-aarch64.json)记录版本、摘要、备份与数据计数。
+
+```sh
+DSH_BUILD_JOBS=1 DSH_CARGO_MIRROR=rsproxy bash /home/campanus/.cache/dsh/deploy.sh \
+  6b9b5dae0eacdf8e448ea4403ba0c8c48eda6337 \
+  /home/campanus/.cache/dsh/admin-6b9b5dae0eacdf8e448ea4403ba0c8c48eda6337.tar.gz \
+  efb788ce0ada4790f295002f5144c6cd617606e6e94f8b83461b09bc2ba87ff4
+```
+
+正式二进制 SHA-256 为 `927dea8423b14affa374839000dd9ad4b8547809c567860b293eaad274a4d45b`。测试 / 构建日志分别为 `shared/logs/test-<完整SHA>.log`、`shared/logs/build-<完整SHA>.log`，Linux 全量 **274 daemon + 4 kernel** 全部通过。私有备份为 `shared/backups/pre-<完整SHA>-20261026T014335396141568.sqlite`。
+
+以下命令都使用当前发布二进制与 web 目录，并输出独立 JSON 到 `shared/logs/`；全部退出 0。每次启动独立临时数据，不在生产数据库批准插件或修改性格。
+
+| 远端脚本 / 主要参数 | 结果 |
+| --- | --- |
+| `python3 current/source/tools/assistant-logs-smoke.py --binary current/bin/dshd --web-dir current/web --report shared/logs/assistant-logs-6b9b5da.json` | [19 项通过](validation/assistant-logs-6b9b5da-aarch64.json) |
+| 同样参数运行 `task-triggers-smoke.py`，report 为 `assistant-logs-triggers-6b9b5da.json` | [27 项通过](validation/assistant-logs-triggers-6b9b5da-aarch64.json) |
+| 同样参数运行 `replies-smoke.py`，report 为 `assistant-logs-replies-6b9b5da.json` | [13 项通过](validation/assistant-logs-replies-6b9b5da-aarch64.json) |
+| `speech-smoke.py` 另加 `--runtime-root /home/campanus/apps/dsh/shared/speech/piper-1.8.0`，report 为 `assistant-logs-piper-6b9b5da.json` | [18 项通过](validation/assistant-logs-piper-6b9b5da-aarch64.json)，真实本地 Piper 与成功 / 失败日志 |
+| 同样参数运行 `plugin-factory-smoke.py`，report 为 `assistant-logs-plugins-6b9b5da.json` | [20 项通过](validation/assistant-logs-plugins-6b9b5da-aarch64.json)，32 个独立隔离 worker、真实编译 / Component 执行与关联 Run 的工具起止日志 |
+
+本次 Piper 合成耗时 4,665 ms，生成 3,413 ms / 150,572 字节 / 22,050 Hz 单声道 WAV；没有把超时进程夹具当成真实语音性能。插件自动批准仅发生在临时合成管理员，生产插件未新增批准；模型返回受控模拟内容，真实 Rust 编译和 Wasmtime 执行与模型模拟分开。
+
+实际认证 Edge 刷新后，页脚显示 `Web 6b9b5dae0e`；“角色卡”“对话工作台”“任务与诊断”均不在导航。“助手与模型”显示单一性格，沿用原 DSH 配置 v0；未改写生产性格。“日志记录”成功载入 50 条现有历史观察并可继续分页，输入 / 输出及上下文来源可见。正式同源未认证日志 API 返回 401。详细保存 / 恢复与窄屏交互来自上述隔离浏览器场景，未在生产尝试保存或恢复。
+
+生产配置仍为 v5，部署前后均为 4 个会话、22 个 Run、43 条消息；数据计数一致，原历史保持。真实配置 / 数据保持独立，未执行生产回滚演练。已保存单性格后回退旧程序须经过 `single_assistant_personality` 兼容检查；数据恢复与代码回退分开，不通过删除用户性格来绕过检查。
+
+本轮没有新增真实外部模型请求、QQ / 微信测试消息、ASR 或 subagent 能力；不将受控 HTTP 模拟、历史真实平台记录或页面重组当作本轮真实平台联调通过。

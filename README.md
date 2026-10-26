@@ -4,14 +4,14 @@
 
 用户2026-10-24已确认现有Ubuntu为正式基线，不再要求迁移Raspberry Pi OS Lite，也不重装或改变当前主机环境。历史记录中的Lite目标及Ubuntu例外保留原事实，由本次决定取代。实际执行结果见 [M0 记录](docs/m0-validation.md) 和 [部署 / 开发流程](docs/development-workflow.md)。
 
-M0/M1原始部署与真实Harness / QQ联调已通过，历史证据见 [M0/M1验证记录](docs/m0-m1-validation.md)。后续角色卡M1.1的当前部署版本、回归与真实QQ验证独立记录在 [角色卡验收记录](docs/character-card-validation.md)，不将文档提交SHA当成运行版本。
+M0/M1原始部署与真实Harness / QQ联调已通过，历史证据见 [M0/M1验证记录](docs/m0-m1-validation.md)。历史角色卡M1.1的部署版本、回归与真实QQ验证独立记录在 [角色卡验收记录](docs/character-card-validation.md)，不将文档提交SHA当成运行版本。
 
 ## 当前功能范围
 
 - 管理员一次性初始化、密码哈希、可撤销会话、Origin / CSRF 检查。
 - Skill 管理、版本冻结和显式对话调用，默认「制作 Skill」「绘画」与「设置触发任务」；生成草稿经审核保存，绘画按已配置能力走原生 PNG 或隔离 HTML / SVG。契约与验证边界见 [Skill 说明](docs/skills.md)。
 - 模型与 QQ 配置、受限密钥存储、配置草稿 / 校验 / 连接测试 / 版本应用 / 回退。
-- 浏览器和 CLI 文本对话、独立会话历史、全局最多两个活跃 Run。
+- CLI 与渠道文本对话、独立会话历史、全局最多两个活跃 Run；Web 管理页查看运行日志。
 - Rust / WIT / Wasmtime Component 插件工厂：生成函数体、隔离构建、独立测试、摘要审批、版本启用 / 回滚与显式 `/plugin` 调用。当前只开放空权限无状态工具；完整 broker 与模型自动调用循环仍按原架构推进。见 [插件工厂](docs/plugin-factory.md) 与 [实机 / 单次真实模型验收](docs/plugin-factory-validation.md)。
 - 普通对话的逐句 JSON 回复计划、1–4条上限、账号与会话持久发送间隔；图片 / 视频私有制品和按需本地 Piper 中文 TTS，富媒体优先适配 QQ C2C。契约见 [逐句与媒体](docs/structured-replies.md) 和 [Piper](docs/speech.md)，部署、真实 QQ 客户端和未测范围见 [本轮验收](docs/voice-plugins-validation.md)。
 - QQ 当前官方非群 API 固定白名单管理、参数校验、只读探针及逐项结果状态。见 [范围与文档](docs/qq-non-group-api.md)；协议模拟覆盖不等同于账号获权或真实平台操作通过。
@@ -29,7 +29,7 @@ M0/M1原始部署与真实Harness / QQ联调已通过，历史证据见 [M0/M1�
 
 ACP 通知属于已提交的语义输出，不承诺模型 token 流。M0 在途取消由临时回环 HTTP 代理确认真实上游请求仍未完成，再经私有 IPC 触发 ACP cancel；不以排队成功或已经结束的文本输出作为取消证据。代理不记录凭证、请求或回复正文。
 
-后台自动事实抽取、微信真实平台收发验收、微信渠道媒体、ASR、完整插件工厂和Harness工具桥仍待交付；Piper与QQ富媒体本轮实现及验收单独记录；Web单PNG图片对话已部署并通过本轮验收，但不代表完整M4。WAT开发诊断原型不代表M5，现有记忆与微信切片也不代表M2全部完成。后续按 [架构文档](docs/architecture.md) 的功能与信息架构推进，重大偏离先说明并由用户确认，不改写目标来迁就原型。
+后台自动事实抽取、微信真实平台收发验收、微信渠道媒体、ASR、完整插件工厂和Harness工具桥仍待交付；Piper与QQ富媒体本轮实现及验收单独记录；历史Web单PNG图片对话曾部署并通过独立验收，当前管理页已改为日志；相关后端保留，不代表完整M4。WAT开发诊断原型不代表M5，现有记忆与微信切片也不代表M2全部完成。后续按 [架构文档](docs/architecture.md) 的功能与信息架构推进，重大偏离先说明并由用户确认，不改写目标来迁就原型。
 
 「任务触发」已实现正式管理 tab、持久调度与默认 [设置触发任务 Skill](docs/skills/task-trigger-setup.md)：一次性时刻 / 启用后秒延迟、固定秒间隔、日历日期、中国工作日 / 休息日，以及本人交互 Run 完成 / 失败与服务启动事件。模型仅生成待审核草稿，保存停用后须预演并明确启用；固定提醒或隔离助手任务的结果保存在认证 Web 页面。当前内置已核验的 2026 年中国日历，未知年份阻断，不发送 QQ / 微信主动消息或接受外部 webhook。契约见 [详细设计](docs/task-triggers.md) 和 [Schema](docs/schemas/dsh-task-trigger-v1.schema.json)，本地检查及正式部署状态见 [运行验收](docs/task-triggers-validation.md)；先前 [静态验证](docs/task-triggers-design-validation.md) 仅为历史设计证据。
 
@@ -64,7 +64,7 @@ npm.cmd test --prefix web/admin
 npm.cmd run build --prefix web/admin
 cargo test --workspace --locked
 python -S tools/smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
-python -S tools/character-smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
+python -S tools/assistant-logs-smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
 python -S tools/memory-smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
 python -S tools/summary-smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
 python -S tools/task-triggers-smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist

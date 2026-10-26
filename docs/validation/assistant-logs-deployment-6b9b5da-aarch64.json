@@ -1,0 +1,78 @@
+{
+  "commit": "6b9b5dae0eacdf8e448ea4403ba0c8c48eda6337",
+  "checked_at": "2026-10-26T09:46:13.993221+08:00",
+  "host": "campanus@192.168.189.191",
+  "architecture": "aarch64",
+  "service": "active",
+  "health": {
+    "commit": "6b9b5dae0eacdf8e448ea4403ba0c8c48eda6337",
+    "status": "ready"
+  },
+  "source_sha": "6b9b5dae0eacdf8e448ea4403ba0c8c48eda6337",
+  "frontend": {
+    "commit": "6b9b5dae0eacdf8e448ea4403ba0c8c48eda6337",
+    "api_version": 1
+  },
+  "binary_sha256": "927dea8423b14affa374839000dd9ad4b8547809c567860b293eaad274a4d45b",
+  "web_archive_sha256": "efb788ce0ada4790f295002f5144c6cd617606e6e94f8b83461b09bc2ba87ff4",
+  "previous_sha": "ad9c13082f511a309db0124ddfffefad540b8ecc",
+  "configuration_revision": "5",
+  "history_counts_before": {
+    "conversations": 4,
+    "runs": 22,
+    "messages": 43
+  },
+  "history_counts_after": {
+    "conversations": 4,
+    "runs": 22,
+    "messages": 43
+  },
+  "production_personality_changed": false,
+  "journal_counts": {
+    "input": 37,
+    "output": 21,
+    "run": 22
+  },
+  "anonymous_logs_http_status": 401,
+  "reports": {
+    "assistant-logs": {
+      "passed": 19,
+      "status": "passed",
+      "file": "/home/campanus/apps/dsh/shared/logs/assistant-logs-6b9b5da.json"
+    },
+    "assistant-logs-triggers": {
+      "passed": 27,
+      "status": "passed",
+      "file": "/home/campanus/apps/dsh/shared/logs/assistant-logs-triggers-6b9b5da.json"
+    },
+    "assistant-logs-replies": {
+      "passed": 13,
+      "status": "passed",
+      "file": "/home/campanus/apps/dsh/shared/logs/assistant-logs-replies-6b9b5da.json"
+    },
+    "assistant-logs-piper": {
+      "passed": 18,
+      "status": "passed",
+      "file": "/home/campanus/apps/dsh/shared/logs/assistant-logs-piper-6b9b5da.json"
+    },
+    "assistant-logs-plugins": {
+      "passed": 20,
+      "status": "passed",
+      "file": "/home/campanus/apps/dsh/shared/logs/assistant-logs-plugins-6b9b5da.json"
+    }
+  },
+  "deployment_exit_code": 0,
+  "linux_tests": {
+    "dshd": 274,
+    "kernel": 4,
+    "failed": 0
+  },
+  "rollback_performed": false,
+  "backups": [
+    "/home/campanus/apps/dsh/shared/backups/pre-6b9b5dae0eacdf8e448ea4403ba0c8c48eda6337-20261026T014335396141568.sqlite"
+  ],
+  "real_external_model_tested": false,
+  "new_real_qq_messages_sent": false,
+  "asr_available": false,
+  "subagent_available": false
+}
