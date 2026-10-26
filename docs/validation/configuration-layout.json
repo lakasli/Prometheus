@@ -1,0 +1,156 @@
+{
+  "recorded_at": "2026-10-26T20:20:59.157511+08:00",
+  "status": "passed",
+  "host": "campanus@192.168.189.191",
+  "platform": {
+    "model": "Raspberry Pi 5 Model B Rev 1.1",
+    "os": "Ubuntu 24.04.4 LTS",
+    "arch": "aarch64",
+    "memory_total_bytes": 8318562304,
+    "memory_available_preflight_bytes": 7677677568,
+    "cargo": "1.88.0",
+    "rustc": "1.88.0",
+    "node_in_remote_shell": false
+  },
+  "deployment": {
+    "commit": "34947549085ce73b3ff49889f17c942d7a344629",
+    "deployed_at": "2026-10-26T20:14:45.405755+08:00",
+    "previous_commit": "df2539f56cfcbca7b17d29d343b3f104148c3d2a",
+    "release": "/home/campanus/apps/dsh/releases/34947549085ce73b3ff49889f17c942d7a344629",
+    "frontend_commit": "34947549085ce73b3ff49889f17c942d7a344629",
+    "source_commit": "34947549085ce73b3ff49889f17c942d7a344629",
+    "health_commit": "34947549085ce73b3ff49889f17c942d7a344629",
+    "frontend_sha256": "13bd5f8de5af716d6c83a2968348c717f279e17b8a253d98442ac341f0fc6e79",
+    "binary_sha256": "d8056155f3b4ad170269df0fb83d8e9bc31ee72ec6f976a0e259946bd01261f1",
+    "service": "dsh.service (user)",
+    "active_state": "active",
+    "sub_state": "running",
+    "restarts": 0,
+    "memory_current_sample_bytes": 8261632,
+    "rollback_executed": false,
+    "backup": {
+      "backup": "/home/campanus/apps/dsh/shared/backups/pre-34947549085ce73b3ff49889f17c942d7a344629-20261026T121443896733540.sqlite",
+      "quick_check": "ok",
+      "sha256": "14c535ebc108c3d654bb261a92e4c7f0eaedeafb9d1b102cc80e4a8f31a6a333"
+    }
+  },
+  "checks": {
+    "local_build": {
+      "exit": 0,
+      "commands": [
+        "npm.cmd run build",
+        "npm.cmd run typecheck"
+      ]
+    },
+    "local_vitest": {
+      "exit": 0,
+      "files": 24,
+      "passed": 161
+    },
+    "remote_cargo_test": {
+      "exit": 0,
+      "passed": 391,
+      "failed": 0,
+      "command": "cargo --config source.crates-io.replace-with=rsproxy-sparse --config source.rsproxy-sparse.registry=sparse+https://rsproxy.cn/index/ test --workspace --locked -j 1"
+    },
+    "remote_build": {
+      "exit": 0,
+      "profile": "release",
+      "jobs": 1,
+      "duration_seconds": 558
+    },
+    "health_live": "ok",
+    "health_ready": "ready",
+    "production_anonymous_http": {
+      "config": 401,
+      "config/revisions": 401,
+      "secrets": 401,
+      "relationships/affinity-policy": 401,
+      "schedule/resources": 401
+    }
+  },
+  "browser": {
+    "test_source_commit": "d8627e3aff53a0c678f120d0c435f16cde0449ee",
+    "application_commit": "34947549085ce73b3ff49889f17c942d7a344629",
+    "origin": "http://127.0.0.1:18422",
+    "fixture": {
+      "production_data_accessed": false,
+      "real_external_model_tested": false,
+      "binary_sha256": "d8056155f3b4ad170269df0fb83d8e9bc31ee72ec6f976a0e259946bd01261f1"
+    },
+    "configuration_layout": {
+      "exit": 0,
+      "unique_tests": 1,
+      "final_duration_seconds": 5.7,
+      "checks": [
+        "five drawers in requested order and collapsed by default",
+        "Enter and Space toggle",
+        "legacy history route maps to config",
+        "retired schedule QQ and relationship controls absent",
+        "personality excludes runtime configuration",
+        "unsaved model fields survive QQ navigation",
+        "replacement key remains password-only and absent from config history secrets metadata and browser persistence",
+        "save validate loopback connection test and apply",
+        "missing CSRF 403 and stale apply 409",
+        "affinity loads lazily and saves original parameters with confirmation",
+        "desktop 1440 and mobile 390/320 have no horizontal overflow",
+        "screenshots wait for configuration history load"
+      ]
+    },
+    "life_systems": {
+      "exit": 0,
+      "unique_tests": 1,
+      "duration_seconds": 9.0,
+      "reading_upload_inside_activity": true,
+      "approval_boundary_retained": true
+    },
+    "production_readonly": {
+      "browser": "existing authenticated Edge tab via SSH tunnel on 18419",
+      "frontend_footer": "3494754908",
+      "config_revision": 6,
+      "personality_revision": 2,
+      "personality_name": "刘嘉卉",
+      "qq_websocket": "connected",
+      "writes_performed": false
+    },
+    "fixture_stopped": true,
+    "tunnel_closed": true
+  },
+  "preservation": {
+    "before": "2026-10-26T11:52:03.289276+00:00",
+    "after": "2026-10-26T12:14:58.764682+00:00",
+    "release": "/home/campanus/apps/dsh/releases/34947549085ce73b3ff49889f17c942d7a344629",
+    "health": {
+      "commit": "34947549085ce73b3ff49889f17c942d7a344629",
+      "status": "ready"
+    },
+    "fingerprints_unchanged": true,
+    "changed_fingerprint_keys": [],
+    "count_differences": {}
+  },
+  "diagnostics": {
+    "test_log": "/home/campanus/apps/dsh/shared/logs/test-34947549085ce73b3ff49889f17c942d7a344629.log",
+    "build_log": "/home/campanus/apps/dsh/shared/logs/build-34947549085ce73b3ff49889f17c942d7a344629.log",
+    "deployment_log_local": ".local/configuration-layout/deploy.log",
+    "browser_log_remote": "/home/campanus/apps/dsh/shared/validation/configuration-3494754/fixture/daemon.log",
+    "local_intermediate_screenshots_retained": ".local/configuration-layout/screenshots",
+    "final_screenshots": ".local/configuration-layout/screenshots-final"
+  },
+  "not_tested": [
+    "new real external model calls",
+    "new real QQ/Weixin messages or client playback",
+    "new autonomous reading execution; this change reorganizes existing controls"
+  ],
+  "evidence_images": [
+    {
+      "file": "configuration-layout-desktop.png",
+      "scope": "isolated synthetic account, published application SHA",
+      "sha256": "a94e74ae21fa74890fb10371eb8cae66df19a4bd18937d286305b82bab358b83"
+    },
+    {
+      "file": "configuration-layout-mobile.png",
+      "scope": "isolated synthetic account, published application SHA",
+      "sha256": "80e7ff879d30532b44afc5e9edb03688519be5c4e50e7e7bc8f0d678b99bb39c"
+    }
+  ]
+}
