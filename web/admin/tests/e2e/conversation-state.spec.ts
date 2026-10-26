@@ -452,6 +452,11 @@ test("conversation evidence uses independent budget revisions, reviewed commitme
     (await json<{ items: unknown[] }>(page, "/schedule/autonomy-grants")).items,
   ).toEqual(beforeGrants.items);
   expect(mutations.every((route) => route.endsWith("/confirm"))).toBe(true);
+  await expect
+    .poll(() =>
+      dialog.evaluate((element) => element.contains(document.activeElement)),
+    )
+    .toBe(true);
   await screenshot(page, "01-reviewed-commitment-desktop.png");
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);

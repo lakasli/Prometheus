@@ -41,3 +41,93 @@ E06 / F06 初版仅查字符串可能将 unscheduled 当 scheduled，已加强�
 2026-10-26 23:10:07，使用部署前 `pre-468fcee400601a590e7bc4c8c573d16a7c20bca9-20261026T144449627434068.sqlite` 在私有临时目录恢复独立库：源备份 campanus / 0600，目标目录 0700、独立库 0600；quick_check 均 ok，外键违规 0，7 表数量为 4 / 92 / 0 / 0 / 0 / 0 / 0，配置 revision 7、性格与身份摘要精确一致，实际 468 reader 检查退出 0。报告 `shared/logs/recovery-468fcee.json`。未切服务、生产指针或配置，**仅为独立 SQLite 恢复检查，不是生产灾难恢复验收**。
 
 本切片的提交、推送、正式 Linux 构建、固定运行 SHA、远端回归、真实模型与新浏览器验收在完成后追加。尚未执行的项目不记通过；新状态或策略已有记录后，不能盲降至忽略其语义的 468 版本。睡眠、真实主动联系与可执行动作仍未由本切片交付。
+
+## 2026-10-27 正式发布、失败与安全回退
+
+本节追加此前待执行项目的实际结果，不改写上文当时的开发检查。正式发布提交为 `1a754b29c21171d5d718b983247712405450cdae`，目标仍为 `campanus@192.168.189.191` 的 Ubuntu / aarch64 主机。固定提交已推送后，由发布脚本在 Linux 执行 `cargo test --workspace --locked -j 1` 和 `cargo build --release --locked -p dshd -j 1`；daemon **550 项通过，389.10 秒**，kernel **4 项通过**，release 构建 **9 分 56 秒**，部署主命令退出 0。原测试、构建日志分别为 `shared/logs/test-1a754b29c21171d5d718b983247712405450cdae.log`、`shared/logs/build-1a754b29c21171d5d718b983247712405450cdae.log`。启动窗口内短暂 curl 连接拒绝保留在原部署输出，不能据此覆盖最终健康检查，也不删除该瞬态诊断。
+
+正式制品及发布后只读核对：
+
+- Linux binary SHA256：`49be9658d661f5e5432141779f1af4d45513fc2e96edfa9dff2dcb25ba0c4534`。
+- 正式前端包 `admin-1a754b29c21171d5d718b983247712405450cdae.tar.gz` SHA256：`ac65b7b0f42a41ccd02e128110aedfb1718af8a0f64ec7c5b7b327d79d1d9cfb`，远端保留于 `/home/campanus/.cache/dsh/`。其 release 元数据与源码 HEAD 均为完整 1a SHA。
+- `current`、source HEAD、前端 release、`/health/live`、`/health/ready` 和实际进程 exe 一致，源码干净，systemd active / running，服务开始于北京时间 **00:49:31**，当时 PID 1044574。记录 `shared/logs/pre-acceptance-readonly-1a754b2.json`。
+- 正式库配置 revision **7**，conversations **4**、messages **92**、memory_records **0**、diary_events **0**、diary_entries **1**、relationship_people **0**、schedule_activities **0**。日记来源策略、日程自主授权、联系许可均为 **0**，Rest 授权表尚未存在；验收后这些数量、授权和配置 revision 均未变化，记录 `shared/logs/post-acceptance-readonly-1a754b2.json`。
+
+日记条目 1 与更早的部署前数量 0 有差异，因此另行核验了元数据：该 private day 条目 revision 1、updated_at 为北京时间 **00:05:05**，早于 1a 服务启动，属于此前 468 运行时段已有行；source_count 0、observation_complete 0、generator `evidence_excerpt_v1`、status `incomplete`，diary_events 0、entry_sources 0、model_jobs 空。没有读取或记录其正文，也不把这条无来源记录称为 1a 模型采集。证据 `.local/conversation-state/diary-midnight-metadata.json`。
+
+### 固定 1a 制品的远端隔离回归
+
+每套脚本均使用该 release 的 source / binary、独立临时数据与端口，资源并行不超过两套。QQ 入站、账号、签名和回执全为合成，启用账号前先写持久 pacing fence；无真实 QQ / 微信外发。命令、时间和退出状态记录于 `shared/logs/conversation-acceptance-1a754b2-command-results.json`，汇总 `shared/logs/conversation-acceptance-1a754b2-assessed.json`。
+
+| 套件 | 实际结果 | 报告（均在 `shared/logs/`） |
+| --- | --- | --- |
+| conversation-isolation | 21 / 21，退出 0 | `conversation-isolation-1a754b2-aarch64.json` |
+| conversation-coordination | 22 / 22，退出 0 | `conversation-coordination-1a754b2-aarch64.json` |
+| diary | 9 / 9，退出 0 | `diary-1a754b2-aarch64.json` |
+| summary | 24 / 24，退出 0 | `summary-1a754b2-aarch64.json` |
+| assistant-logs | 19 / 19，退出 0；旧报告无 status 字段，按退出码和检查清单核对 | `assistant-logs-1a754b2-aarch64.json` |
+| memory | **前 10 项通过后失败，退出 1；余下 28 项未执行** | `memory-1a754b2-aarch64.json` |
+| conversation-commitments | 11 / 11，退出 0 | `conversation-commitments-1a754b2-aarch64.json` |
+| conversation-replay | 40 / 40 host case、147 / 147 host 断言，退出 0 | `conversation-replay-1a754b2-aarch64.json` |
+
+因此，六套既有回归中只有五套通过。memory 失败原因为 `memory envelope was not observed as user-role JSON data`：既有 provenance 断言要求 user-role 数据仍使用 JSON 数组，新 worker 单资料块发出了对象。原 `memory-smoke.py` 及断言未改，失败 stdout 保存在 `memory-1a754b2-stdout.log`，不能把前 10 项通过写成 38 项通过。
+
+远端 40 场景使用了 **91 次 scripted loopback 请求**；这是独立一轮，不与上文本地 90 次合并。**40 项表达全部未评估**，仍有 12 项显式未评估 host 细项、17 条 criterion 没有机器 host 检查。QQ API 调用 0、pacing fence 保留、微信未启用；这些结果只证明记录的宿主断言，未证明 40 场景语义全部合格。
+
+### 真实模型首轮：22 次调用后保留失败
+
+从固定 1a release 执行：
+
+```bash
+python3 /home/campanus/apps/dsh/releases/1a754b29c21171d5d718b983247712405450cdae/source/tools/conversation-state-live.py \
+  --binary /home/campanus/apps/dsh/releases/1a754b29c21171d5d718b983247712405450cdae/bin/dshd \
+  --web-dir /home/campanus/apps/dsh/releases/1a754b29c21171d5d718b983247712405450cdae/web \
+  --source-data-dir /home/campanus/apps/dsh/shared/data \
+  --expected-commit 1a754b29c21171d5d718b983247712405450cdae \
+  --max-real-requests 24 \
+  --report /home/campanus/apps/dsh/shared/logs/conversation-state-1a754b2-real.json
+```
+
+本轮真实只读模型配置与凭据引用，密钥只在转发器内存中使用，不落临时库或报告；未读取生产性格、记忆、对话或真实用户正文，生产库未写入。临时实例使用合成性格与来源，经 Rust 实际 worker、冻结 Prompt 和预算后转发 HTTPS；每次实际 body / messages 哈希、Run 与 lease 证据均保留。每次输出上限 1024、输入上限 96,000 字节、硬超时 60 秒、实际并发峰值 1，不自动重试。
+
+预算上限 24，实际 **reserved / forwarded / HTTP 200 均为 22**，转发失败 0；**11 / 12 host 场景通过，GROUP 失败，主命令退出 1**。群场景的首条输出是合理的两句澄清：
+
+```json
+[{"type":"text","text":"你说的“这题”是指哪一题？我这边没看到具体题目内容。","delay_ms":0}]
+```
+
+它把问句与陈述放在一个 text 对象内，1a 解析器报“每个回复对象只允许一句话”，实际 Run.failed、无 Outbox / reply parts，物理模型 lease 已结束。未执行该群场景余下两次计划调用，没有补满 24 或再次真实运行来覆盖失败。HTTP 200 不是 Run 完成，更不是表达合格。
+
+全部 **12 场景表达仍为 review_pending**，脚本没有模型自评分或语义通过结论。Agent 对合成样本的审读还指出：E05 将“未关联活动”扩大成“没有提醒或日历功能”；E06 将时间未结构化表述成“明天具体是哪一天未确定”。这些是待修的表达依据边界，不替代真人验收，也不将管理员审核当作来源同意、接收人许可或已调度证据。原报告、命令 / stdout 分别为 `shared/logs/conversation-state-1a754b2-real.json`、`conversation-state-1a754b2-real-command.json`、`conversation-state-1a754b2-real-stdout.log`；本地合成输出审读副本为 `.local/conversation-state/acceptance-1a754b2/review-samples.json`。真实 QQ / 微信发送及客户端到达均未验收，调用数为 0，pacing fence 保留。
+
+### 00:59 安全回退，未恢复数据库
+
+正式功能验收失败后，先只读核对新增 17 张状态 / 约定 / 预算表，**全部记录数为 0**，包括 source tombstones、epoch、幂等、独立策略版本及快照。使用当前 1a 的 `deploy/check-compatibility.py` 对正式数据与目标 468 source 实际检查，退出 0；没有删除新表或数据来使检查通过。预检记录 `shared/logs/rollback-preflight-1a754b2-to-468.json`。
+
+北京时间 **2026-10-27 00:59:27.599 至 00:59:28.816**，执行当前 1a 的回退脚本：
+
+```bash
+bash /home/campanus/apps/dsh/releases/1a754b29c21171d5d718b983247712405450cdae/source/deploy/rollback.sh \
+  468fcee400601a590e7bc4c8c573d16a7c20bca9
+```
+
+脚本在停止服务后再次正常核验兼容性，再切换并启动，退出 0；没有绕过 gate，也没有恢复、删除或重建生产数据库。回退后 current、干净 source HEAD、前端、live / ready、实际 process exe 全部为 `468fcee400601a590e7bc4c8c573d16a7c20bca9`，systemd active / running，PID 1050602，binary SHA256 `041c5b4fd9a8d39d6abbe0c21e3bfbf8ae6846f33cd7305cbecec44e915dabc5`。命令、时间、退出与复验见 `shared/logs/rollback-1a754b2-to-468.json`、`rollback-1a754b2-to-468-stdout.log`。这次允许代码回退的依据是新语义数据为空，不意味着以后已有状态 / 策略记录时也可盲降。
+
+## 回退后的本地修复与尚待发布项目
+
+以下均为正式 1a 失败后的本地修改或开发静态资源检查，**尚无新固定 SHA 提交、部署或真实模型复测**，不能覆盖上述原失败：
+
+- 新 text / voice 对象在未携带 asset_id / prompt 时，可把完整多句规范化为逐句计划；分句前仍限原始对象 1000 字符，分句后整轮仍最多 4 项，超出则整体失败，不截掉后半段；首项 0、后项仍受配置间隔约束。已有媒体 / 制品和绘画提案不能借分句绕过验证，recipient / URL 等未授权字段仍拒绝。
+- memory 每资料块恢复原有 **单元素 JSON 数组 envelope**，保留 user-role、版本与来源证明；没有修改原 `tools/memory-smoke.py` 的 38 项断言来适配回归。
+- 约定上下文增加只由宿主生成的能力说明：实例已有日程管理核心、本对话不会自动建活动、真实主动提醒外发仍不可用；未关联活动不等于没有日历功能。unresolved 只表示时间尚未结构化，不否定原话“明天”及已有可信锚点；未独立验证 source assent 不代表用户否认意向。管理员 review 不代替来源同意或发送许可。这些说明未扩大能力、来源范围、确认或调度权限。
+- 管理弹窗异步确认后移除焦点按钮，曾使 body 获得焦点、Esc 无法到达弹窗处理器；原浏览器失败保留 `.local/conversation-state/browser-1a-first.json`。修复后前端 **28 文件 / 187 项**、定向约定 11 项、类型检查和构建通过；开发静态包 SHA256 `818ba2008192e8df41870232202a183832b26dc0e85b327332bc89302f6354ce` 搭配固定 1a 后端，在独立临时数据执行 **1 项浏览器检查通过**，含 1440 / 390 / 320 视口，报告 `.local/conversation-state/browser-focus-dev/validation.json`。这是开发静态资源验证，**不是修复后正式固定 SHA 的前端验收**，也未访问生产数据或真实渠道。
+
+本地 `dshd-text-fix.exe` 仍标识 development，SHA256 `6ec498ce753fe1ec1cdf36f2cbf5a8a23b3ad0fe1f578e33156c374841bc589b`。新 `tools/conversation-reply-normalization-smoke.py` 运行实际 Rust 进程、签名合成 GROUP 与 scripted loopback：A 先通过真实入站建立题目，再发送原问题“这题详细点。”，原失败 text 规范化为两个完整 text，配置间隔为 `[0, 2200]`；五完整句整体失败、无 plan / Outbox，recipient / url 字段仍拒绝；A 的实际 detailed 偏好生效，同群 B 不继承，两个可信 speaker 不同。实际 HTTP 与冻结 Prompt 一致，**5 / 5 场景、35 / 35 主断言通过**，另有 4 项 A 题目准备检查，退出 0；QQ API 0、sending 0、fence 保留、微信未启用。报告 `.local/conversation-state/local-reply-normalization-text-fix-r3.json`。
+
+同一脚本用旧 development 制品 `dshd-final.exe`（SHA256 `eb7c94444eed470ef6d7951e910b551229dbf9c5ed47a787b6348ab9f3b4b8eb`）单场景复现了原 parser 错误，退出 1，报告 `local-reply-normalization-old-1a.json`；它是本地旧制品对照，不冒称重新运行正式 1a Linux binary。新脚本开发 r1 误用了不存在的 lease 表，r2 没有先准备当前题目便要求 A 的 current-topic preference 激活；修正夹具后才获得 r3 结果，原 r1 / r2 失败报告均保留，未改业务条件或降低四项 / 授权断言。
+
+使用同一个新 development binary，原 memory **38 / 38** 与 coordination **22 / 22** 均退出 0，报告 `.local/conversation-state/local-memory-text-fix.json`、`local-coordination-text-fix.json`。全部均为独立临时实例，最多两个并行，无生产数据读取、真实模型或平台请求；各轮时间、退出码、报告和 binary hash 汇总 `.local/conversation-state/local-reply-text-fix-command-results.json`。脚本 AST、`--help`、空白及 Git diff 检查通过。
+
+本地修复源码随后统一运行 `cargo test --workspace --lib --locked --quiet --target-dir D:\CodeProject\DSH\target`，daemon **555 项通过，21.43 秒，退出 0**，包括新增能力说明与分句回归；envelope 兼容性另由上述原 38 项进程验收覆盖。原始日志 `.local/conversation-state/local-text-fix-tests.log`。该结果不代替 Linux 重建、正式部署、旧套件与 40 场景重跑、新浏览器及新一轮独立真实模型预算；这些仍待新固定 SHA 后追加，当前不预记通过。原 22 次真实调用与任何后续批次分别记账，不自动重试或覆盖原报告。
+
+修复后的严格 Clippy 仍退出 **101**，48 条诊断、21 个不同的文件 / code / message 组合与既有基线一致，新增 0；未关闭 lint 或绕过检查。比较记录 `.local/conversation-state/clippy-text-fix-comparison.json`，原输出 `clippy-text-fix.jsonl` / `clippy-text-fix-stderr.log`。

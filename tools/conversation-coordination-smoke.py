@@ -177,10 +177,11 @@ def main():
                 question = 'ORIGINAL_PRIVATE_QUESTION_' + suffix
                 stale_answer = 'NEVER_DELIVERED_OLD_ASSISTANT_' + suffix
                 old = hold(h, signer, mock, user, question, stale_answer)
-                # Deliberately invalid for a published text item (two sentences).
+                # Deliberately exceeds the published four-item budget even
+                # when a compatible text paragraph is normalized into sentences.
                 # Once suppressed, the raw generation is audit-only and must
                 # not enter presentation validation or media materialization.
-                mock.answers[question] = [stale_answer + '。另一个尚未发布的句子。']
+                mock.answers[question] = [stale_answer + '。另一个尚未发布的句子。第三句。第四句。第五句。']
                 before = snapshot(h, old)
                 prior_payload = copy.deepcopy(mock.for_question(question))
                 correction_text = '等等，改成明天'

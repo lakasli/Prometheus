@@ -196,7 +196,9 @@ it("reviews participants and confirms as separate versioned actions without crea
   expect(confirmed[1]?.headers).toMatchObject({ "If-Match": '"2"' });
   expect(JSON.parse(String(confirmed[1]?.body))).toEqual({ confirmed: true });
   expect(wrapper.text()).toContain("资料已审核确认");
-  expect(wrapper.text()).toContain("这是当前管理员对约定资料的审核；未核验来源发言者或接收者同意。");
+  expect(wrapper.text()).toContain(
+    "这是当前管理员对约定资料的审核；未核验来源发言者或接收者同意。",
+  );
   expect(wrapper.text()).toContain("资料确认不代表已建立日程或获得发送许可。");
   expect(wrapper.text()).not.toContain("用户已确认");
   expect(wrapper.text()).toContain("尚未调度");
@@ -351,6 +353,53 @@ it("supports escape and restores focus when the modal closes", async () => {
   wrapper.unmount();
   wrapper = undefined;
   expect(document.activeElement).toBe(previous);
+});
+
+it("keeps keyboard focus in the modal when confirmation removes the focused button", async () => {
+  const item = candidate();
+  item.subject_kind = "speaker";
+  item.counterparty_kind = "assistant";
+  setup(item);
+  const confirm = vi.fn();
+  vi.stubGlobal("confirm", confirm);
+  wrapper = mount(ConversationCommitments, { attachTo: document.body });
+  await flushPromises();
+  await wrapper.get('.commitment-check input[type="checkbox"]').setValue(true);
+  const control = button("确认约定");
+  (control.element as HTMLButtonElement).focus();
+  expect(document.activeElement).toBe(control.element);
+  await control.trigger("click");
+  await flushPromises();
+  const modal = wrapper.get('[role="dialog"]').element;
+  expect(control.element.isConnected).toBe(false);
+  expect(modal.contains(document.activeElement)).toBe(true);
+  document.activeElement!.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+  );
+  expect(wrapper.emitted("close")).toHaveLength(1);
+  expect(confirm).not.toHaveBeenCalled();
+});
+
+it("still requires confirmation to discard unsaved participant edits on Escape", async () => {
+  setup();
+  const confirm = vi.fn().mockReturnValue(false);
+  vi.stubGlobal("confirm", confirm);
+  wrapper = mount(ConversationCommitments, { attachTo: document.body });
+  await flushPromises();
+  const control = wrapper.get('[aria-label="履行主体"]');
+  await control.setValue("speaker");
+  (control.element as HTMLSelectElement).focus();
+  document.activeElement!.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+  );
+  expect(confirm).toHaveBeenCalledWith("约定中有尚未保存的填写，确定关闭？");
+  expect(wrapper.emitted("close")).toBeUndefined();
+  expect(control.element).toHaveProperty("value", "speaker");
+  confirm.mockReturnValue(true);
+  document.activeElement!.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+  );
+  expect(wrapper.emitted("close")).toHaveLength(1);
 });
 
 it("reports source authorization expiry without making any write request", async () => {
