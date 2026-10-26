@@ -26,6 +26,8 @@
 
 当前正式为 `ad9c13082f511a309db0124ddfffefad540b8ecc`，2026-10-26 00:49（+08:00）四方版本核对一致、服务 active / ready。二进制 SHA-256 `c768a38c4196cca3383a06d24d52fb3e15094ed64e1a13cf2991b3ea90af3e7a`，前端包 `a0840ce78c5239e802a0b4b0e7dfd9f61e6b28907d1dbc37a5596af646164e03`；Linux 测试 265 + 4 全通过，release 构建 8 分 14 秒。本次保持单并发并沿用 `DSH_CARGO_MIRROR=rsproxy`；首次默认索引获取已在核实精确 Cargo PID 后停止，没有停止生产服务或切换版本，其日志另存 `test-ad9c13082f511a309db0124ddfffefad540b8ecc.index-attempt.log`。切换前备份为 `shared/backups/pre-ad9c13082f511a309db0124ddfffefad540b8ecc-20261025T164855381237361.sqlite`，上一可用 `c75b868…` 保留。
 
+2026-10-26 08:51（+08:00）最终只读复核：`systemctl --user is-active dsh.service` 为 active；当前源码 HEAD、前端 `release.json` 与 `/health/ready.commit` 仍一致为 `ad9c130…`，二进制 SHA-256 与上文一致。Git 本地 HEAD 与 origin/main 同为当时的文档提交 `01edb91b647043a20678f8b6de5b2e6af0bc4ba8`，工作区干净。QQ 客户端可见最终新视频气泡；三份主要验收文档的相对链接及 `docs/validation` JSON 静态检查通过。本段为复核记录，不改写之前各阶段的测试版本或原报告。
+
 ## 本地 Piper 与语音闭环
 
 固定 Piper 1.8.0、ONNX Runtime 1.31.0、Python 3.12 aarch64 wheel 与 `zh_CN-huayan-medium` 声音的版本及哈希，安装到用户级 `shared/speech/piper-1.8.0`。先核验缓存 wheel 和模型，再运行固定版本的 `deploy/install-piper.sh`；安装命令退出 0，日志 `shared/logs/piper-install-cached-1b0a6a4.log`。无 sudo、云 TTS 或常驻推理进程。
