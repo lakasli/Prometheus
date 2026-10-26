@@ -20,6 +20,262 @@
   --gold: #c5a56d;
   --soft-blue: #edf1fa;
 }
+.life-system {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+.life-intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.life-intro h2 {
+  font-size: 23px;
+  margin: 6px 0 8px;
+  font-weight: 600;
+}
+.life-intro p:not(.eyebrow),
+.life-meta {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.life-system button {
+  padding: 9px 14px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.life-system h3 {
+  margin-bottom: 12px;
+}
+.life-system h4 {
+  margin: 20px 0 8px;
+}
+.life-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.life-tabs button {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+.life-tabs button.active {
+  background: var(--soft-blue);
+  border-color: var(--line);
+  color: var(--indigo);
+  font-weight: 600;
+}
+.life-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.life-toolbar > label {
+  min-width: 135px;
+}
+.life-grow {
+  flex: 1;
+}
+.life-system label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.life-system .life-check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 400;
+}
+.life-check input {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.life-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+}
+.life-form > button {
+  justify-self: start;
+}
+.life-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.life-fields .wide {
+  grid-column: 1 / -1;
+}
+.life-split {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(0, 1.1fr);
+  gap: 24px;
+}
+.life-cards {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+}
+.life-system .life-card {
+  white-space: normal;
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+.life-system .life-card.selected {
+  background: #f4f6fc;
+  border-color: #8c9bc5;
+}
+.life-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 12px;
+}
+.life-card > span:not(.life-card-top) {
+  color: #53607b;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.life-card small,
+.life-evidence small {
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.life-badge {
+  display: inline-block;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: var(--soft-blue);
+  padding: 3px 7px;
+  color: var(--indigo);
+  font-size: 10px;
+  font-weight: 500;
+}
+.life-detail {
+  border-left: 1px solid var(--line);
+  padding: 4px 0 4px 24px;
+  min-width: 0;
+}
+.life-detail > .life-badge {
+  margin-top: 12px;
+}
+.life-detail details {
+  margin-top: 22px;
+}
+.life-system summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.life-prose {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.9;
+}
+.life-evidence {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+}
+.life-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.life-actions button {
+  font-size: 12px;
+}
+.life-pagination {
+  justify-content: center;
+  margin-top: 22px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.life-empty {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 40px 20px;
+  text-align: center;
+}
+.life-confirm {
+  border: 1px solid #b8c4df;
+  scroll-margin-top: 25px;
+}
+.life-confirm > p {
+  margin: 12px 0;
+}
+.life-system .notice-banner {
+  padding: 14px 18px;
+  border-radius: 10px;
+  background: #edf6f0;
+  color: #42654c;
+}
+.life-system .error-banner {
+  padding: 14px 18px;
+  border-radius: 10px;
+  background: #fff1ee;
+  color: #a24435;
+}
+.life-system .primary {
+  background: var(--indigo);
+  color: #fff;
+  border-color: var(--indigo);
+}
+.life-system .danger {
+  background: #a34339;
+  color: #fff;
+  border-color: #a34339;
+}
+@media (max-width: 900px) {
+  .life-split {
+    grid-template-columns: 1fr;
+  }
+  .life-detail {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding: 22px 0 0;
+  }
+  .life-fields {
+    grid-template-columns: 1fr;
+  }
+  .life-intro {
+    align-items: start;
+  }
+  .life-intro h2 {
+    font-size: 20px;
+  }
+}
+@media (max-width: 540px) {
+  .life-toolbar > label {
+    width: 100%;
+    min-width: 0;
+  }
+  .life-toolbar > button {
+    flex: 1;
+  }
+}
 .chat-character-choice {
   display: grid;
   gap: 8px;

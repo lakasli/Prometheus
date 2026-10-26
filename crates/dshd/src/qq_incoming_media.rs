@@ -887,7 +887,19 @@ mod tests {
         cancel.cancel();
         worker.await.unwrap();
         provider.abort();
-        assert_eq!(status, "completed");
+        let failure = state
+            .db(|db| {
+                Ok(
+                    db.query_row("SELECT error FROM runs WHERE id=?1", [&run], |r| {
+                        r.get::<_, Option<String>>(0)
+                    })?,
+                )
+            })
+            .unwrap();
+        assert_eq!(
+            status, "completed",
+            "synthetic caption failure: {failure:?}"
+        );
         let observed = requests.lock().unwrap();
         assert_eq!(observed.len(), 1);
         let prompt = observed[0].to_string();

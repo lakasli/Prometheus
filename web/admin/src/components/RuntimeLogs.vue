@@ -24,6 +24,9 @@ interface LogPage {
 }
 const emit = defineEmits<{ unauthorized: [] }>();
 const kindLabels: Record<string, string> = {
+  diary: "日记整理",
+  relationships: "人物与关系",
+  schedule: "日程执行",
   input: "输入",
   output: "输出",
   run: "运行状态",

@@ -40,6 +40,25 @@ class CompatibilityTests(unittest.TestCase):
     def test_legacy_database_can_use_legacy_release(self):
         compatibility.check(self.data, self.release)
 
+    def test_knowledge_and_schedule_state_requires_its_reader(self):
+        for feature, table in (("diary", "diary_events"),
+                               ("relationships", "relationship_people"),
+                               ("schedule", "schedule_activities")):
+            with self.subTest(feature=feature):
+                with connect(self.data / "dsh.db") as db:
+                    db.execute(f"CREATE TABLE {table}(id TEXT)")
+                compatibility.check(self.data, self.release)
+                with connect(self.data / "dsh.db") as db:
+                    db.execute(f"INSERT INTO {table} VALUES('tombstone')")
+                with self.assertRaisesRegex(RuntimeError, feature):
+                    compatibility.check(self.data, self.release)
+                manifest = self.release / "deploy/release-capabilities.json"
+                manifest.write_text(json.dumps({feature: 1}))
+                compatibility.check(self.data, self.release)
+                with connect(self.data / "dsh.db") as db:
+                    db.execute(f"DROP TABLE {table}")
+                manifest.unlink()
+
     def test_saved_single_personality_requires_compatible_release(self):
         with connect(self.data / "dsh.db") as db:
             db.execute("INSERT INTO settings VALUES('assistant.personality.v1','{}')")

@@ -6,9 +6,13 @@ pub mod character_api;
 pub mod character_import;
 pub mod chat_reply;
 pub mod config;
+pub mod conversation_identity;
 pub mod conversation_images;
 pub mod conversation_images_api;
 pub mod conversation_summary;
+pub mod diary;
+pub mod diary_api;
+pub mod diary_model;
 pub mod error;
 pub mod image_analysis;
 pub mod image_analysis_api;
@@ -28,9 +32,15 @@ pub mod plugin_supervisor;
 pub mod qq;
 pub mod qq_api;
 pub mod qq_media;
+pub mod relationships;
+pub mod relationships_api;
+pub mod relationships_model;
 pub mod reply_delivery;
 pub mod reply_delivery_api;
 pub mod runtime_logs;
+pub mod schedule;
+pub mod schedule_api;
+pub mod schedule_model;
 pub mod skill_drawing;
 pub mod skills;
 pub mod skills_api;
@@ -60,6 +70,8 @@ pub fn build_sha() -> &'static str {
     option_env!("DSH_BUILD_SHA").unwrap_or("development")
 }
 
+#[cfg(test)]
+mod systems_integration_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

@@ -45,6 +45,13 @@ async fn send(
     Json(body): Json<ImageBody>,
 ) -> ApiResult<Response> {
     state.db(|db| Ok(images::owned(db, &id, &admin.id)))??;
+    images::validate_input(&body.client_message_id, &body.content)?;
+    if body.image_base64.starts_with("data:") {
+        return Err(ApiError::bad(
+            "invalid_image_base64",
+            "图片必须使用不含data前缀的原始Base64",
+        ));
+    }
     let permit = crate::image_analysis_api::DECODE_SLOTS
         .try_acquire()
         .map_err(|_| {

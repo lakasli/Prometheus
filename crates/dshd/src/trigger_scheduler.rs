@@ -111,6 +111,7 @@ pub fn acknowledge(
 pub async fn run(state: AppState, cancel: CancellationToken) {
     let mut sync_check = Instant::now() - Duration::from_secs(61);
     let mut maintenance = Instant::now() - Duration::from_secs(61);
+    let mut systems_maintenance = Instant::now() - Duration::from_secs(61);
     loop {
         if cancel.is_cancelled() {
             break;
@@ -174,6 +175,45 @@ pub async fn run(state: AppState, cancel: CancellationToken) {
         if result.is_ok() {
             if trigger_store::tick(&state).is_err() {
                 tracing::warn!("trigger scheduler tick unavailable");
+            }
+            state.0.notify.notify_waiters();
+        }
+        if trusted && systems_maintenance.elapsed() >= Duration::from_secs(30) {
+            systems_maintenance = Instant::now();
+            let ready = state.db(|db| {
+                Ok(
+                    db.query_row("SELECT space_ok FROM trigger_runtime WHERE id=1", [], |r| {
+                        r.get::<_, bool>(0)
+                    })?,
+                )
+            });
+            if matches!(ready, Ok(true)) {
+                // One persistent loop, independent short transactions. A full
+                // diary period must not roll back unrelated scheduled work.
+                if state
+                    .db(|db| {
+                        let tx = db.transaction()?;
+                        crate::diary::tick_in(&tx, now())
+                            .map_err(|_| anyhow::anyhow!("diary maintenance unavailable"))?;
+                        tx.commit()?;
+                        Ok(())
+                    })
+                    .is_err()
+                {
+                    tracing::warn!("diary maintenance unavailable");
+                }
+                if state.db(|db| {
+                    let tx=db.transaction()?;
+                    let busy:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM runs WHERE run_kind IN ('model','skill_text') AND status IN ('queued','running'))",[],|r|r.get(0))?;
+                    crate::schedule::tick_in(&tx,now(),busy)?;
+                    tx.commit()?; Ok(())
+                }).is_err() { tracing::warn!("schedule maintenance unavailable"); }
+                if state
+                    .db(|db| crate::relationships::maintenance_tick(db, now()))
+                    .is_err()
+                {
+                    tracing::warn!("relationship maintenance unavailable");
+                }
             }
             state.0.notify.notify_waiters();
         }

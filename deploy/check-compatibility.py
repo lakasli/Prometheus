@@ -18,6 +18,20 @@ def check(data_dir, release_source):
         # Version 1 is additive for legacy work. A future schema requires its reader.
         if version > max(1, int(capabilities.get("schema_reader", 0))):
             raise RuntimeError("Target release cannot read this database schema")
+        # A bodyless tombstone, revoked identity, or a completed occurrence is
+        # still durable state. Older readers must not bypass its semantics.
+        for feature, feature_tables in (
+            ("diary", ("diary_events", "diary_entries", "diary_source_policies", "diary_source_revocations", "diary_model_leases")),
+            ("relationships", ("relationship_people", "relationship_assertions", "relationship_edges", "relationship_source_tombstones", "relationship_model_jobs", "relationship_identity_group_members")),
+            ("schedule", ("schedule_activities", "schedule_occurrences", "schedule_autonomy_grants", "schedule_model_budgets", "schedule_model_leases", "schedule_activity_budgets", "schedule_resources", "schedule_reading_progress", "schedule_admin_approvals")),
+        ):
+            used = any(table in tables and db.execute(f"SELECT EXISTS(SELECT 1 FROM {table})").fetchone()[0]
+                       for table in feature_tables)
+            if used and int(capabilities.get(feature, 0)) < 1:
+                raise RuntimeError(f"Target release lacks {feature} source, revision and deletion semantics")
+        if "relationship_affinity_policies" in tables and int(capabilities.get("relationships", 0)) < 1:
+            if db.execute("SELECT EXISTS(SELECT 1 FROM relationship_affinity_policies WHERE revision>1)").fetchone()[0]:
+                raise RuntimeError("Target release lacks relationships versioned affinity policy semantics")
         for table, capability in (("run_reply_plans", "structured_replies"), ("outbox_reply_parts", "structured_replies"), ("speech_assets", "local_piper_speech"), ("conversation_media_assets", "conversation_media")):
             if table in tables and db.execute(f"SELECT EXISTS(SELECT 1 FROM {table})").fetchone()[0] and int(capabilities.get(capability, 0)) < 1:
                 raise RuntimeError(f"Target release lacks {capability} authorization or delivery semantics")

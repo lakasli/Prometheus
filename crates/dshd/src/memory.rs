@@ -363,6 +363,21 @@ fn check_private_quota(db: &Connection, assistant: &str, owner: Option<&str>) ->
     Ok(())
 }
 
+fn invalidate_diary_projection(db: &Connection, id: &str) -> ApiResult<()> {
+    // Standalone legacy memory fixtures may not yet have the diary migration.
+    let present: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='diary_events')",
+            [],
+            |r| r.get(0),
+        )
+        .api()?;
+    if present {
+        crate::diary::invalidate_event_in(db, &format!("legacy:{id}"))?;
+    }
+    Ok(())
+}
+
 fn audit(db: &Connection, actor: &str, action: &str, id: &str) -> ApiResult<()> {
     db.execute(
         "INSERT INTO audit_events(actor,action,resource,created_at) VALUES(?1,?2,?3,?4)",
@@ -509,7 +524,27 @@ pub fn get_visible(db: &Connection, owner: &str, id: &str) -> ApiResult<MemoryRe
     {
         return Err(ApiError::not_found());
     }
+    if canonical_diary_present(db)? {
+        let event = crate::diary::event(db, &format!("legacy:{id}"), Some(owner))?;
+        if event.origin_type != "legacy_memory"
+            || event.origin_id != item.id
+            || event.revision != item.revision
+            || event.visibility != item.visibility.as_str()
+            || event.source_owner_id != item.source_owner_id
+        {
+            return Err(ApiError::not_found());
+        }
+    }
     Ok(item)
+}
+
+fn canonical_diary_present(db: &Connection) -> ApiResult<bool> {
+    db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='diary_events')",
+        [],
+        |r| r.get(0),
+    )
+    .api()
 }
 
 pub fn update(
@@ -582,6 +617,7 @@ fn update_record(
     let timestamp = now();
     if input.content != current.content || visibility != current.visibility {
         crate::memory_context::invalidate(tx, &assistant, id).map_err(|_| ApiError::internal())?;
+        invalidate_diary_projection(tx, id)?;
     }
     tx.execute(
         "UPDATE memory_records SET content=?1,visibility=?2,revision=revision+1,updated_at=?3,search_owner_token=?7 WHERE id=?4 AND assistant_id=?5 AND revision=?6 AND deleted_at IS NULL",
@@ -639,6 +675,7 @@ fn forget_record(
     }
     let timestamp = now();
     crate::memory_context::invalidate(tx, &assistant, id).map_err(|_| ApiError::internal())?;
+    invalidate_diary_projection(tx, id)?;
     let sequence: i64 = tx.query_row(
         "INSERT INTO memory_deletion_watermarks(assistant_id,sequence,updated_at) VALUES(?1,1,?2) ON CONFLICT(assistant_id) DO UPDATE SET sequence=sequence+1,updated_at=excluded.updated_at RETURNING sequence",
         params![assistant,timestamp], |r|r.get(0),
@@ -704,6 +741,11 @@ fn list_in(db: &Connection, owner: Option<&str>, options: &ListOptions) -> ApiRe
             " AND (m.visibility='shared' OR (m.visibility='private' AND m.source_owner_id=?{}))",
             values.len()
         ));
+        if canonical_diary_present(db)? {
+            // Apply the canonical reader before COUNT/ORDER/LIMIT. Filtering a
+            // fetched page could leak totals and hide valid later records.
+            conditions.push_str(&format!(" AND EXISTS(SELECT 1 FROM diary_events de WHERE de.id='legacy:'||m.id AND de.assistant_id=m.assistant_id AND de.origin_type='legacy_memory' AND de.origin_id=m.id AND de.revision=m.revision AND de.deleted_at IS NULL AND de.visibility=m.visibility AND de.source_owner_id IS m.source_owner_id AND (de.visibility='shared' OR de.source_owner_id=?{}) AND NOT EXISTS(SELECT 1 FROM diary_source_revocations revoked WHERE revoked.source_owner_id=de.source_owner_id AND de.rowid<=revoked.through_event_rowid))",values.len()));
+        }
     }
     if let Some(visibility) = options.visibility {
         values.push(visibility.as_str().to_string().into());
@@ -836,6 +878,9 @@ fn search_token(visibility: Visibility, owner: Option<&str>) -> String {
     }
 }
 
+#[cfg(test)]
+#[path = "memory_diary_revocation_tests.rs"]
+mod diary_revocation_tests;
 #[cfg(test)]
 #[path = "memory_tests.rs"]
 mod tests;

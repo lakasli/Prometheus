@@ -13,11 +13,13 @@ import AdminSelect from "./components/AdminSelect.vue";
 import AssistantPersonality from "./components/AssistantPersonality.vue";
 import RuntimeLogs from "./components/RuntimeLogs.vue";
 import MemoryPanel from "./components/MemoryPanel.vue";
+import DiaryPanel from "./components/DiaryPanel.vue";
+import RelationshipsPanel from "./components/RelationshipsPanel.vue";
 import ConversationSummary from "./components/ConversationSummary.vue";
 import MemoryCandidates from "./components/MemoryCandidates.vue";
 import WeixinChannel from "./components/WeixinChannel.vue";
 import SkillsPanel from "./components/SkillsPanel.vue";
-import TaskTriggers from "./components/TaskTriggers.vue";
+import SchedulePanel from "./components/SchedulePanel.vue";
 import SpeechPanel from "./components/SpeechPanel.vue";
 import QQPanel from "./components/QQPanel.vue";
 import ReplyDeliveryReview from "./components/ReplyDeliveryReview.vue";
@@ -60,8 +62,9 @@ type Page =
   | "logs"
   | "history"
   | "memory";
+type ExtendedPage = Page | "relationships";
 const navigation: {
-  id: Page;
+  id: ExtendedPage;
   icon: string;
   title: string;
   eyebrow: string;
@@ -91,9 +94,9 @@ const navigation: {
   {
     id: "triggers",
     icon: "clock",
-    title: "任务触发",
-    eyebrow: "TASK TRIGGERS",
-    description: "按日期、间隔、工作日或可信事件安排任务。",
+    title: "日程",
+    eyebrow: "SCHEDULE & PROGRESS",
+    description: "安排阅读与工作目标，看见每一步的真实进展。",
   },
   {
     id: "qq",
@@ -133,9 +136,16 @@ const navigation: {
   {
     id: "memory",
     icon: "sparkles",
-    title: "记忆",
-    eyebrow: "MEMORIES",
-    description: "保留重要的经历与约定，记得每段内容的来源。",
+    title: "日记与资料",
+    eyebrow: "DIARY & SOURCES",
+    description: "记录日常、整理经历，让每段记忆都有来源。",
+  },
+  {
+    id: "relationships",
+    icon: "channel",
+    title: "人际关系",
+    eyebrow: "PEOPLE & CONNECTIONS",
+    description: "记得每个人的不同，珍惜有来由的联系。",
   },
   {
     id: "history",
@@ -145,7 +155,7 @@ const navigation: {
     description: "追踪每次配置变化，恢复可用版本。",
   },
 ];
-const page = ref<Page>("overview");
+const page = ref<ExtendedPage>("overview");
 const activePage = computed(() =>
   navigation.find((item) => item.id === page.value)!,
 );
@@ -240,7 +250,7 @@ const personalityPanel = ref<InstanceType<typeof AssistantPersonality> | null>(
 );
 const skillsPanel = ref<InstanceType<typeof SkillsPanel> | null>(null);
 const skillDraft = ref<SkillDraft | null>(null);
-const taskTriggers = ref<InstanceType<typeof TaskTriggers> | null>(null);
+const taskTriggers = ref<InstanceType<typeof SchedulePanel> | null>(null);
 let disposed = false;
 const configuredModel = computed(() => Boolean(config.model.credential_ref));
 const configuredQq = computed(() => Boolean(config.qq.credential_ref));
@@ -395,7 +405,7 @@ function mayLeavePage() {
     return false;
   return true;
 }
-function navigate(id: Page) {
+function navigate(id: ExtendedPage) {
   if (id !== page.value && !mayLeavePage()) return;
   page.value = id;
   if (sidebarExtras.value) sidebarExtras.value.open = false;
@@ -407,11 +417,15 @@ function navigate(id: Page) {
 function readHash() {
   const requested = location.hash.slice(1);
   const mapped =
-    requested === "characters"
-      ? "assistant"
-      : ["chat", "diagnostics", "images", "wasm"].includes(requested)
-        ? "logs"
-        : requested;
+    requested === "schedule"
+      ? "triggers"
+      : requested === "diary"
+        ? "memory"
+        : requested === "characters"
+          ? "assistant"
+          : ["chat", "diagnostics", "images", "wasm"].includes(requested)
+            ? "logs"
+            : requested;
   if (!navigation.some((item) => item.id === mapped)) return;
   if (mapped !== page.value && !mayLeavePage()) {
     history.replaceState(
@@ -421,7 +435,7 @@ function readHash() {
     );
     return;
   }
-  page.value = mapped as Page;
+  page.value = mapped as ExtendedPage;
   if (mapped !== requested)
     history.replaceState(
       null,
@@ -1643,18 +1657,27 @@ onUnmounted(() => {
           @consumed="skillDraft = null"
           @unauthorized="expireSession"
         />
-        <TaskTriggers
+        <SchedulePanel
           v-if="page === 'triggers'"
           ref="taskTriggers"
           @unauthorized="expireSession"
+          @open-diary="navigate('memory')"
         />
 
         <RuntimeLogs v-if="page === 'logs'" @unauthorized="expireSession" />
         <div v-if="page === 'memory'" class="memory-page">
-          <MemoryPanel ref="memoryPanel" />
-          <MemoryCandidates @accepted="memoryPanel?.refresh()" />
-          <ConversationSummary />
+          <DiaryPanel @unauthorized="expireSession" />
+          <details class="panel">
+            <summary>历史记忆与会话摘要兼容管理</summary>
+            <MemoryPanel ref="memoryPanel" />
+            <MemoryCandidates @accepted="memoryPanel?.refresh()" />
+            <ConversationSummary />
+          </details>
         </div>
+        <RelationshipsPanel
+          v-if="page === 'relationships'"
+          @unauthorized="expireSession"
+        />
         <WeixinChannel v-if="page === 'weixin'" />
         <section v-if="page === 'speech'" class="panel">
           <SpeechPanel />

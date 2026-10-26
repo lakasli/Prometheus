@@ -135,14 +135,7 @@ pub fn owned(db: &Connection, conversation: &str, owner: &str) -> ApiResult<()> 
     }
     Ok(())
 }
-pub fn enqueue(
-    state: &AppState,
-    conversation: &str,
-    owner: &str,
-    client: &str,
-    content: &str,
-    image: CanonicalImage,
-) -> ApiResult<String> {
+pub(crate) fn validate_input(client: &str, content: &str) -> ApiResult<()> {
     if content.trim().is_empty()
         || content.len() > 16000
         || client.is_empty()
@@ -155,6 +148,17 @@ pub fn enqueue(
             "图片消息须包含普通文字问题，不能使用控制命令，正文最多16000字节",
         ));
     }
+    Ok(())
+}
+pub fn enqueue(
+    state: &AppState,
+    conversation: &str,
+    owner: &str,
+    client: &str,
+    content: &str,
+    image: CanonicalImage,
+) -> ApiResult<String> {
+    validate_input(client, content)?;
     let ready = capabilities(state)?.available;
     let result=state.db(|db| {
         let tx=db.transaction()?;

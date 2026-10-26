@@ -27,6 +27,9 @@ pub fn router(state: AppState) -> Router {
         .merge(crate::conversation_images_api::router())
         .merge(crate::skills_api::router())
         .merge(crate::trigger_api::router())
+        .merge(crate::diary_api::router())
+        .merge(crate::relationships_api::router())
+        .merge(crate::schedule_api::router())
         .merge(crate::media_assets::router())
         .merge(crate::speech_api::router())
         .merge(crate::qq_api::router())
@@ -139,6 +142,9 @@ async fn capabilities(_admin: Admin) -> Json<Value> {
         json!({"mode":"single","versioned":true,"effective_from":"next_run"});
     result.0["runtime_logs"] =
         json!({"persistent":true,"authenticated":true,"subagent":false,"asr":false});
+    result.0["diary"] = json!({"periods":["day","week","month"],"source_authorization":"explicit","model_generation":true,"source_tracing":true,"revisioned":true});
+    result.0["relationships"] = json!({"reviewed_fields":true,"directed_edges":true,"identity_confirmation":true,"contact_delivery":false});
+    result.0["schedule"] = json!({"calendar_views":["month","week","day","agenda"],"text_reading":true,"video":false,"proactive_delivery":false,"legacy_triggers":true});
     result.0["conversation_images"] = json!({"channels":["web"],"formats":["png"],"max_images":1,"max_image_bytes":1048576,"provider":"deepseek","model":"deepseek-flash","basis":"vision_description","role_vision_module":false,"draft_tests":false});
     result.0["image_analysis"]["conversation_integration"] = json!(true);
     result.0["image_analysis"]["placement"] = json!("api_only");
@@ -424,7 +430,10 @@ async fn delete_secret(
         let image_in_use=crate::image_analysis::credential_in_use(&tx,&id)?;
         let wasm_in_use=crate::wasm_workbench::credential_in_use(&tx,&id)?;
         let factory_in_use=crate::plugin_factory::references_secret(&tx,&id)?;
-        if config.model.credential_ref.as_ref()==Some(&id) || config.qq.credential_ref.as_ref()==Some(&id) || pending || weixin_in_use || candidate_in_use || image_in_use || wasm_in_use || factory_in_use {
+        let diary_in_use=crate::diary_model::credential_in_use(&tx,&id)?;
+        let schedule_in_use=crate::schedule_model::credential_in_use(&tx,&id)?;
+        let relationships_in_use=crate::relationships_model::credential_in_use(&tx,&id)?;
+        if config.model.credential_ref.as_ref()==Some(&id) || config.qq.credential_ref.as_ref()==Some(&id) || pending || weixin_in_use || candidate_in_use || image_in_use || wasm_in_use || factory_in_use || diary_in_use || schedule_in_use || relationships_in_use {
             return Ok(Err(ApiError::new(StatusCode::CONFLICT,"credential_in_use","凭据仍被配置、任务或渠道发送引用，请先停止引用再删除")));
         }
         if tx.execute("DELETE FROM secrets WHERE id=?1",[&id])?==0 {return Ok(Err(ApiError::not_found()));}

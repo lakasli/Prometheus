@@ -18,8 +18,20 @@ const MAX_EVENTS: i64 = 20_000;
 const DAYS: i64 = 30;
 const MAX_CONTENT: usize = 16_384;
 const KINDS: &[&str] = &[
-    "input", "output", "run", "tool", "tts", "asr", "subagent", "vision", "memory", "delivery",
+    "input",
+    "output",
+    "run",
+    "tool",
+    "tts",
+    "asr",
+    "subagent",
+    "vision",
+    "memory",
+    "delivery",
     "system",
+    "diary",
+    "relationships",
+    "schedule",
 ];
 
 pub fn router() -> Router<AppState> {
@@ -215,6 +227,13 @@ pub fn initialize(db: &Connection) -> anyhow::Result<()> {
         "json_object('action',NEW.action,'resource',NEW.resource)",
         false,
     )?;
+    for (table, kind, owner, status, title, details) in [
+        ("diary_entries", "diary", "coalesce(NEW.source_owner_id,'shared')", "NEW.status", "'日记整理'", "json_object('period',NEW.period,'revision',NEW.revision,'generator',NEW.generator,'source_count',NEW.source_count)"),
+        ("relationship_assertions", "relationships", "coalesce(NEW.source_owner_id,'shared')", "NEW.status", "'人物资料审核'", "json_object('revision',NEW.revision,'field',NEW.field)"),
+        ("schedule_occurrences", "schedule", "NEW.owner_id", "NEW.status", "'日程执行'", "json_object('block_reason',NEW.block_reason,'processed_chars',NEW.checkpoint)"),
+    ] {
+        trigger(db,table,kind,owner,status,"NULL","NULL",title,kind,"NEW.id",details,true)?;
+    }
     // Import existing records once as current observations, never invented transitions.
     let imported: bool = db.query_row(
         "SELECT EXISTS(SELECT 1 FROM settings WHERE key='runtime.logs.imported.v1')",
