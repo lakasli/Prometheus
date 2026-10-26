@@ -131,3 +131,67 @@ bash /home/campanus/apps/dsh/releases/1a754b29c21171d5d718b983247712405450cdae/s
 本地修复源码随后统一运行 `cargo test --workspace --lib --locked --quiet --target-dir D:\CodeProject\DSH\target`，daemon **555 项通过，21.43 秒，退出 0**，包括新增能力说明与分句回归；envelope 兼容性另由上述原 38 项进程验收覆盖。原始日志 `.local/conversation-state/local-text-fix-tests.log`。该结果不代替 Linux 重建、正式部署、旧套件与 40 场景重跑、新浏览器及新一轮独立真实模型预算；这些仍待新固定 SHA 后追加，当前不预记通过。原 22 次真实调用与任何后续批次分别记账，不自动重试或覆盖原报告。
 
 修复后的严格 Clippy 仍退出 **101**，48 条诊断、21 个不同的文件 / code / message 组合与既有基线一致，新增 0；未关闭 lint 或绕过检查。比较记录 `.local/conversation-state/clippy-text-fix-comparison.json`，原输出 `clippy-text-fix.jsonl` / `clippy-text-fix-stderr.log`。
+
+## 2026-10-27 固定 648 修复版发布与验收
+
+修复提交 `6486c48deb47b16b2bb25b7c09d47eff9bbc6569` 已提交并推送，再由同一 Ubuntu / aarch64 主机单并发构建。Linux 原始日志精确为 daemon **556 项通过，392.60 秒**，kernel **4 项通过**；release 构建 **9 分 56 秒**。分别保留 `shared/logs/test-6486c48deb47b16b2bb25b7c09d47eff9bbc6569.log`、`build-6486c48deb47b16b2bb25b7c09d47eff9bbc6569.log`，不是把本地 555 项或上轮 Linux 550 项改写为新轮结果。
+
+首个部署调用因 PowerShell CRLF 使 archive hash 参数未通过完整 SHA256 校验，报 `A complete archive SHA256 is required`，在构建和服务切换前非零退出，原记录 `.local/conversation-state/deployment-6486c48.log` 保留。修正调用参数后的 r2 使用同一已推送 SHA 与原包重新执行，archive 校验通过，部署退出 0；启动瞬态 curl 拒绝与最终 ready 均保留于 `deployment-6486c48-r2.log`，没有删去第一次错误或称其已部署成功。
+
+正式制品与运行时对应关系已核验：
+
+- Linux binary SHA256：`9c76004450cb855919ed6d013ed0093906d86e12970194fb248942fc2dcb0ab0`。
+- 正式 archive `admin-6486c48deb47b16b2bb25b7c09d47eff9bbc6569.tar.gz` SHA256：`ef8f969d35fad0a249355159c55894f6e8545fc6b2f23c40f0d1e942936d4f04`。
+- source HEAD、干净工作区、前端 release、current、live / ready 与实际进程 exe 全部匹配完整 648 SHA，PID 1080040，systemd active / running。发布核验 `shared/logs/post-deploy-6486c48.json`，验收前再次核验 `conversation-acceptance-6486c48-preflight.json`；10 个脚本 `--help` 均退出 0。预检首次误将另一个静态服务端口 8765 当成生产 health，得到 404；核对实际 ExecStart 的 8419 后完成检查，原端口假设错误记录于 preflight，不当作程序故障或隐去。
+
+### 九套隔离回归全部通过，表达边界保留
+
+全部使用固定 648 release 的 source 脚本、bin 和 web，每套独立临时库 / 端口；最多两套 mock 并行，真实模型批次开始前所有本轮 mock 均已结束。报告中的 source commit 和 binary hash 均逐套核对一致。命令、开始 / 结束时间、退出、stdout 路径汇总 `shared/logs/conversation-acceptance-6486c48-command-results.json`，结果核对 `conversation-acceptance-6486c48-assessed.json`。
+
+| 套件 | 本轮结果 | 报告（均在 `shared/logs/`） |
+| --- | --- | --- |
+| conversation-isolation | 21 / 21，退出 0 | `conversation-isolation-6486c48-aarch64.json` |
+| conversation-coordination | 22 / 22，退出 0 | `conversation-coordination-6486c48-aarch64.json` |
+| diary | 9 / 9，退出 0 | `diary-6486c48-aarch64.json` |
+| summary | 24 / 24，退出 0 | `summary-6486c48-aarch64.json` |
+| assistant-logs | 19 / 19，退出 0；按旧报告清单和退出码核验 | `assistant-logs-6486c48-aarch64.json` |
+| memory | 原断言 38 / 38，退出 0；未改旧 envelope 验收条件 | `memory-6486c48-aarch64.json` |
+| conversation-commitments | 11 / 11，退出 0 | `conversation-commitments-6486c48-aarch64.json` |
+| conversation-replay | 40 / 40 host case、147 / 147 host 断言，退出 0 | `conversation-replay-6486c48-aarch64.json` |
+| conversation-reply-normalization | 5 / 5 场景、35 / 35 主断言，另 4 项题目准备检查，退出 0 | `conversation-reply-normalization-6486c48-aarch64.json` |
+
+40 场景这轮为 **91 次 scripted loopback 请求**；40 项表达仍全部未评估，12 项 host 细项与 17 条无机器检查的 criterion 仍未评估，不因换版而补记通过。normalization 场景通过真实签名合成入站先建立 A 题目，再激活 A 的 detailed 偏好，核验同群 B 不继承；这项 active 偏好机器证据不能偷换为真实模型已经稳定遵守详略范围。QQ API 调用 0、pacing fence 保留、微信未启用，均不证明真实平台发送或客户端到达。
+
+### 真实模型第二轮：23 / 24，S05 失败仍保留
+
+使用与上轮相同 live 脚本入口，但所有 source / bin / web / `--expected-commit` 固定为完整 648 SHA，报告使用新文件 `shared/logs/conversation-state-6486c48-real.json`。本轮北京时间 **02:07:41.348 至 02:08:19.081**，命令退出 **1**；hard cap 24，实际 reserved / forwarded / HTTP 200 均为 **23**，转发失败 0、并发峰值 1、自动重试 0。仍限每次输出 1024、输入 96,000 字节，独立 HTTPS 转发 body 与 Rust 冻结 Prompt / budget 对齐；只读生产模型配置及引用凭据，临时库不存真实 key，未读生产性格、记忆、聊天或用户正文，未写生产库。命令与 stdout 分别为 `conversation-state-6486c48-real-command.json`、`conversation-state-6486c48-real-stdout.log`。
+
+结果是 **11 / 12 host 场景通过**。此前 GROUP 的 3 个 Run 本轮均 completed，原本问句与陈述共存的 text 已可规范化为两条完整句子；此处 completed 只代表宿主生成成功，队列受临时 fence 阻断，不代表 QQ 已发。新的失败是 S05 首轮 `132f79f5-4653-402c-94a1-b3deb1266e51`：真实输出为 **5 个 text 对象，第二个对象还含两句，合计 6 句**，finish_reason 为 stop，并非转发超时。它违反原每轮最多 4 项合同，宿主整体报“模型回复超过逐句消息数量限制，请缩短回答”，Run.failed、reply plan / Outbox / parts 均为 0，物理模型 lease 已回收。对应实际请求为 request_evidence ordinal 15，raw generation SHA256 `a5aed39df3cda5f2d78743eaf980afef399dd6fda086f087bdda5f5aa53347a5`，完整有界合成输出保留在原报告中。
+
+这是**正确拒绝超限输出**，不是把功能场景标为通过的理由；S05 第二题未执行，因此只发生 23 次而非 24 次。没有截断、丢句、增加每轮上限或补发一次请求来使结果变绿。本阶段两轮实际真实模型请求独立为 **22 + 23 = 45 次**，原 1a 失败报告不变、没有 retry；[首批协调阶段](conversation-coordination-validation.md) 的 **4 次**另列，不混入这 45 次，不把两阶段或未用完预算合并成通过统计。
+
+23 条实际输出已分三批做 **Agent 审读，非人工确认**，全部维持 review_pending，没有模型自评分或整组语义通过结论：
+
+- 算术 76、长原文尾标 LX-734、旅行 / 采购双焦点必要澄清、预算 200→300 后继回答、A / B 私有编号与 FTS 故障后依据当前历史回答 FS-381，样本中均与合成来源相符。
+- E05 改为“没法自动到点主动提醒”，不再把未建活动扩大为实例无日程 / 日历功能；宿主仍核验没有新约定、日程或许可。E06 明确未排期、提醒未设、此对话不自动建活动和不能主动外发，不再把 unresolved 解释成“明天究竟哪天未定”。“已确认”只能作为管理资料审核状态，不能扩大成来源或接收人同意。
+- GROUP 的 B 回答 15 简洁；但 A 换题“下一题，2加2”后仍答“详细说：2加2等于4”并补解释，表现出旧详略语气残留。宿主已无 response_preference，不是跨 speaker 权限泄漏，却仍不能称整个 GROUP 表达通过。live GROUP 未预先建立 A 题目，其 active 偏好覆盖局限仍保留。
+- F01 正常短句收尾、无新问题或订阅；F03 没编猫名且限定为本次资料未查到。但“记下了”“我就能记住称呼”等措辞存在持久性歧义，不作为长期记忆已经写入、后台采集或将来必可跨会话回忆的证据。
+
+本轮 29 个脱敏远端 JSON / log 已复制到 `.local/conversation-state/acceptance-6486c48/`，逐文件 SHA256 与远端一致，清单 `evidence-copy-manifest.json`；完整 live 副本、23 条有界 `review-samples.json` 与逐条 `agent-expression-review.json` 均在该目录，后者显式 `human_review_performed=false`、`semantic_pass_claimed=false`。没有修改原 1a / 648 报告或用 Agent 审读替代真人验收。
+
+### 固定 648 正式浏览器与生产保留核对
+
+固定 **648 正式前端与后端**，使用独立临时数据和低负载 loopback，浏览器 **1 / 1 通过，7.05 秒**，9 张截图、1440 / 390 / 320 视口，unexpected / flaky / skipped 均为 0。桌面预算与 320 约定布局经 Agent 视觉检查无横溢；这是 Agent 浏览器操作与视觉审查，不是用户本人已确认。证据 `.local/conversation-state/browser-6486c48/validation.json`、截图及 `ownership.json`。只按原 ownership 核实并停止 fixture PID 1081070、daemon PID 1081077 和本地 tunnel PID 22680，未触及生产服务；无真实模型、QQ 或生产数据访问。这次可称固定 648 前端检查，不能回写为旧 1a 正式前端已通过。
+
+生产库在验收前后以 `mode=ro`、`PRAGMA query_only` 和短只读事务核对。配置 revision **7**，数量仍为 conversations / messages / memory_records / diary_events / diary_entries / relationship_people / schedule_activities = **4 / 92 / 0 / 0 / 1 / 0 / 0**；日记来源、日程自主、联系与触发执行 grant 数量均为 0。已有 diary 条目仍是前述 **468 运行时段 00:05:05 的无来源 incomplete 行**，本轮未读取正文或产生新采集。
+
+配置、性格、稳定身份及五张策略表的 **8 个 SHA256 全部与原 pre-deploy 基准和本轮验收前值一致**。哈希口径为精确 SELECT 的 tuple rowsets，以 `json.dumps(rows, ensure_ascii=False, separators=(',', ':'))` 序列化再 SHA256，不输出配置、性格或身份值，也不重新解析内嵌 JSON。精确 SQL、哈希及比较分别保留 `shared/logs/pre-acceptance-readonly-6486c48.json`、`post-acceptance-readonly-6486c48.json`。新增 17 表仍全空；当前 648 的 compatibility gate 对 468 目标实际退出 0，但**本轮没有执行回退**。
+
+当前维持 648 healthy / active：本轮没有发现数据、来源隔离或投递边界回归，S05 超限拒绝符合原四项安全合同，因此不为这一正确拒绝进行无收益的代码回退。**功能场景 S05 及表达仍未通过完整验收**。下一步仅准备强化最终宿主回复协议的优先位置，协调“详细”偏好与四句上限；必须另行本地检查、提交推送、固定新 SHA 部署后，按独立核算的小预算运行 S05 两轮及必要回归，不能以扩大上限、自动重试或重跑 24 次覆盖本轮失败。此处只记录待办，不预记新修复、新 SHA 或后续测试已完成。
+
+
+### 648 后的最终回复协议本地检查
+
+普通对话在历史与可选性格资料之后、完整当前输入之前追加一个 required 的宿主 system block。它计入原预算，明确整轮对象和完整句总数均不超过已配置的 1–4 项，详细解题仍须在这些句子内给出完整核心过程；不截断、不扩大发送额度、不新增模型重试。临时偏好只从宿主已核验的 brief / detailed 枚举产生，缺省时不沿用另一题的详细要求；不将原始来源文字提升为 system。Skill 草稿保持原专用 Schema，不注入这份普通回复协议。
+
+实际 loopback worker 检查确认该规则以 system role 紧邻完整当前输入，且预算证据中 required / selected、字节均计入；不是仅检查静态 prompt 字符串。本地库 **556 / 556，22.18 秒，退出 0**；`cargo fmt --all --check` 与 diff 检查通过。严格 Clippy 仍退出 **101**、既有 48 条诊断，新增 0；记录 `.local/conversation-state/local-final-contract-library.log`、`clippy-final-contract-comparison.json`。这只证明协议位置、预算与原宿主回归，不能保证真实模型一定服从；新固定 SHA 和真实定向复测仍待后续记录。

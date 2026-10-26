@@ -1032,6 +1032,7 @@ fn prepare_messages(state: &AppState, item: &RunInput) -> ApiResult<Vec<Value>> 
             blocks.push(history);blocks.push(delivery);
         }
         crate::conversation_context::deduplicate_lineage_in(&tx,&mut blocks)?;
+        if selected.is_none(){blocks.push(ContextBlock::new("reply_completion_contract",BlockKind::HostPolicy,true,1000,vec![json!({"role":"system","content":crate::chat_reply::completion_contract(&item.config.reply,focus.as_ref().and_then(|f|f.response_preference.as_ref()).map(|p|p.detail.as_str()))})]));}
         blocks.push(ContextBlock::new("current_input",BlockKind::CurrentInput,true,1000,vec![current_input.ok_or_else(||anyhow::anyhow!("complete current input missing"))?]));
         let policy=crate::context_budget::policy_in(&tx,&item.config.model.model)?;
         let compiled=crate::context_budget::compile_in(&tx,&item.id,&policy,if selected.is_some(){4096}else{1024},&blocks,crate::reply_delivery::now_ms())?;

@@ -1014,3 +1014,40 @@ async fn unknown_qq_delivery_never_counts_as_a_recently_presented_memory() {
     assert_ne!(decision.reason, "recently_presented");
     assert_eq!(fixture.model.calls.load(Ordering::SeqCst), 0);
 }
+
+#[tokio::test]
+async fn detailed_request_keeps_required_reply_contract_after_history_before_complete_input() {
+    let fixture = fixture().await;
+    let source = start(
+        &fixture.state,
+        "a",
+        "我们讨论完全平方公式，之后请继续这个题目",
+    );
+    prepare_messages(&fixture.state, &source.input).unwrap();
+    settled(&fixture.state, source);
+    let input = "这题详细点，请证明 x²+2x+1=(x+1)²，保留完整核心步骤。";
+    let claimed = start(&fixture.state, "a", input);
+    let run = claimed.input.id.clone();
+    process(&fixture.state, claimed, &CancellationToken::new()).await;
+    let bodies = fixture.model.bodies.lock().unwrap();
+    assert_eq!(bodies.len(), 1);
+    let messages = bodies[0]["messages"].as_array().unwrap();
+    assert_eq!(messages.last().unwrap()["role"], "user");
+    assert!(messages.last().unwrap()["content"]
+        .as_str()
+        .unwrap()
+        .contains(input));
+    let contract = &messages[messages.len() - 2];
+    assert_eq!(contract["role"], "system");
+    let text = contract["content"].as_str().unwrap();
+    assert!(text.starts_with("DSH_REPLY_COMPLETION_CONTRACT_V1"));
+    assert!(text.contains("完整句总数也不得超过4"));
+    drop(bodies);
+    let policy = snapshot(&fixture.state, &run);
+    let block = policy
+        .blocks
+        .iter()
+        .find(|b| b.id == "reply_completion_contract")
+        .unwrap();
+    assert!(block.required && block.selected && block.serialized_bytes > 0);
+}
