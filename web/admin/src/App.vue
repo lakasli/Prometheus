@@ -1055,7 +1055,7 @@ onUnmounted(() => {
               </p>
               <button
                 class="button white"
-                @click="navigate(configuredModel ? 'logs' : 'assistant')"
+                @click="navigate(configuredModel ? 'logs' : 'config')"
               >
                 {{ configuredModel ? "查看运行日志" : "配置第一个模型"
                 }}<Icon name="arrow" :size="17" />

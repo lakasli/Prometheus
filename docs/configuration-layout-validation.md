@@ -17,7 +17,7 @@
 Windows 仓库 `D:\CodeProject\DSH`；仅纳入本次相关文件，保留开始前已有的 AGENTS、README、architecture、diary-system、life-systems-validation 及日记结构证据修改。
 
 - `npm.cmd run build`：退出 0，Vue / TypeScript 与 Vite 静态生产构建通过。
-- `npm.cmd test`：退出 0，24 个文件、160 项通过，包含阅读入口和好感配置的新回归测试。
+- `npm.cmd test`：退出 0，24 个文件、161 项通过，包含阅读入口和好感配置的新回归测试。
 - `npx.cmd playwright test tests/e2e/configuration-layout.spec.ts --list`：退出 0，综合用例解析通过；解析不代表浏览器执行通过。
 - `git diff --check`：退出 0。
 - SDD 查询当前授权上下文后，仓库 `commit-context` 未匹配到可访问的 SDD 项目，且没有 SDD 管理的提交钩子；未安装或绕过提交检查，沿用普通提交格式。

@@ -66,7 +66,9 @@ test("diary provenance, reviewed people and calendar work through the authentica
 }) => {
   test.setTimeout(180000);
   page.setDefaultTimeout(15000);
-  expect(new URL(baseURL!).port).toBe("18421");
+  const target = new URL(baseURL!);
+  expect(["localhost", "127.0.0.1", "[::1]"]).toContain(target.hostname);
+  expect(["18421", "18422"]).toContain(target.port);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   const anonymous = await browser.newContext();

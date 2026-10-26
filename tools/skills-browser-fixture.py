@@ -51,7 +51,13 @@ def main():
     parser.add_argument('--web-dir', required=True)
     parser.add_argument('--data-dir', required=True)
     parser.add_argument('--output-dir', required=True)
+    parser.add_argument('--port', type=int, default=18421,
+                        help='isolated loopback HTTP port (default: 18421)')
     args = parser.parse_args()
+    if not 1024 <= args.port <= 65535 or args.port in (8419, 18419):
+        parser.error('port must be 1024..65535 and cannot be a production port (8419 or 18419)')
+    listen = f'127.0.0.1:{args.port}'
+    origin = f'http://{listen}'
     binary = pathlib.Path(args.binary).resolve(strict=True)
     web = pathlib.Path(args.web_dir).resolve(strict=True)
     data = pathlib.Path(args.data_dir).resolve()
@@ -66,7 +72,7 @@ def main():
     private_directory(output)
     # Reject an already-used browser port before creating any daemon process.
     with socket.socket() as probe:
-        probe.bind(('127.0.0.1', 18421))
+        probe.bind(('127.0.0.1', args.port))
     smoke = load_smoke()
 
     class BrowserMock(smoke.Mock):
@@ -137,7 +143,7 @@ svg{width:100%;max-width:640px}text{fill:#234577;font-size:18px}</style></head><
         daemon_log = os.fdopen(descriptor, 'wb')
         child = subprocess.Popen([
             str(binary), 'serve', '--data-dir', str(data),
-            '--listen', '127.0.0.1:18421', '--origin', 'http://127.0.0.1:18421',
+            '--listen', listen, '--origin', origin,
             '--web-dir', str(web), '--allow-private-model',
         ], env=environment, stdout=daemon_log, stderr=subprocess.STDOUT)
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -147,19 +153,19 @@ svg{width:100%;max-width:640px}text{fill:#234577;font-size:18px}</style></head><
             if child.poll() is not None:
                 raise RuntimeError('isolated daemon exited before readiness; inspect private daemon.log')
             try:
-                with opener.open('http://127.0.0.1:18421/health/ready', timeout=1) as response:
+                with opener.open(f'{origin}/health/ready', timeout=1) as response:
                     health = json.load(response)
                 break
             except (OSError, urllib.error.URLError, json.JSONDecodeError):
                 stopping.wait(0.2)
         if health is None:
             raise RuntimeError('isolated daemon did not become ready')
-        with opener.open('http://127.0.0.1:18421/api/admin/v1/auth/status', timeout=2) as response:
+        with opener.open(f'{origin}/api/admin/v1/auth/status', timeout=2) as response:
             if json.load(response).get('initialized'):
                 raise RuntimeError('isolated daemon must begin uninitialized')
         info = {
             'fixture_pid': os.getpid(), 'daemon_pid': child.pid,
-            'origin': 'http://127.0.0.1:18421', 'listen': '127.0.0.1:18421',
+            'origin': origin, 'listen': listen,
             'model_url': f'http://127.0.0.1:{server.server_port}',
             'commit': health.get('commit'),
             'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),

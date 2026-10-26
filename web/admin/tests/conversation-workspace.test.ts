@@ -16,7 +16,7 @@ function response(value: unknown) {
     headers: { "Content-Type": "application/json" },
   });
 }
-function setup(hash = "") {
+function setup(hash = "", configured = true) {
   location.hash = hash;
   const fetch = vi.fn(async (input: string) => {
     const path = input.replace("/api/admin/v1", "");
@@ -31,7 +31,7 @@ function setup(hash = "") {
         version: "test",
         queue: {},
         platform: { os: "linux", arch: "aarch64" },
-        model: { configured: true, model: "test" },
+        model: { configured, model: "test" },
       });
     if (path === "/config")
       return response({
@@ -47,7 +47,7 @@ function setup(hash = "") {
           model: {
             base_url: "https://api.deepseek.com",
             model: "test",
-            credential_ref: "configured",
+            credential_ref: configured ? "configured" : null,
           },
           qq: {
             enabled: false,
@@ -167,4 +167,19 @@ it("maps old character links to the single personality and keeps unsaved text on
         .element as HTMLTextAreaElement
     ).value,
   ).toBe("未保存文本");
+});
+
+it("takes first-model onboarding to the configuration page", async () => {
+  setup("", false);
+  await flushPromises();
+  await wrapper!
+    .findAll("button")
+    .find((button) => button.text() === "配置第一个模型")!
+    .trigger("click");
+  await flushPromises();
+  expect(location.hash).toBe("#config");
+  expect(wrapper!.find('input[placeholder="输入新的 API Key"]').exists()).toBe(
+    true,
+  );
+  expect(wrapper!.find('[aria-label="她的性格"]').exists()).toBe(false);
 });
