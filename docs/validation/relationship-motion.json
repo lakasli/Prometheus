@@ -1,0 +1,157 @@
+{
+  "recorded_at": "2026-10-26T21:28:22.632980+08:00",
+  "status": "passed",
+  "host": "campanus@192.168.189.191",
+  "reference": "https://www.connectedpapers.com/main/0b4c513b66754d5e7c700508629e2d28b1061609/Science-mapping-software-tools:-Review,-analysis,-and-cooperative-study-among-tools/graph",
+  "implementation": {
+    "max_nodes": 50,
+    "reviewed_visible_edges_only": true,
+    "new_dependencies": false,
+    "background_server_workers_added": 0,
+    "layout_writes_to_api": false,
+    "idle_animation_loop": false,
+    "reduced_motion_supported": true
+  },
+  "deployment": {
+    "commit": "31ba12a056c7a1c6993c729a0e9042d34abb5dff",
+    "deployed_at": "2026-10-26T21:22:42.654143+08:00",
+    "previous_commit": "34947549085ce73b3ff49889f17c942d7a344629",
+    "source_commit": "31ba12a056c7a1c6993c729a0e9042d34abb5dff",
+    "frontend_commit": "31ba12a056c7a1c6993c729a0e9042d34abb5dff",
+    "health_commit": "31ba12a056c7a1c6993c729a0e9042d34abb5dff",
+    "frontend_sha256": "86ac20963fe752d728506ba671913bb3078c6018592cb7311f9c7214c1484dca",
+    "binary_sha256": "6d3636c4bfc2f64f7ce27060818458e46730a136d332bc25b0ba89ef07776790",
+    "release": "/home/campanus/apps/dsh/releases/31ba12a056c7a1c6993c729a0e9042d34abb5dff",
+    "service": "dsh.service (user)",
+    "active_state": "active",
+    "sub_state": "running",
+    "n_restarts": 0,
+    "memory_current_sample_bytes": 8859648,
+    "rollback_executed": false,
+    "backup": {
+      "backup": "/home/campanus/apps/dsh/shared/backups/pre-31ba12a056c7a1c6993c729a0e9042d34abb5dff-20261026T132241095592811.sqlite",
+      "quick_check": "ok",
+      "sha256": "caf806483131f59a85fdb6b0d53b35da0aaa6cc2f62fe06b7ea8ff00360e932f"
+    }
+  },
+  "platform": {
+    "model": "Raspberry Pi 5 Model B Rev 1.1",
+    "os": "Ubuntu 24.04.4 LTS",
+    "arch": "aarch64",
+    "memory_total_bytes": 8318562304,
+    "memory_available_preflight_bytes": 7702020096,
+    "cargo": "1.88.0",
+    "rustc": "1.88.0"
+  },
+  "checks": {
+    "local_build": {
+      "exit": 0,
+      "commands": [
+        "npm.cmd run build",
+        "npm.cmd run typecheck"
+      ]
+    },
+    "local_unit_tests": {
+      "exit": 0,
+      "files": 25,
+      "passed": 167
+    },
+    "remote_cargo_test": {
+      "exit": 0,
+      "passed": 391,
+      "failed": 0,
+      "dshd_test_seconds": 208.78,
+      "jobs": 1
+    },
+    "remote_release_build": {
+      "exit": 0,
+      "seconds": 555,
+      "jobs": 1,
+      "registry_cache": "rsproxy"
+    },
+    "health_live": "ok",
+    "health_ready": "ready",
+    "anonymous_http": {
+      "relationships/people": 401,
+      "relationships/edges": 401,
+      "relationships/affinity-policy": 401,
+      "diary/entries": 401
+    }
+  },
+  "browser": {
+    "source_commit": "8cd92ca64f8baafdb2dea87bd1cf1df4ca3f91fd",
+    "application_commit": "31ba12a056c7a1c6993c729a0e9042d34abb5dff",
+    "origin": "http://127.0.0.1:18422",
+    "exit": 0,
+    "unique_tests": 1,
+    "duration_seconds": 17.9,
+    "synthetic_people": 10,
+    "approved_edges": 12,
+    "pending_edges": 1,
+    "production_data_accessed": false,
+    "real_external_model_tested": false,
+    "fixture_binary_sha256": "6d3636c4bfc2f64f7ce27060818458e46730a136d332bc25b0ba89ef07776790",
+    "checks": [
+      "fixed application and web manifest SHA",
+      "anonymous queries 401 and missing CSRF write 403",
+      "only 12 approved edges rendered; pending edge excluded",
+      "load animation runs then settles with no pending or continuing RAF",
+      "hover and keyboard focus highlight neighbors without selecting or loading details",
+      "120 percent zoom settles before node dragging; pointer/world mismatch below 3 graph units",
+      "dragged node and clipped edge endpoints update from the same coordinates",
+      "linked neighbor responds; drag release does not select a person",
+      "actual captured node pointercancel clears capture and drag without selecting",
+      "list graph details linked for click Enter and Space",
+      "background pan zoom reset",
+      "390 and 320 pixel widths no horizontal overflow",
+      "navigating away during an actual drag clears pointer interaction and RAF",
+      "reduced-motion mode stable without autonomous frames",
+      "manual reduced-motion drag moves node and edge with no animation flag or RAF change"
+    ],
+    "fixture_stopped": true,
+    "tunnel_closed": true,
+    "formal_browser_readonly": "existing Edge page refreshed; footer shows 31ba12a056; no production sample people or relationship writes"
+  },
+  "preservation": {
+    "before": "2026-10-26T13:03:04.627839+00:00",
+    "after": "2026-10-26T13:23:03.593595+00:00",
+    "health": {
+      "commit": "31ba12a056c7a1c6993c729a0e9042d34abb5dff",
+      "status": "ready"
+    },
+    "fingerprints_unchanged": true,
+    "changed_keys": [],
+    "count_differences": {}
+  },
+  "diagnostics": {
+    "initial_failure": {
+      "kind": "viewport transition and drag coordinate mismatch",
+      "observed_graph_units": 4.40236367221719,
+      "required_max_graph_units": 3,
+      "summary_local": ".local/relationship-motion/initial-browser-failure.json",
+      "counted_as_passed": false
+    },
+    "test_log": "/home/campanus/apps/dsh/shared/logs/test-31ba12a056c7a1c6993c729a0e9042d34abb5dff.log",
+    "build_log": "/home/campanus/apps/dsh/shared/logs/build-31ba12a056c7a1c6993c729a0e9042d34abb5dff.log",
+    "deployment_log_local": ".local/relationship-motion/deploy.log",
+    "browser_log_local": ".local/relationship-motion/remote-browser.log",
+    "fixture_log": "/home/campanus/apps/dsh/shared/validation/relationship-motion-31ba12a/fixture/daemon.log"
+  },
+  "not_tested": [
+    "new external model requests",
+    "new QQ or Weixin send/client playback",
+    "ten-thousand-person graph; current graph remains limited to 50 visible people"
+  ],
+  "images": [
+    {
+      "file": "relationship-motion-desktop.png",
+      "scope": "isolated synthetic account using published Linux binary and frontend",
+      "sha256": "24ec398b4e734a0fa3caed1e41d09e771b74c2f6b44580235b21a244b30e4e18"
+    },
+    {
+      "file": "relationship-motion-mobile.png",
+      "scope": "isolated synthetic account using published Linux binary and frontend",
+      "sha256": "475e11c671c7503382518e00fe1eae5b87501d731792b9dad98bf9a0bfd4caec"
+    }
+  ]
+}
