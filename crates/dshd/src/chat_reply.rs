@@ -188,11 +188,11 @@ pub fn parse(raw: &str, config: &ReplyConfig) -> Result<ReplyPlan, String> {
         }
         let split = sentences(&item.text);
         if split.len() != 1 {
-            // Compatible providers sometimes put an entire spoken paragraph
-            // into one fresh voice proposal. Restore the per-sentence contract
+            // Compatible providers sometimes put a complete paragraph into
+            // one fresh text/voice proposal. Restore the per-sentence contract
             // without broadening the schema or duplicating an existing asset.
             // The original length bound still applies before any splitting.
-            if item.kind != "voice"
+            if !matches!(item.kind.as_str(), "text" | "voice")
                 || item.asset_id.is_some()
                 || item.prompt.is_some()
                 || split.is_empty()
@@ -201,7 +201,7 @@ pub fn parse(raw: &str, config: &ReplyConfig) -> Result<ReplyPlan, String> {
             }
             for (index, text) in split.into_iter().enumerate() {
                 items.push(ReplyItem {
-                    kind: "voice".into(),
+                    kind: item.kind.clone(),
                     text,
                     delay_ms: if index == 0 {
                         item.delay_ms
@@ -216,7 +216,7 @@ pub fn parse(raw: &str, config: &ReplyConfig) -> Result<ReplyPlan, String> {
         } else {
             items.push(item);
         }
-        // Reject the whole response rather than dropping spoken content or
+        // Reject the whole response rather than dropping generated content or
         // consuming more passive replies than the configured channel budget.
         if items.len() > limit {
             return Err("模型回复超过逐句消息数量限制，请缩短回答".into());
@@ -442,7 +442,13 @@ mod tests {
         let c = ReplyConfig::default();
         let p=parse(r#"[{"type":"text","text":"第一句。","delay_ms":0},{"type":"text","text":"第二句。","delay_ms":1}]"#,&c).unwrap();
         assert_eq!(p.items[1].delay_ms, 1500);
-        assert!(parse(r#"[{"type":"text","text":"一句。两句。"}]"#, &c).is_err());
+        assert_eq!(
+            parse(r#"[{"type":"text","text":"一句。两句。"}]"#, &c)
+                .unwrap()
+                .items
+                .len(),
+            2
+        );
         assert!(parse(
             r#"[{"type":"image","text":"图片。","url":"http://localhost"}]"#,
             &c
@@ -462,13 +468,87 @@ mod tests {
         assert_eq!(parse("一句。两句。", &c).unwrap().items.len(), 2);
     }
     #[test]
+    fn generated_text_clarification_and_fresh_voice_share_complete_sentence_pacing() {
+        let config = ReplyConfig {
+            min_interval_ms: 3000,
+            max_interval_ms: 6000,
+            max_items: 4,
+        };
+        let plan=parse(r#"[{"type":"text","text":"你说的“这题”是指哪一题？我这边没看到具体题目内容。","delay_ms":0},{"type":"voice","text":"先看题目。再推导。","delay_ms":2000}]"#,&config).unwrap();
+        assert!(plan.normalized);
+        assert_eq!(
+            plan.items
+                .iter()
+                .map(|p| p.text.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "你说的“这题”是指哪一题？",
+                "我这边没看到具体题目内容。",
+                "先看题目。",
+                "再推导。"
+            ]
+        );
+        assert_eq!(
+            plan.items
+                .iter()
+                .map(|p| p.kind.as_str())
+                .collect::<Vec<_>>(),
+            vec!["text", "text", "voice", "voice"]
+        );
+        assert_eq!(
+            plan.items.iter().map(|p| p.delay_ms).collect::<Vec<_>>(),
+            vec![0, 3000, 3000, 3000]
+        );
+        assert!(plan
+            .items
+            .iter()
+            .all(|p| p.asset_id.is_none() && p.prompt.is_none() && sentences(&p.text).len() == 1));
+        let decimal = parse(r#"{"type":"text","text":"数值是3.14。下一句。"}"#, &config).unwrap();
+        assert_eq!(decimal.items[0].text, "数值是3.14。");
+    }
+    #[test]
+    fn text_normalization_never_broadens_item_length_count_or_action_authority() {
+        let config = ReplyConfig::default();
+        for raw in [
+            r#"[{"type":"text","text":"一。二。三。四。五。"}]"#,
+            r#"[{"type":"text","text":"一。二。三。"},{"type":"voice","text":"四。五。"}]"#,
+            r#"[{"type":"text","text":"一。二。","asset_id":"60fcd0a4-aa5c-4edc-a519-7d9bca09c197"}]"#,
+            r#"[{"type":"text","text":"一。二。","prompt":"https://example.invalid"}]"#,
+            r#"[{"type":"text","text":"一。二。","recipient":"other"}]"#,
+            r#"[{"type":"image","text":"一。二。","prompt":"picture"}]"#,
+            r#"[{"type":"video","text":"一。二。","asset_id":"60fcd0a4-aa5c-4edc-a519-7d9bca09c197"}]"#,
+        ] {
+            assert!(
+                parse(raw, &config).is_err(),
+                "invalid whole proposal accepted: {raw}"
+            );
+        }
+        let oversized =
+            json!([{"type":"text","text":format!("{}。{}。","长".repeat(600),"句".repeat(600))}]);
+        assert_eq!(
+            parse(&oversized.to_string(), &config).unwrap_err(),
+            "回复类型、单句长度或内容无效"
+        );
+        let two = ReplyConfig {
+            max_items: 2,
+            ..Default::default()
+        };
+        assert!(parse(r#"[{"type":"text","text":"一。二。三。"}]"#, &two).is_err());
+    }
+    #[test]
     fn a_single_exact_reply_can_be_normalized_but_tool_objects_remain_rejected() {
         let c = ReplyConfig::default();
         let p = parse(r#"{"type":"image","text":"原图。","asset_id":"60fcd0a4-aa5c-4edc-a519-7d9bca09c197","delay_ms":0}"#, &c).unwrap();
         assert!(p.normalized);
         assert_eq!(p.items.len(), 1);
         assert_eq!(p.items[0].kind, "image");
-        assert!(parse(r#"{"type":"text","text":"一句。两句。"}"#, &c).is_err());
+        assert_eq!(
+            parse(r#"{"type":"text","text":"一句。两句。"}"#, &c)
+                .unwrap()
+                .items
+                .len(),
+            2
+        );
         for raw in [
             r#"{"tool":"send_image","url":"https://example.invalid/a.png"}"#,
             r#"{"type":"image","text":"图片。","url":"https://example.invalid/a.png"}"#,
@@ -563,11 +643,11 @@ mod tests {
         );
     }
     #[test]
-    fn voice_recovery_never_duplicates_assets_or_relaxes_other_presentations() {
+    fn fresh_normalization_never_duplicates_assets_or_relaxes_media_authority() {
         let c = ReplyConfig::default();
         let asset = "60fcd0a4-aa5c-4edc-a519-7d9bca09c197";
         for item in [
-            json!({"type":"text","text":"一句。两句。"}),
+            json!({"type":"text","text":"一句。两句。","asset_id":asset}),
             json!({"type":"voice","text":"一句。两句。","asset_id":asset}),
             json!({"type":"voice","text":"一句。两句。","prompt":"读给我听"}),
             json!({"type":"image","text":"一句。两句。","asset_id":asset}),

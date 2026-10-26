@@ -1166,3 +1166,143 @@ fn credential_like_natural_and_explicit_candidates_create_no_derived_content_cop
         })
         .unwrap();
 }
+
+#[test]
+fn empty_context_keeps_host_schedule_capability_separate_from_permissions() {
+    let (_dir, state, _admin) = fixture();
+    source(
+        &state,
+        "suggestion",
+        "chat",
+        "admin",
+        "明天可以试试阅读资料",
+    );
+    state
+        .db(|db| {
+            let tx = db.transaction()?;
+            let scope = conversation_state::scope_for_run_in(&tx, "suggestion")?;
+            assert!(propose_natural_in(&tx, &scope, NOW)?.is_none());
+            let context = context_for_run_in(&tx, "suggestion", 6, 6000, NOW)?;
+            assert!(context.items.is_empty());
+            assert!(context.source_refs.is_empty());
+            let value = serde_json::to_value(&context)?;
+            assert_eq!(value["host_capabilities"]["schedule_core_available"], true);
+            assert_eq!(
+                value["host_capabilities"]["automatic_activity_creation_in_this_context"],
+                false
+            );
+            assert_eq!(
+                value["host_capabilities"]["proactive_external_reminders_available"],
+                false
+            );
+            assert_eq!(
+                value["host_capabilities"]["basis"],
+                "host_initialized_schedule_core_and_current_conversation_runtime"
+            );
+            let host_prompt = host_capabilities_prompt(&context)?;
+            assert!(host_prompt.contains("未关联活动不等于没有日历功能"));
+            let serialized: Value = serde_json::from_str(host_prompt.lines().last().unwrap())?;
+            assert_eq!(serialized, value["host_capabilities"]);
+            for table in ["conversation_commitments", "schedule_activities"] {
+                assert_eq!(
+                    tx.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r
+                        .get::<_, i64>(0))?,
+                    0
+                );
+            }
+            Ok(())
+        })
+        .unwrap();
+    let mut forged = serde_json::to_value(proposal()).unwrap();
+    forged["host_capabilities"] = json!({
+        "schedule_core_available": true,
+        "automatic_activity_creation_in_this_context": true,
+        "proactive_external_reminders_available": true
+    });
+    assert!(serde_json::from_value::<Proposal>(forged).is_err());
+}
+
+#[test]
+fn reviewed_unstructured_tomorrow_preserves_source_anchor_without_creating_execution() {
+    let (_dir, state, admin) = fixture();
+    source(&state, "promise", "chat", "admin", "我答应你明天阅读资料");
+    state
+        .db(|db| {
+            db.execute("UPDATE trigger_runtime SET clock_trusted=1 WHERE id=1", [])?;
+            Ok(())
+        })
+        .unwrap();
+    let id = candidate(&state, "promise");
+    confirm(&state, &admin, "promise", &id);
+    source(
+        &state,
+        "status",
+        "chat",
+        "admin",
+        "这项约定现在是什么状态？",
+    );
+    state
+        .db(|db| {
+            let tx = db.transaction()?;
+            let scope = conversation_state::scope_for_run_in(&tx, "status")?;
+            let before = detail_in(&tx, &scope, &id, NOW)?;
+            assert_eq!(before["subject_kind"], "speaker");
+            assert_eq!(before["counterparty_kind"], "assistant");
+            assert_eq!(before["time"]["original_text"], "明天");
+            assert_eq!(before["time"]["precision"], "unresolved");
+            assert_eq!(before["time"]["anchor_at"], NOW);
+            assert_eq!(before["time"]["clock_status"], "trusted");
+            assert!(before["time"]["resolved_at"].is_null());
+            assert_eq!(before["confirmation_state"], "confirmed");
+            assert_eq!(
+                before["confirmation_evidence"]["source_assent_verified"],
+                false
+            );
+            assert_eq!(before["execution"]["state"], "unscheduled");
+            assert_eq!(before["execution"]["fulfillment_verified"], false);
+            assert_eq!(before["recipient_permission"], false);
+            let context = context_for_run_in(&tx, "status", 6, 6000, NOW)?;
+            assert_eq!(context.items, vec![before.clone()]);
+            let text = prompt(&context)?;
+            assert!(text.contains("不否定原话“明天”及已有可信时间锚点"));
+            assert!(text.contains("不代表用户否认意向"));
+            assert!(text.contains("管理审核既不代替来源同意"));
+            let serialized: Value = serde_json::from_str(text.lines().last().unwrap())?;
+            assert_eq!(serialized["items"][0], before);
+            assert_eq!(detail_in(&tx, &scope, &id, NOW)?, before);
+            assert_eq!(
+                tx.query_row("SELECT count(*) FROM schedule_activities", [], |r| r
+                    .get::<_, i64>(0))?,
+                0
+            );
+            Ok(())
+        })
+        .unwrap();
+}
+
+#[test]
+fn missing_schedule_core_proof_does_not_advertise_capability_or_grant_it() {
+    let (_dir, state, _admin) = fixture();
+    source(&state, "current", "chat", "admin", "日程现在可用吗？");
+    state
+        .db(|db| {
+            let tx = db.transaction()?;
+            tx.execute("DROP TABLE schedule_resources", [])?;
+            let context = context_for_run_in(&tx, "current", 6, 6000, NOW)?;
+            let value = serde_json::to_value(&context)?;
+            assert_eq!(value["host_capabilities"]["schedule_core_available"], false);
+            assert_eq!(
+                value["host_capabilities"]["automatic_activity_creation_in_this_context"],
+                false
+            );
+            assert_eq!(
+                value["host_capabilities"]["proactive_external_reminders_available"],
+                false
+            );
+            assert!(host_capabilities_prompt(&context)?.contains("当前未核验该能力"));
+            assert!(context.items.is_empty());
+            assert!(context.source_refs.is_empty());
+            Ok(())
+        })
+        .unwrap();
+}

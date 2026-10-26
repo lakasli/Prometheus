@@ -192,7 +192,18 @@ async function perform(
   } catch (caught) {
     if (!disposed) failure(caught, writing);
   } finally {
-    if (!disposed) busy.value = false;
+    if (!disposed) {
+      busy.value = false;
+      await nextTick();
+      // A successful mutation can remove the focused control (for example,
+      // the confirmation button). Keep keyboard events inside the live modal.
+      if (
+        !disposed &&
+        dialog.value &&
+        !dialog.value.contains(document.activeElement)
+      )
+        dialog.value.focus();
+    }
   }
 }
 async function fetchItems(signal: AbortSignal, append = false) {
@@ -530,11 +541,21 @@ onUnmounted(() => {
                 <dd>未提供独立投递证明；确认或关联日程不代表消息已送达。</dd>
               </div>
             </dl>
-            <p v-if="selected.confirmation_state === 'confirmed'" class="notice-banner">
-              <template v-if="selected.confirmation_evidence?.basis === 'authenticated_management_review'">
+            <p
+              v-if="selected.confirmation_state === 'confirmed'"
+              class="notice-banner"
+            >
+              <template
+                v-if="
+                  selected.confirmation_evidence?.basis ===
+                  'authenticated_management_review'
+                "
+              >
                 这是当前管理员对约定资料的审核；未核验来源发言者或接收者同意。
               </template>
-              <template v-else>确认依据待核对，不能据此认定来源发言者或接收者同意。</template>
+              <template v-else
+                >确认依据待核对，不能据此认定来源发言者或接收者同意。</template
+              >
               资料确认不代表已建立日程或获得发送许可。
             </p>
             <p

@@ -308,6 +308,42 @@ async fn complete_current_last_and_continuation_recovers_original_beyond_recent_
 }
 
 #[tokio::test]
+async fn ordinary_suggestion_receives_host_capabilities_without_inventing_an_activity() {
+    let fixture = fixture().await;
+    let current = start(&fixture.state, "a", "我们明天可以试试那个方法。");
+    let messages = prepare_messages(&fixture.state, &current.input).unwrap();
+    let system = messages
+        .iter()
+        .filter(|m| m["role"] == "system")
+        .filter_map(|m| m["content"].as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(system.contains("DSH_COMMITMENT_HOST_CAPABILITIES_V1"));
+    assert!(system.contains("\"schedule_core_available\":true"));
+    assert!(system.contains("\"automatic_activity_creation_in_this_context\":false"));
+    assert!(system.contains("\"proactive_external_reminders_available\":false"));
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM conversation_commitments WHERE source_run_id=?1",
+            &current.input.id
+        ),
+        0
+    );
+    assert_eq!(
+        fixture
+            .state
+            .db(|db| Ok(
+                db.query_row("SELECT count(*) FROM schedule_activities", [], |r| r
+                    .get::<_, i64>(0))?
+            ))
+            .unwrap(),
+        0
+    );
+    assert_eq!(fixture.model.calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
 async fn separate_source_focus_and_prompt_do_not_mix() {
     let fixture = fixture().await;
     for (conversation, canary) in [("a", "SOURCE_A_ONLY_561"), ("b", "SOURCE_B_ONLY_927")] {
