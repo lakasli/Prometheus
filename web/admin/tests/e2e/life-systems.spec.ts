@@ -196,7 +196,12 @@ test("diary provenance, reviewed people and calendar work through the authentica
     .getByLabel("审核理由", { exact: true })
     .fill("仅批准合成验收资料。");
   await page.getByRole("button", { name: "批准资料", exact: true }).click();
-  await expect(page.getByText("已审核", { exact: true })).toBeVisible();
+  await expect(
+    page
+      .locator(".relationship-detail .relationship-assertions li")
+      .filter({ hasText: "喜欢观察星空（合成事实）" })
+      .getByText("已审核", { exact: true }),
+  ).toBeVisible();
   await screenshot(page, "02-relationships-desktop.png");
 
   await nav.getByRole("button", { name: "日程", exact: true }).click();
