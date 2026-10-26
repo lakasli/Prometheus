@@ -831,6 +831,47 @@ pub(crate) async fn model_request(
     messages: Vec<Value>,
     max_tokens: usize,
 ) -> Result<String, String> {
+    model_request_with_metadata(state, config, messages, max_tokens)
+        .await
+        .map(|output| output.content)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ModelFinishReason {
+    Stop,
+    Length,
+    ContentFilter,
+    ToolCalls,
+    FunctionCall,
+    Missing,
+    Other,
+}
+impl ModelFinishReason {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Stop => "stop",
+            Self::Length => "length",
+            Self::ContentFilter => "content_filter",
+            Self::ToolCalls => "tool_calls",
+            Self::FunctionCall => "function_call",
+            Self::Missing => "missing",
+            Self::Other => "other",
+        }
+    }
+}
+pub(crate) struct ModelResponse {
+    pub content: String,
+    pub finish_reason: ModelFinishReason,
+}
+
+/// Same credential, DNS-pinned client and bounded transport as ordinary chat.
+/// Completion metadata is reduced to a fixed enum so it is safe to diagnose.
+pub(crate) async fn model_request_with_metadata(
+    state: &AppState,
+    config: &RuntimeConfig,
+    messages: Vec<Value>,
+    max_tokens: usize,
+) -> Result<ModelResponse, String> {
     let credential = config
         .model
         .credential_ref
@@ -860,13 +901,68 @@ pub(crate) async fn model_request(
         bytes.extend_from_slice(&chunk);
     }
     let value: Value = serde_json::from_slice(&bytes).map_err(|_| "模型返回了无效JSON")?;
+    parse_model_response(&value)
+}
+
+fn parse_model_response(value: &Value) -> Result<ModelResponse, String> {
     let content = value["choices"][0]["message"]["content"]
         .as_str()
         .ok_or("模型未返回文字回答")?;
     if content.is_empty() || content.len() > 65536 {
         return Err("模型文字为空或超过64KiB限制".into());
     }
-    Ok(content.to_string())
+    let finish_reason = match value["choices"][0].get("finish_reason") {
+        None | Some(Value::Null) => ModelFinishReason::Missing,
+        Some(Value::String(reason)) => match reason.as_str() {
+            "stop" => ModelFinishReason::Stop,
+            "length" => ModelFinishReason::Length,
+            "content_filter" => ModelFinishReason::ContentFilter,
+            "tool_calls" => ModelFinishReason::ToolCalls,
+            "function_call" => ModelFinishReason::FunctionCall,
+            _ => ModelFinishReason::Other,
+        },
+        _ => ModelFinishReason::Other,
+    };
+    Ok(ModelResponse {
+        content: content.to_owned(),
+        finish_reason,
+    })
+}
+
+#[cfg(test)]
+mod model_metadata_tests {
+    use super::*;
+    #[test]
+    fn retains_content_and_classifies_completion_without_exposing_arbitrary_metadata() {
+        for (finish, expected) in [
+            (json!("stop"), ModelFinishReason::Stop),
+            (json!("length"), ModelFinishReason::Length),
+            (Value::Null, ModelFinishReason::Missing),
+            (
+                json!("unexpected-untrusted-string"),
+                ModelFinishReason::Other,
+            ),
+            (json!({"unexpected":"object"}), ModelFinishReason::Other),
+        ] {
+            let parsed=parse_model_response(&json!({"choices":[{"message":{"content":"fixture content"},"finish_reason":finish}]})).unwrap();
+            assert_eq!(parsed.content, "fixture content");
+            assert_eq!(parsed.finish_reason, expected);
+        }
+    }
+    #[test]
+    fn legacy_missing_finish_reason_and_original_content_limits_are_preserved() {
+        let parsed =
+            parse_model_response(&json!({"choices":[{"message":{"content":"legacy fixture"}}]}))
+                .unwrap();
+        assert_eq!(parsed.finish_reason, ModelFinishReason::Missing);
+        for content in [String::new(), "x".repeat(65537)] {
+            assert!(
+                parse_model_response(&json!({"choices":[{"message":{"content":content}}]}))
+                    .is_err()
+            );
+        }
+        assert!(parse_model_response(&json!({"choices":[]})).is_err());
+    }
 }
 
 #[cfg(test)]
