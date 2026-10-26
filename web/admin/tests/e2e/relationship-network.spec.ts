@@ -417,6 +417,75 @@ test("reviewed relationship network animates, supports safe node dragging and ho
   await reset.click();
   await expectStopped(page, canvas);
 
+  // Cancel the actual browser pointer used for a live node drag. Cancellation
+  // must clear capture/drag state and suppress the following mouse-up click.
+  await svg.evaluate((element) => {
+    element.addEventListener(
+      "pointerdown",
+      (event) => {
+        element.setAttribute(
+          "data-test-drag-pointer",
+          String((event as PointerEvent).pointerId),
+        );
+      },
+      { capture: true, once: true },
+    );
+  });
+  const cancelNodeBox = await selectedNode.locator(".node-disc").boundingBox();
+  const cancelCanvasBox = await svg.boundingBox();
+  expect(cancelNodeBox).not.toBeNull();
+  expect(cancelCanvasBox).not.toBeNull();
+  const cancelStart = {
+    x: cancelNodeBox!.x + cancelNodeBox!.width / 2,
+    y: cancelNodeBox!.y + cancelNodeBox!.height / 2,
+  };
+  const cancelEnd = {
+    x:
+      cancelStart.x +
+      (cancelStart.x < cancelCanvasBox!.x + cancelCanvasBox!.width / 2
+        ? 34
+        : -34),
+    y:
+      cancelStart.y +
+      (cancelStart.y < cancelCanvasBox!.y + cancelCanvasBox!.height / 2
+        ? 24
+        : -24),
+  };
+  await page.mouse.move(cancelStart.x, cancelStart.y);
+  await page.mouse.down();
+  await page.mouse.move(cancelEnd.x, cancelEnd.y, { steps: 8 });
+  await expect(selectedNode).toHaveClass(/dragged/);
+  const cancelledPointer = Number(
+    await svg.getAttribute("data-test-drag-pointer"),
+  );
+  expect(Number.isInteger(cancelledPointer) && cancelledPointer > 0).toBe(true);
+  await svg.evaluate((element, pointerId) => {
+    element.dispatchEvent(
+      new PointerEvent("pointercancel", {
+        bubbles: true,
+        pointerId,
+        pointerType: "mouse",
+        isPrimary: true,
+      }),
+    );
+  }, cancelledPointer);
+  await expect(selectedNode).not.toHaveClass(/dragged/);
+  expect(
+    await svg.evaluate(
+      (element, pointerId) =>
+        (element as SVGSVGElement).hasPointerCapture(pointerId),
+      cancelledPointer,
+    ),
+  ).toBe(false);
+  await page.mouse.up();
+  await expect(graph.locator(".relationship-graph-node.selected")).toHaveCount(
+    0,
+  );
+  expect(detailRequests).toHaveLength(0);
+  await expectStopped(page, canvas);
+  await reset.click();
+  await expectStopped(page, canvas);
+
   const isolatedName = names[9]!;
   const isolatedNode = graph.getByRole("button", {
     name: `查看${isolatedName}的资料`,
@@ -542,6 +611,110 @@ test("reviewed relationship network animates, supports safe node dragging and ho
   await expect(graph.locator(".relationship-graph-edge")).toHaveCount(
     links.length,
   );
+
+  // Reduced motion disables autonomous frames, while explicit pointer movement
+  // still moves the node and clips its connected line to the current circle.
+  const reducedAnimation = await animationState(page);
+  await canvas.evaluate((element) => {
+    element.setAttribute("data-test-saw-animation", "false");
+    const observer = new MutationObserver((records) => {
+      if (
+        element.getAttribute("data-animating") === "true" ||
+        records.some((record) => record.oldValue === "true")
+      )
+        element.setAttribute("data-test-saw-animation", "true");
+    });
+    observer.observe(element, {
+      attributes: true,
+      attributeFilter: ["data-animating"],
+      attributeOldValue: true,
+    });
+    (
+      element as Element & { reducedMotionObserver?: MutationObserver }
+    ).reducedMotionObserver = observer;
+  });
+  const reducedBeforeNode = await worldPosition(selectedNode);
+  const reducedBeforeEdge = await linkedEdge.locator("path").getAttribute("d");
+  const reducedRequests = detailRequests.length;
+  const reducedNodeBox = await selectedNode.locator(".node-disc").boundingBox();
+  const reducedCanvasBox = await svg.boundingBox();
+  expect(reducedNodeBox).not.toBeNull();
+  expect(reducedCanvasBox).not.toBeNull();
+  const reducedStart = {
+    x: reducedNodeBox!.x + reducedNodeBox!.width / 2,
+    y: reducedNodeBox!.y + reducedNodeBox!.height / 2,
+  };
+  const reducedEnd = {
+    x:
+      reducedStart.x +
+      (reducedStart.x < reducedCanvasBox!.x + reducedCanvasBox!.width / 2
+        ? 38
+        : -38),
+    y:
+      reducedStart.y +
+      (reducedStart.y < reducedCanvasBox!.y + reducedCanvasBox!.height / 2
+        ? 26
+        : -26),
+  };
+  const reducedExpected = await viewport.evaluate((element, point) => {
+    const transformed = new DOMPoint(point.x, point.y).matrixTransform(
+      (element as SVGGElement).getScreenCTM()!.inverse(),
+    );
+    return { x: transformed.x, y: transformed.y };
+  }, reducedEnd);
+  await page.mouse.move(reducedStart.x, reducedStart.y);
+  await page.mouse.down();
+  await page.mouse.move(reducedEnd.x, reducedEnd.y, { steps: 10 });
+  await expect(selectedNode).toHaveClass(/dragged/);
+  await expect(canvas).toHaveAttribute("data-animating", "false");
+  const reducedDuringNode = await worldPosition(selectedNode);
+  expect(
+    Math.hypot(
+      reducedDuringNode.x - reducedExpected.x,
+      reducedDuringNode.y - reducedExpected.y,
+    ),
+  ).toBeLessThan(3);
+  expect(
+    Math.hypot(
+      reducedDuringNode.x - reducedBeforeNode.x,
+      reducedDuringNode.y - reducedBeforeNode.y,
+    ),
+  ).toBeGreaterThan(10);
+  await expect(linkedEdge.locator("path")).not.toHaveAttribute(
+    "d",
+    reducedBeforeEdge!,
+  );
+  const reducedLineStart = await linkedEdge
+    .locator("path")
+    .evaluate((element) => {
+      const point = (element as SVGPathElement).getPointAtLength(0);
+      return { x: point.x, y: point.y };
+    });
+  const reducedRadius = await selectedNode
+    .locator(".node-disc")
+    .evaluate((element) => (element as SVGCircleElement).r.baseVal.value);
+  expect(
+    Math.hypot(
+      reducedLineStart.x - reducedDuringNode.x,
+      reducedLineStart.y - reducedDuringNode.y,
+    ),
+  ).toBeCloseTo(reducedRadius + 2, 0);
+  await page.mouse.up();
+  await expect(selectedNode).not.toHaveClass(/dragged/);
+  await expect(graph.locator(".relationship-graph-node.selected")).toHaveCount(
+    0,
+  );
+  expect(detailRequests).toHaveLength(reducedRequests);
+  await expectStopped(page, canvas);
+  expect(await animationState(page)).toEqual(reducedAnimation);
+  const animatedWhileReduced = await canvas.evaluate((element) => {
+    (
+      element as Element & { reducedMotionObserver?: MutationObserver }
+    ).reducedMotionObserver?.disconnect();
+    return element.getAttribute("data-test-saw-animation") === "true";
+  });
+  expect(animatedWhileReduced).toBe(false);
+
   await graph
     .getByRole("button", { name: `查看${names[2]}的资料`, exact: true })
     .press("Space");
