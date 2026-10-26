@@ -1,0 +1,82 @@
+{
+  "kind": "conversation presence production deployment and personality application",
+  "status": "passed",
+  "commit": "60d559fa583611768ee9e58ef9270ac1eeb7b09c",
+  "target": "campanus@192.168.189.191",
+  "machine": "Raspberry Pi 5 Model B Rev 1.1",
+  "memory_mib": 7933,
+  "os": "Ubuntu 24.04.4 LTS",
+  "architecture": "aarch64",
+  "rust": "1.88.0",
+  "deployment": {
+    "commit": "60d559fa583611768ee9e58ef9270ac1eeb7b09c",
+    "previous_release": "/home/campanus/apps/dsh/releases/6b9b5dae0eacdf8e448ea4403ba0c8c48eda6337",
+    "deployed_at": "2026-10-26T01:58:34.242426+00:00",
+    "os": "PRETTY_NAME=\"Ubuntu 24.04.4 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nVERSION=\"24.04.4 LTS (Noble Numbat)\"\nVERSION_CODENAME=noble\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=noble\nLOGO=ubuntu-logo\n",
+    "web_manifest": {
+      "commit": "60d559fa583611768ee9e58ef9270ac1eeb7b09c",
+      "api_version": 1
+    }
+  },
+  "deployed_at_local": "2026-10-26T09:58:34.242426+08:00",
+  "web_archive_sha256": "2f1f64dc44aff404813e655953c2b388e7a66721eaaca9ac8b6a478355b9d6df",
+  "binary_sha256": "8f842d7537bb5fdc827697c0d2209e58bb363b085b0db5e28b3419fa03f334aa",
+  "build_jobs": 1,
+  "cargo_source": "rsproxy",
+  "remote_daemon_tests_passed": 283,
+  "remote_kernel_tests_passed": 4,
+  "service_active": true,
+  "ready_commit_matches": true,
+  "source_worktree_clean": true,
+  "live_dshd_process_count": 1,
+  "personality": {
+    "checked_at": "2026-10-26T10:01:38.140737+08:00",
+    "commit": "60d559fa583611768ee9e58ef9270ac1eeb7b09c",
+    "personality_revision": 1,
+    "name": "DSH",
+    "six_fields_match_asset": true,
+    "example_count": 10,
+    "history_revisions": [
+      0
+    ],
+    "previous_version_preserved": true,
+    "identity_sha256": "02d4c0a19fec90e8753c4b64cda52e9b7ef5d3b60b779abef91b67319447724d",
+    "active_config_revision": "5",
+    "counts": {
+      "conversations": 4,
+      "runs": 22,
+      "memory_records": 0
+    },
+    "personality_asset_sha256": "7bb158fcba1037ee1b4e9a7eb418b8bb6225bea17e3392a8f13826304681cba9",
+    "production_data_deleted": false
+  },
+  "before_personality_revision": 0,
+  "assistant_identity_unchanged": true,
+  "active_config_revision_unchanged": true,
+  "historical_counts_unchanged": true,
+  "browser": {
+    "existing_authenticated_admin_session_used": true,
+    "saved_notice_observed": true,
+    "reload_retained_revision": 1,
+    "all_six_fields_match_asset": true,
+    "name_preserved": true,
+    "history_v0_visible": true,
+    "web_footer_commit": "60d559fa58",
+    "screenshot": ".local/conversation-presence/personality-applied.png",
+    "screenshot_sha256": "30bac505d6ed35ba27c68bf271b7effbdee4b714e6658ced9915ff30f128b83d"
+  },
+  "synthetic_style_sample_review": {
+    "reviewed": true,
+    "date_and_cross_day_correct": true,
+    "quiet_response_no_advice_or_question": "好，那就先到这儿，不用撑着聊。",
+    "unknown_memory_acknowledged_without_invented_date": true,
+    "scope": "six synthetic responses from isolated real-model instance; not a general naturalness score"
+  },
+  "rollback": {
+    "previous_commit": "6b9b5dae0eacdf8e448ea4403ba0c8c48eda6337",
+    "private_preupgrade_backup": "/home/campanus/apps/dsh/shared/backups/pre-60d559fa583611768ee9e58ef9270ac1eeb7b09c-20261026T015832761401022.sqlite",
+    "production_rollback_exercised": false,
+    "personality_previous_revision_preserved": 0
+  },
+  "checked_at": "2026-10-26T10:01:38.140737+08:00"
+}

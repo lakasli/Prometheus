@@ -1,0 +1,33 @@
+{
+  "kind": "single assistant and logs isolated black-box acceptance",
+  "commit": "60d559fa583611768ee9e58ef9270ac1eeb7b09c",
+  "binary_sha256": "8f842d7537bb5fdc827697c0d2209e58bb363b085b0db5e28b3419fa03f334aa",
+  "tested_at": "2026-10-26T02:00:14.806065+00:00",
+  "platform": "aarch64",
+  "passed": 19,
+  "checks": [
+    "personality and logs require authentication",
+    "personality writes require CSRF",
+    "personality saves with optimistic concurrency",
+    "personality validates required fields",
+    "legacy role creation and switching are disabled",
+    "explicit conversation role selection is rejected",
+    "configured personality reaches actual HTTP model request",
+    "existing conversations use current single personality on next run",
+    "completed run retains original personality snapshot",
+    "logs cover real input output and run lifecycle",
+    "runtime logs forbid browser caching",
+    "runtime logs never expose configured API key",
+    "unimplemented ASR and subagent remain explicit",
+    "kind and run filters are honored",
+    "cursor pagination is stable and does not overlap",
+    "another administrator cannot read private Web run logs",
+    "restoring a historical personality creates a new current revision",
+    "personality and logs survive daemon restart",
+    "capabilities describe a single assistant and no role switching"
+  ],
+  "external_model_tested": false,
+  "real_qq_tested": false,
+  "asr_tested": false,
+  "subagent_tested": false
+}

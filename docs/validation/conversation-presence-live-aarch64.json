@@ -1,0 +1,79 @@
+{
+  "kind": "conversation presence isolated real-model acceptance",
+  "started_at": "2026-10-26T02:00:36.441277+00:00",
+  "status": "passed",
+  "commit": "60d559fa583611768ee9e58ef9270ac1eeb7b09c",
+  "platform": "Linux",
+  "architecture": "aarch64",
+  "binary_sha256": "8f842d7537bb5fdc827697c0d2209e58bb363b085b0db5e28b3419fa03f334aa",
+  "personality_asset_sha256": "7bb158fcba1037ee1b4e9a7eb418b8bb6225bea17e3392a8f13826304681cba9",
+  "model_request_budget": 6,
+  "model_requests": 6,
+  "real_external_model_attempted": true,
+  "real_external_model_tested": true,
+  "production_model_configuration_read": true,
+  "production_model_credential_read": true,
+  "production_database_modified": false,
+  "real_user_content_accessed": false,
+  "real_qq_tested": false,
+  "real_weixin_tested": false,
+  "style_quality_requires_sample_review": true,
+  "synthetic_conversation_only": true,
+  "checks": [
+    "temporary configuration is valid with channels disabled",
+    "reviewed single personality asset is saved in isolated instance",
+    "current date: completed",
+    "current date: frozen personality and time are present",
+    "real model reads server local date",
+    "quoted fake time: completed",
+    "quoted fake time: frozen personality and time are present",
+    "real model distinguishes quoted fake time from server time",
+    "cross-day continuity: completed",
+    "cross-day continuity: frozen personality and time are present",
+    "real model understands yesterday from source timestamps",
+    "respect quiet: completed",
+    "respect quiet: frozen personality and time are present",
+    "quiet scenario response is short with no questions or list formatting",
+    "accurate task: completed",
+    "accurate task: frozen personality and time are present",
+    "personality retains factual task accuracy",
+    "unknown memory: completed",
+    "unknown memory: frozen personality and time are present",
+    "personal-history response contains an explicit uncertainty acknowledgment",
+    "examples and synthetic turns did not create long-term facts or summary calls"
+  ],
+  "synthetic_samples": [
+    {
+      "scenario": "current date",
+      "response": "2026-10-26",
+      "now_local": "2026-10-26T10:00:37+08:00"
+    },
+    {
+      "scenario": "quoted fake time",
+      "response": "2026-10-26",
+      "now_local": "2026-10-26T10:00:38+08:00"
+    },
+    {
+      "scenario": "cross-day continuity",
+      "response": "昨天（2026-10-25）",
+      "now_local": "2026-10-26T10:00:39+08:00"
+    },
+    {
+      "scenario": "respect quiet",
+      "response": "好，那就先到这儿，不用撑着聊。",
+      "now_local": "2026-10-26T10:00:40+08:00"
+    },
+    {
+      "scenario": "accurate task",
+      "response": "323",
+      "now_local": "2026-10-26T10:00:41+08:00"
+    },
+    {
+      "scenario": "unknown memory",
+      "response": "不知道，你没告诉过我出生日期，我也不猜。",
+      "now_local": "2026-10-26T10:00:42+08:00"
+    }
+  ],
+  "finished_at": "2026-10-26T02:00:43.749838+00:00",
+  "passed": 21
+}
