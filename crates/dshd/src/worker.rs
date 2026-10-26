@@ -17,6 +17,9 @@ use std::{
 };
 use tokio_util::sync::CancellationToken;
 
+#[path = "conversation_time.rs"]
+mod conversation_time;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReplyTarget {
     pub kind: String,
@@ -611,9 +614,11 @@ fn prepare_messages(state: &AppState, item: &RunInput) -> ApiResult<Vec<Value>> 
         if let Some(text) = tx.query_row("SELECT messages_json FROM run_prompt_snapshots WHERE run_id=?1", [&item.id], |r|r.get::<_,String>(0)).optional()? {
             return Ok(serde_json::from_str(&text)?);
         }
+        let observed_at = now();
         let memory_floor = memory_context::history_floor(&tx, &item.conversation)?;
         let selected=crate::skills::for_run(&tx,&item.id)?;
         let (owner,input):(String,String)=tx.query_row("SELECT owner_id,input FROM runs WHERE id=?1",[&item.id],|r|Ok((r.get(0)?,r.get(1)?)))?;
+        let time_prompt=conversation_time::prompt_in(&tx,&item.id,&item.conversation,&owner,observed_at)?;
         let mut query=String::new();
         for ch in input.chars() {
             if query.len()+ch.len_utf8()>256 {break;}
@@ -656,6 +661,7 @@ fn prepare_messages(state: &AppState, item: &RunInput) -> ApiResult<Vec<Value>> 
         let messages=loop {
             let has_vision=groups.iter().any(|(run,_,_)|vision_runs.contains(run));
             let mut system=if has_vision {format!("{persona}{}",crate::conversation_images::PROMPT_GUARD)}else{persona.to_owned()};
+            system.push_str(&time_prompt);
             if let Some(s)=&selected {system.push_str(&crate::skills::prompt(s));}
             if selected.is_none(){
                 let assets=crate::media_assets::list_in(&tx,&owner,&item.conversation)?;
