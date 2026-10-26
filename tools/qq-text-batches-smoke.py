@@ -262,7 +262,7 @@ def main():
                 run = runs[0]
                 batch = rows(h, 'SELECT * FROM qq_text_batches WHERE run_id=?', (run,))[0]
                 check('pending batch has bounded quiet time and three durable fragments',
-                      batch['fragment_count'] == 3 and batch['due_ms'] <= batch['first_ms'] + 5000
+                      batch['fragment_count'] == 3 and batch['due_ms'] <= batch['first_ms'] + 8000
                       and len(rows(h, 'SELECT 1 FROM qq_text_fragments WHERE run_id=?', (run,))) == 3)
                 check('quiet period defers inference while preserving the queued batch',
                       batch['due_ms'] > int(time.time() * 1000) and mock.count() == before

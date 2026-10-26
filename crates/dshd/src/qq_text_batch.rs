@@ -6,8 +6,8 @@ use anyhow::ensure;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const QUIET_MS: i64 = 1_500;
-pub const MAX_WAIT_MS: i64 = 5_000;
+pub const QUIET_MS: i64 = 3_500;
+pub const MAX_WAIT_MS: i64 = 8_000;
 pub const MAX_FRAGMENTS: i64 = 8;
 pub const MAX_BYTES: usize = 4_096;
 const VERSION_KEY: &str = "qq.text_batches.schema.v1";
@@ -484,7 +484,7 @@ mod tests {
             .unwrap();
         assert_eq!(text, input);
         assert_eq!(at, 1001);
-        assert_eq!(counts(&db), (2, input.len() as i64, FIRST + 2500, false));
+        assert_eq!(counts(&db), (2, input.len() as i64, FIRST + 4500, false));
         let source: String = db
             .query_row(
                 "SELECT content FROM qq_text_fragments WHERE ordinal=1",
@@ -601,14 +601,28 @@ mod tests {
         assert!(append(&db, "before", "two", FIRST + QUIET_MS - 1).is_some());
     }
     #[test]
-    fn continuous_text_never_extends_the_five_second_window() {
+    fn continuous_text_never_extends_the_eight_second_window() {
         let db = fixture();
         seed(&db, "one");
-        for n in 1..=4 {
+        for n in 1..=6 {
             assert!(append(&db, &format!("m{n}"), "next", FIRST + n * 1000).is_some());
         }
         assert_eq!(counts(&db).2, FIRST + MAX_WAIT_MS);
         assert_eq!(append(&db, "late", "next", FIRST + MAX_WAIT_MS), None);
+    }
+    #[test]
+    fn observed_phone_typing_gaps_stay_in_one_bounded_turn() {
+        let db = fixture();
+        seed(&db, "帮我算总和");
+        assert!(append(&db, "second", "17+19", FIRST + 1605).is_some());
+        assert!(append(&db, "third", "+23", FIRST + 4740).is_some());
+        let input: String = db
+            .query_row("SELECT input FROM runs WHERE id='run'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(input, "帮我算总和\n17+19\n+23");
+        assert_eq!(counts(&db).0, 3);
+        assert_eq!(counts(&db).2, FIRST + 8000);
+        assert_eq!(append(&db, "too-late", "next", FIRST + 8000), None);
     }
     #[test]
     fn count_and_byte_budgets_end_the_batch() {
@@ -739,7 +753,7 @@ mod tests {
             &reply("first"),
             1000,
             FIRST,
-            FIRST + 2000,
+            FIRST + 4000,
             CONFIG,
             Some("digest"),
         )
