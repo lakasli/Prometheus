@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -77,15 +77,70 @@ async function screenshot(page: Page, filename: string) {
   });
 }
 
-test("reviewed relationship network supports linked selection, navigation and a narrow screen", async ({
+async function worldPosition(node: Locator) {
+  return node.evaluate((element) => {
+    const matrix = (element as SVGGElement).transform.baseVal.consolidate()!
+      .matrix;
+    return { x: matrix.e, y: matrix.f };
+  });
+}
+
+async function animationState(page: Page) {
+  return page.evaluate(() => {
+    const state = (
+      window as unknown as {
+        relationshipAnimation: { pending: Set<number>; frames: number };
+      }
+    ).relationshipAnimation;
+    return { pending: state.pending.size, frames: state.frames };
+  });
+}
+
+async function expectStopped(page: Page, canvas: Locator) {
+  await expect(canvas).toHaveAttribute("data-animating", "false", {
+    timeout: 20000,
+  });
+  await expect.poll(async () => (await animationState(page)).pending).toBe(0);
+  const before = await animationState(page);
+  await page.waitForTimeout(200);
+  expect(await animationState(page)).toEqual(before);
+}
+
+test("reviewed relationship network animates, supports safe node dragging and honors reduced motion", async ({
   page,
   browser,
   baseURL,
 }) => {
-  test.setTimeout(120000);
+  test.setTimeout(180000);
   page.setDefaultTimeout(15000);
   const target = new URL(baseURL!);
   expect(["localhost", "127.0.0.1", "[::1]"]).toContain(target.hostname);
+  expect(["8419", "18419"]).not.toContain(target.port);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.addInitScript(() => {
+    const pending = new Set<number>();
+    const state = { pending, frames: 0 };
+    (
+      window as unknown as {
+        relationshipAnimation: typeof state;
+      }
+    ).relationshipAnimation = state;
+    const request = window.requestAnimationFrame.bind(window);
+    const cancel = window.cancelAnimationFrame.bind(window);
+    window.requestAnimationFrame = (callback) => {
+      const id = request((time) => {
+        pending.delete(id);
+        state.frames++;
+        callback(time);
+      });
+      pending.add(id);
+      return id;
+    };
+    window.cancelAnimationFrame = (id) => {
+      pending.delete(id);
+      cancel(id);
+    };
+  });
   const expectedSha = process.env.DSH_E2E_EXPECT_SHA;
   if (expectedSha) {
     expect(
@@ -97,6 +152,16 @@ test("reviewed relationship network supports linked selection, navigation and a 
   }
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  const detailRequests: string[] = [];
+  page.on("request", (request) => {
+    if (
+      request.method() === "GET" &&
+      /^\/api\/admin\/v1\/relationships\/people\/[^/]+$/.test(
+        new URL(request.url()).pathname,
+      )
+    )
+      detailRequests.push(request.url());
+  });
   const anonymous = await browser.newContext();
   for (const endpoint of [
     "relationships/people",
@@ -215,6 +280,7 @@ test("reviewed relationship network supports linked selection, navigation and a 
   const list = page.locator(".relationship-list");
   const graph = page.locator(".relationship-graph");
   const detail = page.locator(".relationship-detail");
+  const canvas = graph.locator(".graph-canvas");
   await expect(workspace).toBeVisible();
   await expect(
     graph.locator(".relationship-graph-node circle.node-disc"),
@@ -223,6 +289,10 @@ test("reviewed relationship network supports linked selection, navigation and a 
     links.length,
   );
   await expect(graph.getByText("100%", { exact: true })).toBeVisible();
+  await expect
+    .poll(async () => (await animationState(page)).frames)
+    .toBeGreaterThan(1);
+  await expectStopped(page, canvas);
   const listBox = await list.boundingBox();
   const graphBox = await graph.boundingBox();
   const detailBox = await detail.boundingBox();
@@ -232,6 +302,120 @@ test("reviewed relationship network supports linked selection, navigation and a 
   expect(listBox!.x + listBox!.width).toBeLessThanOrEqual(graphBox!.x + 2);
   expect(graphBox!.x + graphBox!.width).toBeLessThanOrEqual(detailBox!.x + 2);
   await screenshot(page, "01-relationship-network-desktop.png");
+
+  const selectedName = names[0]!;
+  const selectedNode = graph.locator(
+    `.relationship-graph-node[data-person-id="${people[0]!.id}"]`,
+  );
+  const neighborNode = graph.locator(
+    `.relationship-graph-node[data-person-id="${people[1]!.id}"]`,
+  );
+  const svg = graph.locator(".graph-canvas > svg");
+  const viewport = svg.locator(".relationship-graph-viewport");
+  const reset = graph.getByRole("button", { name: "重置关系图", exact: true });
+
+  // Hover and keyboard focus explain the network without loading private detail.
+  await selectedNode.hover();
+  await expect(selectedNode).toHaveClass(/hovered/);
+  await expect(
+    graph.locator(".relationship-graph-edge.highlighted"),
+  ).toHaveCount(3);
+  await expect(graph.locator(".relationship-graph-node.selected")).toHaveCount(
+    0,
+  );
+  expect(detailRequests).toHaveLength(0);
+  const hoverBox = await svg.boundingBox();
+  await page.mouse.move(hoverBox!.x + 3, hoverBox!.y + 3);
+  await neighborNode.focus();
+  await expect(neighborNode).toHaveClass(/hovered/);
+  await expect(
+    graph.locator(".relationship-graph-edge.highlighted"),
+  ).toHaveCount(3);
+  await expect(graph.locator(".relationship-graph-node.selected")).toHaveCount(
+    0,
+  );
+  expect(detailRequests).toHaveLength(0);
+  await neighborNode.evaluate((node) => (node as SVGGElement).blur());
+
+  // Drag in world coordinates at a non-default zoom. Lines must follow while
+  // the pointer is still down, and neighboring bodies should respond gently.
+  await graph.getByRole("button", { name: "放大关系图", exact: true }).click();
+  await expect(graph.getByText("120%", { exact: true })).toBeVisible();
+  // Measure against the rendered zoom after its bounded animation settles.
+  // Pointer movement is then compared with one stable viewport matrix.
+  await expectStopped(page, canvas);
+  const beforeNode = await worldPosition(selectedNode);
+  const beforeNeighbor = await worldPosition(neighborNode);
+  const linkedEdge = graph.locator(".relationship-graph-edge").filter({
+    hasText: new RegExp(`${names[0]}\\s*→\\s*${names[1]}`),
+  });
+  const edgeBefore = await linkedEdge.locator("path").getAttribute("d");
+  const nodeBox = await selectedNode.locator(".node-disc").boundingBox();
+  const dragCanvas = await svg.boundingBox();
+  expect(nodeBox).not.toBeNull();
+  expect(dragCanvas).not.toBeNull();
+  const start = {
+    x: nodeBox!.x + nodeBox!.width / 2,
+    y: nodeBox!.y + nodeBox!.height / 2,
+  };
+  const end = {
+    x: start.x + (start.x < dragCanvas!.x + dragCanvas!.width / 2 ? 42 : -42),
+    y: start.y + (start.y < dragCanvas!.y + dragCanvas!.height / 2 ? 28 : -28),
+  };
+  const expected = await viewport.evaluate((element, point) => {
+    const matrix = (element as SVGGElement).getScreenCTM()!;
+    const transformed = new DOMPoint(point.x, point.y).matrixTransform(
+      matrix.inverse(),
+    );
+    return { x: transformed.x, y: transformed.y };
+  }, end);
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(end.x, end.y, { steps: 12 });
+  await expect(selectedNode).toHaveClass(/dragged/);
+  await expect(canvas).toHaveAttribute("data-animating", "true");
+  await expect
+    .poll(async () => {
+      const current = await worldPosition(selectedNode);
+      return Math.hypot(current.x - expected.x, current.y - expected.y);
+    })
+    .toBeLessThan(3);
+  await expect(linkedEdge.locator("path")).not.toHaveAttribute(
+    "d",
+    edgeBefore!,
+  );
+  await expect
+    .poll(async () => {
+      const current = await worldPosition(neighborNode);
+      return Math.hypot(
+        current.x - beforeNeighbor.x,
+        current.y - beforeNeighbor.y,
+      );
+    })
+    .toBeGreaterThan(0.05);
+  const clippedStart = await linkedEdge.locator("path").evaluate((element) => {
+    const point = (element as SVGPathElement).getPointAtLength(0);
+    return { x: point.x, y: point.y };
+  });
+  const duringDrag = await worldPosition(selectedNode);
+  const radius = await selectedNode
+    .locator(".node-disc")
+    .evaluate((element) => (element as SVGCircleElement).r.baseVal.value);
+  expect(
+    Math.hypot(clippedStart.x - duringDrag.x, clippedStart.y - duringDrag.y),
+  ).toBeCloseTo(radius + 2, 0);
+  expect(
+    Math.hypot(duringDrag.x - beforeNode.x, duringDrag.y - beforeNode.y),
+  ).toBeGreaterThan(10);
+  await page.mouse.up();
+  await expect(selectedNode).not.toHaveClass(/dragged/);
+  await expect(graph.locator(".relationship-graph-node.selected")).toHaveCount(
+    0,
+  );
+  expect(detailRequests).toHaveLength(0);
+  await expectStopped(page, canvas);
+  await reset.click();
+  await expectStopped(page, canvas);
 
   const isolatedName = names[9]!;
   const isolatedNode = graph.getByRole("button", {
@@ -245,7 +429,6 @@ test("reviewed relationship network supports linked selection, navigation and a 
   await expect(list.locator("button.active")).toContainText(isolatedName);
   await expect(detail).toContainText(isolatedName);
 
-  const selectedName = names[0]!;
   await graph
     .getByRole("button", { name: `查看${selectedName}的资料`, exact: true })
     .click();
@@ -262,18 +445,15 @@ test("reviewed relationship network supports linked selection, navigation and a 
   await expect(detail).toContainText(keyboardName);
   await screenshot(page, "02-relationship-network-selected.png");
 
-  const reset = graph.getByRole("button", { name: "重置关系图", exact: true });
   await graph.getByRole("button", { name: "放大关系图", exact: true }).click();
   await expect(graph.getByText("100%", { exact: true })).toHaveCount(0);
   await graph.getByRole("button", { name: "缩小关系图", exact: true }).click();
   await reset.click();
   await expect(graph.getByText("100%", { exact: true })).toBeVisible();
-  const svg = graph.locator(".graph-canvas > svg");
   await svg.hover();
   await page.mouse.wheel(0, -360);
   await expect(graph.getByText("100%", { exact: true })).toHaveCount(0);
   await reset.click();
-  const viewport = svg.locator(".relationship-graph-viewport");
   const beforePan = await viewport.getAttribute("transform");
   const svgBox = await svg.boundingBox();
   expect(svgBox).not.toBeNull();
@@ -283,6 +463,7 @@ test("reviewed relationship network supports linked selection, navigation and a 
   await page.mouse.up();
   await expect(viewport).not.toHaveAttribute("transform", beforePan!);
   await reset.click();
+  await expectStopped(page, canvas);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(graph).toBeVisible();
@@ -299,5 +480,72 @@ test("reviewed relationship network supports linked selection, navigation and a 
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
+
+  await page.setViewportSize({ width: 320, height: 760 });
+  await expect(graph.locator(".relationship-graph-node")).toHaveCount(
+    names.length,
+  );
+  await expect(graph.locator(".relationship-graph-edge")).toHaveCount(
+    links.length,
+  );
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await screenshot(page, "04-relationship-network-320.png");
+
+  // Removing a live graph in the middle of a drag must cancel both pointer
+  // interaction and RAF rather than simulate a historical page in the background.
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await selectedNode.scrollIntoViewIfNeeded();
+  const leavingNode = await selectedNode.locator(".node-disc").boundingBox();
+  expect(leavingNode).not.toBeNull();
+  const leavingStart = {
+    x: leavingNode!.x + leavingNode!.width / 2,
+    y: leavingNode!.y + leavingNode!.height / 2,
+  };
+  await page.mouse.move(leavingStart.x, leavingStart.y);
+  await page.mouse.down();
+  await page.mouse.move(leavingStart.x + 30, leavingStart.y + 20, { steps: 6 });
+  await expect(selectedNode).toHaveClass(/dragged/);
+  await expect(canvas).toHaveAttribute("data-animating", "true");
+  const overview = nav.getByRole("button", { name: "运行总览", exact: true });
+  await overview.focus();
+  await overview.press("Enter");
+  await expect(graph).toHaveCount(0);
+  await page.mouse.up();
+  await expect.poll(async () => (await animationState(page)).pending).toBe(0);
+  const afterLeave = await animationState(page);
+  await page.waitForTimeout(200);
+  expect(await animationState(page)).toEqual(afterLeave);
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/admin/#relationships");
+  await expect(graph.locator(".relationship-graph-node")).toHaveCount(
+    names.length,
+  );
+  await expectStopped(page, canvas);
+  const staticPositions = await graph
+    .locator(".relationship-graph-node")
+    .evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute("transform")),
+    );
+  await page.waitForTimeout(250);
+  expect(
+    await graph
+      .locator(".relationship-graph-node")
+      .evaluateAll((nodes) =>
+        nodes.map((node) => node.getAttribute("transform")),
+      ),
+  ).toEqual(staticPositions);
+  await expect(graph.locator(".relationship-graph-edge")).toHaveCount(
+    links.length,
+  );
+  await graph
+    .getByRole("button", { name: `查看${names[2]}的资料`, exact: true })
+    .press("Space");
+  await expect(detail).toContainText(names[2]!);
+  await screenshot(page, "05-relationship-network-reduced-motion.png");
   expect(errors).toEqual([]);
 });

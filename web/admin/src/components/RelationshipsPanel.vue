@@ -1,9 +1,24 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, useId } from "vue";
+import {
+  computed,
+  onMounted,
+  onUnmounted,
+  reactive,
+  ref,
+  shallowRef,
+  useId,
+  watch,
+} from "vue";
 import { api, errorMessage } from "../api";
 import AdminSelect from "./AdminSelect.vue";
 import Icon from "./Icon.vue";
 import { layoutRelationshipGraph, graphEdgePath } from "../relationship-graph";
+import type { RelationshipGraphNode } from "../relationship-graph";
+import {
+  createGraphMotion,
+  stepGraphMotion,
+} from "../relationship-graph-motion";
+import type { GraphMotionState } from "../relationship-graph-motion";
 import type { Conversation } from "../types";
 
 interface Person {
@@ -180,15 +195,44 @@ const graphEdges = computed(() => {
       ids.has(edge.to_person_id),
   );
 });
-const positions = computed(() =>
+const targetPositions = computed(() =>
   layoutRelationshipGraph(graphPeople.value, graphEdges.value),
 );
+const positions = shallowRef(new Map<string, RelationshipGraphNode>());
 const selectedId = ref<string | null>(null);
+const hoveredId = ref<string | null>(null);
+const focusedId = ref<string | null>(null);
+const draggedId = ref<string | null>(null);
+const highlightedId = computed(
+  () =>
+    draggedId.value || hoveredId.value || focusedId.value || selectedId.value,
+);
 const detailLoading = ref(false);
 const zoom = ref(1);
+const renderedZoom = ref(1);
 const pan = reactive({ x: 0, y: 0 });
 const graphSvg = ref<SVGSVGElement | null>(null);
+const graphViewport = ref<SVGGElement | null>(null);
 const dragging = ref(false);
+const animating = ref(false);
+const reducedMotion = ref(false);
+let motionMedia: MediaQueryList | undefined;
+let motion: GraphMotionState | null = null;
+let animationFrame: number | null = null;
+let lastFrame = 0;
+let resumeMotion = false;
+let clickSuppression: { id: string; until: number } | null = null;
+let nodeDrag: {
+  pointer: number;
+  id: string;
+  startX: number;
+  startY: number;
+  offsetX: number;
+  offsetY: number;
+  moved: boolean;
+} | null = null;
+let pinned: { id: string; x: number; y: number } | null = null;
+let pointerCapture: SVGElement | null = null;
 let dragStart: {
   pointer: number;
   x: number;
@@ -198,10 +242,10 @@ let dragStart: {
 } | null = null;
 const connectedIds = computed(() => {
   const ids = new Set<string>();
-  if (selectedId.value) ids.add(selectedId.value);
+  if (highlightedId.value) ids.add(highlightedId.value);
   for (const edge of graphEdges.value) {
-    if (edge.from_person_id === selectedId.value) ids.add(edge.to_person_id);
-    if (edge.to_person_id === selectedId.value) ids.add(edge.from_person_id);
+    if (edge.from_person_id === highlightedId.value) ids.add(edge.to_person_id);
+    if (edge.to_person_id === highlightedId.value) ids.add(edge.from_person_id);
   }
   return ids;
 });
@@ -231,23 +275,185 @@ function edgePath(edge: Edge) {
 }
 function isConnected(edge: Edge) {
   return (
-    edge.from_person_id === selectedId.value ||
-    edge.to_person_id === selectedId.value
+    edge.from_person_id === highlightedId.value ||
+    edge.to_person_id === highlightedId.value
   );
+}
+function stopMotion() {
+  if (animationFrame !== null) window.cancelAnimationFrame(animationFrame);
+  animationFrame = null;
+  animating.value = false;
+  lastFrame = 0;
+}
+function settleMotion() {
+  stopMotion();
+  renderedZoom.value = zoom.value;
+  if (!motion) return;
+  for (let i = 0; i < 180; i++) {
+    const step = stepGraphMotion(motion, pinned);
+    positions.value = step.positions;
+    if (step.settled) break;
+  }
+}
+function wakeMotion() {
+  if (disposed || !motion || reducedMotion.value || document.hidden) return;
+  if (animationFrame !== null) return;
+  animating.value = true;
+  lastFrame = 0;
+  const frame = (time: number) => {
+    animationFrame = null;
+    if (disposed || !motion || reducedMotion.value || document.hidden) {
+      stopMotion();
+      return;
+    }
+    const elapsed = lastFrame
+      ? Math.min(32, Math.max(8, time - lastFrame))
+      : 1000 / 60;
+    lastFrame = time;
+    const difference = zoom.value - renderedZoom.value;
+    renderedZoom.value =
+      Math.abs(difference) < 0.001
+        ? zoom.value
+        : renderedZoom.value +
+          difference * (1 - 0.72 ** (elapsed / (1000 / 60)));
+    const result = stepGraphMotion(motion, pinned, elapsed);
+    positions.value = result.positions;
+    // Idle graphs never retain a frame loop, even under a degenerate layout.
+    if (result.settled && renderedZoom.value === zoom.value) {
+      renderedZoom.value = zoom.value;
+      stopMotion();
+      return;
+    }
+    animationFrame = window.requestAnimationFrame(frame);
+  };
+  animationFrame = window.requestAnimationFrame(frame);
+}
+function rebuildMotion(entrance = false) {
+  stopMotion();
+  endPan();
+  const target = targetPositions.value;
+  const previous =
+    entrance && !positions.value.size
+      ? new Map(
+          [...target].map(([id, node]) => [
+            id,
+            {
+              ...node,
+              x: 450 + (node.x - 450) * 0.78,
+              y: 340 + (node.y - 340) * 0.78,
+            },
+          ]),
+        )
+      : positions.value;
+  motion = createGraphMotion(target, graphEdges.value, previous);
+  positions.value = stepGraphMotion(motion).positions;
+  if (reducedMotion.value || document.hidden) settleMotion();
+  else wakeMotion();
+}
+watch(
+  targetPositions,
+  () => {
+    hoveredId.value = null;
+    focusedId.value = null;
+    rebuildMotion(true);
+  },
+  { flush: "sync" },
+);
+function updateMotionPreference() {
+  reducedMotion.value = motionMedia?.matches ?? false;
+  if (reducedMotion.value) settleMotion();
+}
+function visibilityChanged() {
+  if (document.hidden) {
+    resumeMotion = animating.value;
+    endPan();
+    stopMotion();
+    hoveredId.value = null;
+  } else if (resumeMotion) {
+    resumeMotion = false;
+    wakeMotion();
+  }
 }
 function resetGraph() {
   zoom.value = 1;
   pan.x = 0;
   pan.y = 0;
+  rebuildMotion();
 }
 function zoomGraph(amount: number) {
+  if (nodeDrag || dragStart) return;
   zoom.value = Math.min(
     2.4,
     Math.max(0.5, Math.round((zoom.value + amount) * 100) / 100),
   );
+  if (reducedMotion.value || document.hidden) renderedZoom.value = zoom.value;
+  else wakeMotion();
+}
+function pointInGraph(event: PointerEvent) {
+  const matrix = graphViewport.value?.getScreenCTM?.();
+  if (matrix && typeof DOMPoint !== "undefined") {
+    try {
+      const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(
+        matrix.inverse(),
+      );
+      if (Number.isFinite(point.x) && Number.isFinite(point.y)) return point;
+    } catch {
+      return null;
+    }
+  }
+  const rect = graphSvg.value?.getBoundingClientRect();
+  if (!rect || !rect.width || !rect.height) return null;
+  const ratio = Math.min(rect.width / 900, rect.height / 680);
+  return {
+    x:
+      ((event.clientX - rect.left - (rect.width - 900 * ratio) / 2) / ratio -
+        450 -
+        pan.x) /
+        renderedZoom.value +
+      450,
+    y:
+      ((event.clientY - rect.top - (rect.height - 680 * ratio) / 2) / ratio -
+        340 -
+        pan.y) /
+        renderedZoom.value +
+      340,
+  };
+}
+function startNodeDrag(event: PointerEvent, id: string) {
+  if (
+    busy.value ||
+    event.button !== 0 ||
+    event.isPrimary === false ||
+    dragStart ||
+    nodeDrag
+  )
+    return;
+  zoom.value = renderedZoom.value;
+  const point = pointInGraph(event);
+  const node = positions.value.get(id);
+  if (!point || !node) return;
+  nodeDrag = {
+    pointer: event.pointerId,
+    id,
+    startX: event.clientX,
+    startY: event.clientY,
+    offsetX: node.x - point.x,
+    offsetY: node.y - point.y,
+    moved: false,
+  };
+  pointerCapture = event.currentTarget as SVGGElement;
+  pointerCapture.setPointerCapture?.(event.pointerId);
+}
+function activatePerson(person: Person) {
+  if (busy.value) return;
+  if (clickSuppression?.id === person.id && Date.now() < clickSuppression.until)
+    return;
+  void choose(person);
 }
 function startPan(event: PointerEvent) {
-  if (event.button !== 0) return;
+  if (event.button !== 0 || event.isPrimary === false || nodeDrag || dragStart)
+    return;
+  zoom.value = renderedZoom.value;
   dragStart = {
     pointer: event.pointerId,
     x: event.clientX,
@@ -256,9 +462,39 @@ function startPan(event: PointerEvent) {
     panY: pan.y,
   };
   dragging.value = true;
-  graphSvg.value?.setPointerCapture?.(event.pointerId);
+  pointerCapture = graphSvg.value;
+  pointerCapture?.setPointerCapture?.(event.pointerId);
 }
 function movePan(event: PointerEvent) {
+  if (nodeDrag && event.pointerId === nodeDrag.pointer) {
+    if (
+      !nodeDrag.moved &&
+      Math.hypot(
+        event.clientX - nodeDrag.startX,
+        event.clientY - nodeDrag.startY,
+      ) < 4
+    )
+      return;
+    const point = pointInGraph(event);
+    const node = positions.value.get(nodeDrag.id);
+    if (!point || !node || !motion) return;
+    nodeDrag.moved = true;
+    draggedId.value = nodeDrag.id;
+    pinned = {
+      id: nodeDrag.id,
+      x: Math.max(
+        26 + node.radius,
+        Math.min(874 - node.radius, point.x + nodeDrag.offsetX),
+      ),
+      y: Math.max(
+        26 + node.radius,
+        Math.min(654 - node.radius, point.y + nodeDrag.offsetY),
+      ),
+    };
+    positions.value = stepGraphMotion(motion, pinned).positions;
+    if (!reducedMotion.value) wakeMotion();
+    return;
+  }
   if (!dragStart || event.pointerId !== dragStart.pointer) return;
   const rect = graphSvg.value?.getBoundingClientRect();
   if (!rect || !rect.width || !rect.height) return;
@@ -272,9 +508,27 @@ function movePan(event: PointerEvent) {
     Math.min(680, dragStart.panY + (event.clientY - dragStart.y) / ratio),
   );
 }
-function endPan() {
+function endPan(event?: PointerEvent) {
+  const pointer = nodeDrag?.pointer ?? dragStart?.pointer;
+  if (event && pointer !== undefined && event.pointerId !== pointer) return;
+  if (nodeDrag?.moved) {
+    clickSuppression = { id: nodeDrag.id, until: Date.now() + 450 };
+  }
+  const wasNodeDrag = Boolean(nodeDrag?.moved);
+  nodeDrag = null;
+  pinned = null;
+  draggedId.value = null;
   dragStart = null;
   dragging.value = false;
+  const captured = pointerCapture;
+  pointerCapture = null;
+  if (pointer !== undefined && captured?.hasPointerCapture?.(pointer)) {
+    captured.releasePointerCapture(pointer);
+  }
+  if (wasNodeDrag) {
+    if (reducedMotion.value) settleMotion();
+    else wakeMotion();
+  }
 }
 const currentAssertions = computed(
   () => selected.value?.assertions.filter((a) => a.status === "approved") || [],
@@ -773,9 +1027,20 @@ function forget(
   deleteTarget.value = target;
   deleteKind.value = kind;
 }
-onMounted(load);
+onMounted(() => {
+  motionMedia = window.matchMedia("(prefers-reduced-motion: reduce)");
+  updateMotionPreference();
+  motionMedia.addEventListener("change", updateMotionPreference);
+  document.addEventListener("visibilitychange", visibilityChanged);
+  void load();
+});
 onUnmounted(() => {
   disposed = true;
+  endPan();
+  stopMotion();
+  motion = null;
+  motionMedia?.removeEventListener("change", updateMotionPreference);
+  document.removeEventListener("visibilitychange", visibilityChanged);
   loadController?.abort();
   detailController?.abort();
 });
@@ -852,9 +1117,16 @@ onUnmounted(() => {
           v-for="p in people"
           :key="p.id"
           type="button"
-          :class="{ active: selectedId === p.id }"
+          :class="{
+            active: selectedId === p.id,
+            preview: highlightedId === p.id,
+          }"
           :aria-pressed="selectedId === p.id"
           :disabled="busy"
+          @pointerenter="hoveredId = p.merged_into ? null : p.id"
+          @pointerleave="hoveredId = null"
+          @focus="focusedId = p.merged_into ? null : p.id"
+          @blur="focusedId = null"
           @click="choose(p)"
         >
           <span class="person-list-title"
@@ -902,7 +1174,12 @@ onUnmounted(() => {
           </div>
           <span class="graph-live-label"><i></i> 来源可追溯</span>
         </div>
-        <div class="graph-canvas" :class="{ dragging }">
+        <div
+          class="graph-canvas"
+          :class="{ dragging, 'dragging-node': draggedId }"
+          :data-animating="animating"
+          :data-reduced-motion="reducedMotion"
+        >
           <svg
             ref="graphSvg"
             viewBox="0 0 900 680"
@@ -934,8 +1211,9 @@ onUnmounted(() => {
               </marker>
             </defs>
             <g
+              ref="graphViewport"
               class="relationship-graph-viewport"
-              :transform="`translate(${450 + pan.x} ${340 + pan.y}) scale(${zoom}) translate(-450 -340)`"
+              :transform="`translate(${450 + pan.x} ${340 + pan.y}) scale(${renderedZoom}) translate(-450 -340)`"
             >
               <g
                 v-for="edge in graphEdges"
@@ -943,8 +1221,9 @@ onUnmounted(() => {
                 class="relationship-graph-edge"
                 :class="{
                   highlighted: isConnected(edge),
-                  dimmed: selectedId && !isConnected(edge),
+                  dimmed: highlightedId && !isConnected(edge),
                 }"
+                :data-edge-id="edge.id"
               >
                 <path
                   :d="edgePath(edge)"
@@ -982,17 +1261,27 @@ onUnmounted(() => {
                 class="relationship-graph-node"
                 :class="{
                   selected: selectedId === person.id,
-                  neighbor: selectedId && connectedIds.has(person.id),
-                  dimmed: selectedId && !connectedIds.has(person.id),
+                  hovered: hoveredId === person.id || focusedId === person.id,
+                  dragged: draggedId === person.id,
+                  neighbor: highlightedId && connectedIds.has(person.id),
+                  dimmed:
+                    highlightedId &&
+                    !connectedIds.has(person.id) &&
+                    selectedId !== person.id,
                 }"
                 :transform="`translate(${positions.get(person.id)!.x},${positions.get(person.id)!.y})`"
                 role="button"
                 tabindex="0"
                 :aria-label="`查看${person.display_name}的资料`"
                 :aria-pressed="selectedId === person.id"
+                :data-person-id="person.id"
                 :aria-disabled="busy"
-                @pointerdown.stop
-                @click.stop="!busy && choose(person)"
+                @pointerdown.stop="startNodeDrag($event, person.id)"
+                @pointerenter="hoveredId = person.id"
+                @pointerleave="hoveredId = null"
+                @focus="focusedId = person.id"
+                @blur="focusedId = null"
+                @click.stop="activatePerson(person)"
                 @keydown.enter.prevent="!busy && choose(person)"
                 @keydown.space.prevent="!busy && choose(person)"
               >
@@ -1052,7 +1341,7 @@ onUnmounted(() => {
               <Icon name="refresh" :size="16" />
             </button>
           </div>
-          <p class="graph-hint">滚轮缩放 · 拖动空白移动 · 点击人物查看</p>
+          <p class="graph-hint">悬停看联系 · 拖动人物 · 滚轮缩放</p>
         </div>
         <div class="graph-legend">
           <span
@@ -1705,13 +1994,19 @@ textarea {
   background: transparent;
   color: var(--ink);
 }
-.relationship-list > button:hover {
-  background: #f4f7fa;
+.relationship-list > button:hover,
+.relationship-list > button.preview {
+  background: #f2f4fa;
+}
+.relationship-list > button {
+  transition:
+    background-color 160ms ease,
+    box-shadow 160ms ease;
 }
 .relationship-list > button.active {
-  background: #edf5f5;
-  box-shadow: inset 3px 0 #418386;
-  color: #24595e;
+  background: var(--soft-blue);
+  box-shadow: inset 3px 0 var(--gold);
+  color: var(--indigo);
 }
 .person-list-title {
   display: flex;
@@ -1880,7 +2175,7 @@ summary {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: #fdfefe;
+  background: #fcfcff;
 }
 .graph-heading {
   display: flex;
@@ -1898,7 +2193,7 @@ summary {
 }
 .graph-live-label {
   font-size: 10px;
-  color: #548587;
+  color: var(--indigo);
   white-space: nowrap;
 }
 .graph-live-label i {
@@ -1907,7 +2202,7 @@ summary {
   height: 5px;
   margin-right: 5px;
   border-radius: 50%;
-  background: #66a1a1;
+  background: #899ac6;
 }
 .graph-canvas {
   position: relative;
@@ -1925,79 +2220,104 @@ summary {
   cursor: grab;
   user-select: none;
 }
-.graph-canvas.dragging > svg {
+.graph-canvas.dragging > svg,
+.graph-canvas.dragging-node > svg,
+.relationship-graph-node.dragged {
   cursor: grabbing;
 }
+.relationship-graph-edge,
+.relationship-graph-node {
+  transition: opacity 180ms ease;
+}
 .relationship-graph-edge path {
-  stroke: #88a4a6;
-  stroke-width: 1.2;
+  stroke: #a0adc9;
+  stroke-width: 1.15;
   fill: none;
-  opacity: 0.62;
+  opacity: 0.6;
+  transition:
+    stroke 180ms ease,
+    stroke-width 180ms ease,
+    opacity 180ms ease;
 }
 .relationship-graph-edge.highlighted path {
-  stroke: #367b7e;
+  stroke: var(--indigo);
   stroke-width: 2;
   opacity: 0.95;
 }
 .relationship-graph-edge.dimmed {
-  opacity: 0.15;
+  opacity: 0.12;
 }
 .relationship-graph-edge text {
-  fill: #376d72;
+  fill: var(--indigo);
   text-anchor: middle;
   font-size: 12px;
   paint-order: stroke;
-  stroke: #fdfefe;
+  stroke: #fcfcff;
   stroke-width: 4px;
   stroke-linejoin: round;
 }
 .relationship-graph-node {
-  cursor: pointer;
+  cursor: grab;
   outline: none;
 }
 .relationship-graph-node .node-disc {
-  fill: #3c8083;
+  fill: #5b73ac;
   fill-opacity: var(--node-opacity, 0.5);
-  stroke: #fdfefe;
+  stroke: #fcfcff;
   stroke-width: 1.5;
+  transition:
+    fill-opacity 180ms ease,
+    stroke 180ms ease,
+    stroke-width 180ms ease;
 }
 .relationship-graph-node .node-halo {
   fill: none;
   stroke: transparent;
   stroke-width: 2.5;
+  transition:
+    stroke 180ms ease,
+    filter 180ms ease;
 }
 .relationship-graph-node.selected .node-halo {
-  stroke: #a36b9c;
+  stroke: var(--gold);
+  filter: drop-shadow(0 0 5px #c5a56d40);
 }
 .relationship-graph-node.selected .node-disc {
   fill-opacity: 0.92;
-  stroke: #fdfefe;
+  stroke: #fcfcff;
   stroke-width: 2;
 }
 .relationship-graph-node.neighbor .node-disc {
-  stroke: #7aa4a5;
+  stroke: #9aabd2;
 }
 .relationship-graph-node.dimmed {
-  opacity: 0.28;
+  opacity: 0.24;
 }
-.relationship-graph-node:hover .node-halo,
+.relationship-graph-node.hovered .node-halo,
+.relationship-graph-node:focus-visible .node-halo,
+.relationship-graph-node.dragged .node-halo {
+  stroke: var(--indigo);
+  filter: drop-shadow(0 0 5px #46569024);
+}
+.relationship-graph-node.selected .node-halo {
+  stroke: var(--gold);
+}
 .relationship-graph-node:focus-visible .node-halo {
-  stroke: #448285;
   stroke-dasharray: 4 3;
 }
 .relationship-graph-node text {
-  fill: #244e57;
+  fill: #344971;
   font-size: 13px;
   font-weight: 500;
   pointer-events: none;
   paint-order: stroke;
-  stroke: #fdfefe;
+  stroke: #fcfcff;
   stroke-width: 2px;
   stroke-opacity: 0.9;
 }
 .relationship-graph-node.selected text {
   fill: white;
-  stroke: #3c8083;
+  stroke: #5b73ac;
   stroke-opacity: 0.6;
 }
 .graph-controls {
@@ -2008,10 +2328,10 @@ summary {
   align-items: center;
   gap: 2px;
   background: white;
-  border: 1px solid #dce7e8;
+  border: 1px solid var(--line);
   border-radius: 9px;
   padding: 3px;
-  box-shadow: 0 3px 12px #2e666608;
+  box-shadow: 0 3px 12px #46569008;
 }
 .graph-controls button {
   width: 30px;
@@ -2022,13 +2342,13 @@ summary {
   place-items: center;
   background: transparent;
   font-size: 19px;
-  color: #4c797d;
+  color: var(--indigo);
 }
 .graph-controls output {
   min-width: 40px;
   font-size: 11px;
   text-align: center;
-  color: #52777c;
+  color: var(--muted);
 }
 .control-divider {
   height: 16px;
@@ -2062,7 +2382,7 @@ summary {
 .legend-large {
   display: inline-block;
   border-radius: 50%;
-  background: #5d9395;
+  background: #6b81b5;
 }
 .legend-small {
   width: 7px;
@@ -2076,7 +2396,7 @@ summary {
 }
 .legend-line {
   width: 20px;
-  border-top: 1px solid #82a2a3;
+  border-top: 1px solid #8395bf;
 }
 .graph-scope {
   font-size: 10px;
@@ -2143,6 +2463,18 @@ summary {
   }
   .section-heading {
     flex-wrap: wrap;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .relationship-graph-viewport,
+  .relationship-graph-node,
+  .relationship-graph-edge,
+  .relationship-graph-node .node-disc,
+  .relationship-graph-node .node-halo,
+  .relationship-graph-edge path,
+  .relationship-list > button {
+    transition: none;
+    animation: none;
   }
 }
 </style>
