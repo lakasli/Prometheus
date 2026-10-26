@@ -105,6 +105,7 @@ async function navigate(page: Page, title: string) {
 }
 
 async function screenshot(page: Page, name: string) {
+  await expect(page.locator(".activity-bar")).toHaveCount(0);
   await page.evaluate(() => document.fonts.ready);
   await page.evaluate(() => window.scrollTo(0, 0));
   fs.mkdirSync(evidenceDir, { recursive: true });
