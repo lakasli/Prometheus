@@ -1,0 +1,27 @@
+{
+  "test": "tests/e2e/assistant-runtime.spec.ts",
+  "expected": 1,
+  "unexpected": 0,
+  "skipped": 0,
+  "duration_ms": 5757.927,
+  "source_version": "uncommitted local development build",
+  "binary_sha256": "a797c5221625fcb2a52f5b8c47fa14f1ad9bfd2afdb06d47b424972a901ea02e",
+  "production_data_accessed": false,
+  "real_external_model_tested": false,
+  "screenshots": [
+    "00-liu-jiahui-initial-desktop.png",
+    "01-personality-desktop.png",
+    "02-runtime-logs-desktop.png",
+    "03-runtime-logs-320.png",
+    "03-runtime-logs-390.png",
+    "04-personality-320.png",
+    "04-personality-390.png"
+  ],
+  "visual_review": [
+    "00-liu-jiahui-initial-desktop.png: no page clipping",
+    "04-personality-320.png: no horizontal overflow; form controls readable"
+  ],
+  "fixture_daemon_stopped": true,
+  "fixture_controller_stopped": true,
+  "port_18421_listening": false
+}

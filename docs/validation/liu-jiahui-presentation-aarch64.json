@@ -1,0 +1,26 @@
+{
+  "kind": "personality presentation isolated acceptance",
+  "commit": "e4c955eda1ca7fa01062470f0cad5313e79f6a31",
+  "binary_sha256": "ab36210a893998944d2e38fd3b6fbbb02be9720d4439fcbf9dc63c4ab0f3a388",
+  "personality_sha256": "b1d9e5750f395257caa8747e620cd9b08374e623505dd4225cdeeba76460aa0d",
+  "tested_at": "2026-10-26T07:37:32.373470+00:00",
+  "platform": "aarch64",
+  "passed": 11,
+  "checks": [
+    "personality asset has six nonempty text fields and the requested name",
+    "displayed personality fields avoid mechanical identity wording",
+    "current personality requires authentication",
+    "personality update requires CSRF",
+    "requested personality is saved and applied as a new revision",
+    "stale personality update is rejected",
+    "existing conversation uses new personality and example responses in its next HTTP request",
+    "completed run snapshot is preserved and new run freezes the requested name",
+    "personality update preserves stable identity and all existing memory records",
+    "previous personality can be restored through the authenticated versioned API",
+    "restored personality and existing memory survive a real daemon restart"
+  ],
+  "production_data_accessed": false,
+  "external_model_tested": false,
+  "real_qq_tested": false,
+  "real_weixin_tested": false
+}

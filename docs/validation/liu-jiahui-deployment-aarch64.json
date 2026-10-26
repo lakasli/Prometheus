@@ -1,0 +1,136 @@
+{
+  "commit": "e4c955eda1ca7fa01062470f0cad5313e79f6a31",
+  "target": "campanus@192.168.189.191",
+  "architecture": "aarch64",
+  "os": "Ubuntu 24.04.4 LTS",
+  "deployed_at": "2026-10-26T15:36:18.019082+08:00",
+  "deployment_exit_status": 0,
+  "previous_commit": "1bce688edb4d22573168ba893eede785d4c143b3",
+  "frontend_archive_sha256": "99c285c07bd5b3b2d6ec5940513f2c3dc782d9657315d94fd0c14c92b377b2d0",
+  "remote_tests": {
+    "daemon": 304,
+    "kernel": 4,
+    "failed": 0,
+    "exit_status": 0
+  },
+  "release_build": {
+    "exit_status": 0,
+    "duration": "8m 17s",
+    "jobs": 1,
+    "cargo_mirror": "rsproxy"
+  },
+  "before": {
+    "audited_at": "2026-10-26T07:17:42.550905+00:00",
+    "current_release": "/home/campanus/apps/dsh/releases/1bce688edb4d22573168ba893eede785d4c143b3",
+    "source_sha": "1bce688edb4d22573168ba893eede785d4c143b3",
+    "binary_sha256": "dcf4dfaf64e3a930178ff03000229656ae9f24d4be5d913813ca67962118d031",
+    "web_manifest": {
+      "commit": "1bce688edb4d22573168ba893eede785d4c143b3",
+      "api_version": 1
+    },
+    "identity_sha256": "02d4c0a19fec90e8753c4b64cda52e9b7ef5d3b60b779abef91b67319447724d",
+    "active_config_revision": "5",
+    "personality_revision": 1,
+    "requested_personality_matches": false,
+    "counts": {
+      "conversations": 4,
+      "runs": 30,
+      "messages": 59,
+      "memory_records": 0
+    },
+    "health": {
+      "commit": "1bce688edb4d22573168ba893eede785d4c143b3",
+      "status": "ready"
+    }
+  },
+  "after": {
+    "audited_at": "2026-10-26T07:42:35.915798+00:00",
+    "current_release": "/home/campanus/apps/dsh/releases/e4c955eda1ca7fa01062470f0cad5313e79f6a31",
+    "source_sha": "e4c955eda1ca7fa01062470f0cad5313e79f6a31",
+    "binary_sha256": "ab36210a893998944d2e38fd3b6fbbb02be9720d4439fcbf9dc63c4ab0f3a388",
+    "web_manifest": {
+      "commit": "e4c955eda1ca7fa01062470f0cad5313e79f6a31",
+      "api_version": 1
+    },
+    "identity_sha256": "02d4c0a19fec90e8753c4b64cda52e9b7ef5d3b60b779abef91b67319447724d",
+    "active_config_revision": "5",
+    "personality_revision": 2,
+    "requested_personality_matches": true,
+    "counts": {
+      "conversations": 4,
+      "runs": 30,
+      "messages": 59,
+      "memory_records": 0
+    },
+    "health": {
+      "commit": "e4c955eda1ca7fa01062470f0cad5313e79f6a31",
+      "status": "ready"
+    },
+    "retained_personality_revisions": [
+      1,
+      0
+    ],
+    "updated_builtin_skills": [
+      {
+        "id": "skill-creator",
+        "revision": 2,
+        "enabled": true,
+        "matches_published_instructions": true
+      },
+      {
+        "id": "task-trigger-setup",
+        "revision": 2,
+        "enabled": true,
+        "matches_published_instructions": true
+      }
+    ]
+  },
+  "preserved": {
+    "identity": true,
+    "config_revision": true,
+    "all_original_counts": true
+  },
+  "production_browser": {
+    "six_fields_equal_published_asset": true,
+    "forbidden_terms_in_personality_presentation": false,
+    "reloaded_revision": 2,
+    "screenshots": {
+      "01-liu-jiahui-applied.png": {
+        "path": "D:\\CodeProject\\DSH\\.local\\liu-jiahui-production\\01-liu-jiahui-applied.png",
+        "sha256": "4c946555c8b8a882915d7bf46baf45aa7809b7358fb6af3f66c4af71c191a928"
+      },
+      "02-skill-copy-applied.png": {
+        "path": "D:\\CodeProject\\DSH\\.local\\liu-jiahui-production\\02-skill-copy-applied.png",
+        "sha256": "c7113369f7ea4d53ef1f12da79113babd428c7db08e6b2fa7abcc7183e8b459c"
+      }
+    }
+  },
+  "builtin_copy_updates": {
+    "original_text_exactly_verified_before_update": true,
+    "only_instructions_changed": true,
+    "saved_via_authenticated_management_ui": true
+  },
+  "anonymous_production_api": {
+    "personality": 401,
+    "personality_history": 401,
+    "runtime_logs": 401,
+    "unapproved_host_header": 403
+  },
+  "isolated_smoke": {
+    "runtime_logs": 19,
+    "personality": 11,
+    "external_model_requests": 6,
+    "real_model_checks": 21
+  },
+  "production_synthetic_messages_created": 0,
+  "real_qq_tested": false,
+  "real_weixin_tested": false,
+  "service": "dsh.service",
+  "service_active": true,
+  "daemon_process_count_after_checks": 1,
+  "sample_mem_available_mib": 7310,
+  "pre_upgrade_backup": "/home/campanus/apps/dsh/shared/backups/pre-e4c955eda1ca7fa01062470f0cad5313e79f6a31-20261026T073616536430129.sqlite",
+  "rollback_performed": false,
+  "test_log": "/home/campanus/apps/dsh/shared/logs/test-e4c955eda1ca7fa01062470f0cad5313e79f6a31.log",
+  "build_log": "/home/campanus/apps/dsh/shared/logs/build-e4c955eda1ca7fa01062470f0cad5313e79f6a31.log"
+}

@@ -20,7 +20,7 @@
 | Git | 当前 SSH 会话中可用，路径 `/usr/bin/git` |
 | Rust 工具链 | 本轮用户级安装 Rust / Cargo 1.88.0，路径 `/home/campanus/.cargo/bin` |
 | Node 工具链 | 本轮实测 Node 24.22.1、npm 11.19.1；M1静态前端运行不依赖Node服务 |
-| 当前应用部署状态 | 单一助手性格与运行日志版本 `6b9b5dae0eacdf8e448ea4403ba0c8c48eda6337` 已部署并通过远端与浏览器验证，见 [本轮验收](assistant-runtime-logs-validation.md)；此前可用版本为 `ad9c13082f511a309db0124ddfffefad540b8ecc`。任务触发、角色卡、图片对话等既有报告保留为历史结果 |
+| 当前应用部署状态 | 刘嘉卉性格与展示版本 `e4c955eda1ca7fa01062470f0cad5313e79f6a31` 已部署，性格 v2 已生效，见 [本轮验收](liu-jiahui-validation.md)；此前可用版本为 `1bce688edb4d22573168ba893eede785d4c143b3`。单一性格、日志、任务触发等既有报告保留为历史结果 |
 | Web 管理方式 | 用户浏览器访问 Rust 提供的静态管理页面；经 SSH 隧道或 HTTPS 代理连接 |
 
 SSH 密码使用用户已提供的会话凭证，不在本文件保存。后续可使用本地凭证管理器或 SSH key；不得把真实值写入脚本或提交记录。
