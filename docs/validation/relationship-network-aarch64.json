@@ -1,0 +1,173 @@
+{
+  "kind": "relationship-network-ui-release-validation",
+  "status": "passed",
+  "commit": "2fbf100ba40f0593aa8f4baa9a108d119ef11df6",
+  "deployed_at": "2026-10-26T11:28:36.334869+00:00",
+  "previous_commit": "774d89b0e87185fcadb76e537ab08ecd8e1afedd",
+  "host": "campanus@192.168.189.191",
+  "os": "Ubuntu 24.04.4 LTS",
+  "architecture": "aarch64",
+  "frontend_archive_sha256": "6cbf6f250a0e87fa156f8c911d1be171243f80f6a45b4cc49b283187be812651",
+  "local_checks": {
+    "typecheck_exit": 0,
+    "build_exit": 0,
+    "vitest_files": 22,
+    "vitest_passed": 155,
+    "format_exit": 0
+  },
+  "linux_checks": {
+    "cargo_test_exit": 0,
+    "kernel_passed": 4,
+    "dshd_passed": 382,
+    "failed": 0,
+    "release_build_exit": 0,
+    "release_build_seconds": 560,
+    "build_jobs": 1
+  },
+  "relationships_mock": {
+    "kind": "isolated-relationships-process-api",
+    "status": "passed",
+    "started_at": "2026-10-26T11:29:03.737383+00:00",
+    "platform": "Linux",
+    "architecture": "aarch64",
+    "binary_sha256": "02308184b59021d0522a849ba85099474a429808a0ff9a13e5174a27771cfe65",
+    "external_model_requested": false,
+    "external_model_passed": false,
+    "production_data_modified": false,
+    "real_channel_tested": false,
+    "checks": [
+      "all people, edges, model jobs and policy reads require authentication",
+      "relationship mutations enforce CSRF and exact origin",
+      "same display names retain separate stable person IDs and source owners",
+      "new profile assertions remain pending with explicit provenance",
+      "approved profiles keep source revisions and reject stale person changes",
+      "cross-account identity groups map identity without moving source ownership",
+      "cross-account mapping is explicitly reversible",
+      "directed relationship proposals remain pending",
+      "relationship approval does not invent reciprocal edges",
+      "contact authorization is separate and delivery remains blocked",
+      "affinity policy preview does not mutate policy or contact permission",
+      "authorized selected-source model job completes with pending profile candidates",
+      "model candidates retain selected source and never approve themselves",
+      "source forgetting removes all dependent model-generated assertions",
+      "person identity, mapping split and source tombstone survive restart"
+    ],
+    "commit": "2fbf100ba40f0593aa8f4baa9a108d119ef11df6",
+    "finished_at": "2026-10-26T11:29:06.745886+00:00"
+  },
+  "diary_mock": {
+    "kind": "isolated-diary-process-api",
+    "status": "passed",
+    "started_at": "2026-10-26T11:29:03.748796+00:00",
+    "platform": "Linux",
+    "architecture": "aarch64",
+    "binary_sha256": "02308184b59021d0522a849ba85099474a429808a0ff9a13e5174a27771cfe65",
+    "external_model_requested": false,
+    "external_model_passed": false,
+    "production_data_modified": false,
+    "real_channel_tested": false,
+    "checks": [
+      "all diary reads and exports require authentication",
+      "diary mutations enforce CSRF and exact origin",
+      "automatic collection and model egress default off",
+      "versioned source authorization is discoverable",
+      "day is persisted with stable identity and idempotent revision",
+      "authorized provider creates a real persisted diary with separate feelings",
+      "generated diary retains exact source identity and revision",
+      "correction invalidates generated diary and rejects stale writes",
+      "forget tombstone survives restart and export contains no forgotten text"
+    ],
+    "commit": "2fbf100ba40f0593aa8f4baa9a108d119ef11df6",
+    "finished_at": "2026-10-26T11:29:06.637932+00:00"
+  },
+  "browser": {
+    "status": "passed",
+    "runtime_and_static_manifest_sha_asserted": true,
+    "backend": "isolated Linux release process",
+    "synthetic_people": 10,
+    "approved_edges": 12,
+    "pending_edges": 1,
+    "stats": {
+      "startTime": "2026-10-26T11:28:54.666Z",
+      "duration": 3435.361,
+      "expected": 1,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "desktop_width": 1600,
+    "mobile_width": 390,
+    "page_errors": 0,
+    "horizontal_overflow": false,
+    "mutation_without_csrf_status": 403,
+    "legacy_management_removed": true,
+    "evidence_directory": ".local/relationship-network-remote/evidence/"
+  },
+  "production_security": {
+    "commit": "2fbf100ba40f0593aa8f4baa9a108d119ef11df6",
+    "anonymous_statuses": {
+      "relationships/people": 401,
+      "relationships/edges": 401,
+      "diary/entries": 401
+    },
+    "health/live": {
+      "commit": "2fbf100ba40f0593aa8f4baa9a108d119ef11df6",
+      "status": "ok",
+      "version": "0.1.0"
+    },
+    "health/ready": {
+      "commit": "2fbf100ba40f0593aa8f4baa9a108d119ef11df6",
+      "status": "ready"
+    },
+    "web_manifest": {
+      "commit": "2fbf100ba40f0593aa8f4baa9a108d119ef11df6",
+      "api_version": 1
+    },
+    "source_commit": "2fbf100ba40f0593aa8f4baa9a108d119ef11df6",
+    "backup_integrity": "ok",
+    "backup": "shared/backups/pre-2fbf100ba40f0593aa8f4baa9a108d119ef11df6-20261026T112834826406358.sqlite",
+    "backup_sha256": "d134d384634df35d5070b032a60babb2d7b8cef2fc95f1c1e4113cd626153fec",
+    "binary_sha256": "02308184b59021d0522a849ba85099474a429808a0ff9a13e5174a27771cfe65",
+    "status": "passed"
+  },
+  "production_preservation": {
+    "commit": "2fbf100ba40f0593aa8f4baa9a108d119ef11df6",
+    "service_state": "active",
+    "before_captured_at": "2026-10-26T19:11:39.162374+08:00",
+    "after_captured_at": "2026-10-26T19:29:03.914134+08:00",
+    "count_changes": [],
+    "fingerprint_changes": [],
+    "unchanged_counts": true,
+    "unchanged_fingerprints": true
+  },
+  "preserved_fingerprints": 16,
+  "cleanup": {
+    "remote_fixture_unit": "dsh-relationship-network-2fbf100-qa.service",
+    "active_state": "inactive",
+    "sub_state": "dead",
+    "result": "success",
+    "exec_main_status": 0,
+    "local_qa_processes_terminated": true,
+    "qa_ssh_tunnel_closed": true
+  },
+  "rollback": {
+    "exercised": false,
+    "compatible_previous_commit": "774d89b0e87185fcadb76e537ab08ecd8e1afedd",
+    "data_restored": false
+  },
+  "limits": {
+    "real_external_model_tested_this_change": false,
+    "real_channels_tested_this_change": false,
+    "production_fixture_data_written": false,
+    "historical_memory_or_summary_data_deleted": false
+  },
+  "initial_browser_failure": {
+    "status": "failed",
+    "stage": "initial local Playwright",
+    "test": "relationship-network.spec.ts",
+    "action": "click 放大关系图",
+    "diagnostic": "Timeout after 15000ms: reset button Icon SVG intercepted pointer events because .relationship-graph svg also styled the reset icon as the full graph canvas.",
+    "fix": "Scope graph canvas styles and E2E SVG locator to .graph-canvas > svg.",
+    "subsequent_local_rerun": "passed"
+  }
+}
