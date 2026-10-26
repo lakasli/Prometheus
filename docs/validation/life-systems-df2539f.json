@@ -1,0 +1,461 @@
+{
+  "kind": "life-systems-fixed-release-evidence",
+  "commit": "df2539f56cfcbca7b17d29d343b3f104148c3d2a",
+  "binary_sha256": "8e99c1afec9336bbeffdf34920c24cccec9f1bdd2e83d7bb5dd281dca69a612e",
+  "web_archive_sha256": "1724b1c532673c64280d4e1dc6ae054926896090049c7f74289bdf3f24242f0e",
+  "collected_at": "2026-10-26T11:54:36.685048+00:00",
+  "production_data_modified": false,
+  "real_channel_tested": false,
+  "reports": [
+    {
+      "kind": "isolated-diary-process-api",
+      "status": "passed",
+      "commit": "df2539f56cfcbca7b17d29d343b3f104148c3d2a",
+      "started_at": "2026-10-26T11:47:00.343428+00:00",
+      "finished_at": "2026-10-26T11:47:04.766938+00:00",
+      "checks": [
+        "all diary reads and exports require authentication",
+        "diary mutations enforce CSRF and exact origin",
+        "automatic collection and model egress default off",
+        "versioned source authorization is discoverable",
+        "day is persisted with stable identity and idempotent revision",
+        "authorized provider creates a real persisted diary with separate feelings",
+        "generated diary retains exact source identity and revision",
+        "correction invalidates generated diary and rejects stale writes",
+        "forget tombstone survives restart and export contains no forgotten text"
+      ],
+      "external_model_requested": false,
+      "external_model_passed": false,
+      "real_channel_tested": false,
+      "log": "shared/logs/diary-df2539f-mock.json",
+      "log_sha256": "bc4ad829f78799e8a594c59f66d1a0de5b6315728652d4d39f1ab5c08daee50e",
+      "check_count": 9,
+      "mode": "mock"
+    },
+    {
+      "kind": "isolated-relationships-process-api",
+      "status": "passed",
+      "commit": "df2539f56cfcbca7b17d29d343b3f104148c3d2a",
+      "started_at": "2026-10-26T11:47:04.886046+00:00",
+      "finished_at": "2026-10-26T11:47:07.809085+00:00",
+      "checks": [
+        "all people, edges, model jobs and policy reads require authentication",
+        "relationship mutations enforce CSRF and exact origin",
+        "same display names retain separate stable person IDs and source owners",
+        "new profile assertions remain pending with explicit provenance",
+        "approved profiles keep source revisions and reject stale person changes",
+        "cross-account identity groups map identity without moving source ownership",
+        "cross-account mapping is explicitly reversible",
+        "directed relationship proposals remain pending",
+        "relationship approval does not invent reciprocal edges",
+        "contact authorization is separate and delivery remains blocked",
+        "affinity policy preview does not mutate policy or contact permission",
+        "authorized selected-source model job completes with pending profile candidates",
+        "model candidates retain selected source and never approve themselves",
+        "source forgetting removes all dependent model-generated assertions",
+        "person identity, mapping split and source tombstone survive restart"
+      ],
+      "external_model_requested": false,
+      "external_model_passed": false,
+      "real_channel_tested": false,
+      "log": "shared/logs/relationships-df2539f-mock.json",
+      "log_sha256": "7f9cdfab36bb38ed2ad32c570dbc83cfd589d52dfcdf43f23f2dd91c35726dd5",
+      "check_count": 15,
+      "mode": "mock"
+    },
+    {
+      "kind": "isolated-schedule-process-api",
+      "status": "passed",
+      "commit": "df2539f56cfcbca7b17d29d343b3f104148c3d2a",
+      "started_at": "2026-10-26T11:47:07.929382+00:00",
+      "finished_at": "2026-10-26T11:47:40.723414+00:00",
+      "checks": [
+        "all schedule reads require authentication",
+        "schedule writes require CSRF and exact origin",
+        "authorized text is private, immutable and content addressed",
+        "activity creation is idempotent and mismatched replay conflicts",
+        "stale activity revisions cannot override the schedule",
+        "another owner cannot see private title, activity or resource",
+        "model notes advance exact real text coverage across multiple chunks",
+        "completed reading checkpoint and notes survive daemon restart",
+        "model autonomously schedules only within an existing bounded grant",
+        "autonomy revocation is versioned and rejects stale policy writes",
+        "video and active messaging remain blocked without verified capabilities",
+        "out of scope proposal remains pending without self approval",
+        "explicit exact revision series approval preserves AI origin and cannot enable video",
+        "source revocation clears derived reading notes and blocks future reads"
+      ],
+      "external_model_requested": false,
+      "external_reading_passed": false,
+      "external_planning_passed": false,
+      "real_channel_tested": false,
+      "log": "shared/logs/schedule-df2539f-mock.json",
+      "log_sha256": "99472597e0797d98c0e47cc6fe1ec9b41d1f5b163da6bd4f2be126f8677c6474",
+      "check_count": 14,
+      "mode": "mock"
+    },
+    {
+      "kind": "isolated-310-event-month-hierarchy",
+      "status": "passed",
+      "commit": "df2539f56cfcbca7b17d29d343b3f104148c3d2a",
+      "started_at": "2026-10-26T11:47:40.845374+00:00",
+      "finished_at": "2026-10-26T11:47:56.578443+00:00",
+      "checks": [
+        "31 sealed daily parents cover all 310 events without text truncation",
+        "all complete daily parent text exceeds one 48 KB request",
+        "model-disabled daily construction creates no 31-job model backlog",
+        "month really completes model aggregation of all 310 sources",
+        "at least two persisted fragments precede final merge within eight requests",
+        "every serialized provider request is within 48000 bytes and completed",
+        "mock HTTP server observed exactly the persisted request count",
+        "bounded source pages preserve the complete exact 310-origin chain",
+        "forget invalidates old day week month revisions and clears all derived fragment prose",
+        "restart retains tombstone erased old revisions and exactly 309 live source events",
+        "rebuilt month is a newer 309-source catalogue rather than the erased model body",
+        "safe reconstruction preserves every remaining source and excludes the forgotten origin"
+      ],
+      "external_model_requested": false,
+      "external_model_passed": false,
+      "real_channel_tested": false,
+      "model_requests": 4,
+      "fragment_count": 3,
+      "maximum_request_input_bytes": 45916,
+      "raw_source_count": 310,
+      "parent_count": 31,
+      "total_parent_text_bytes": 113618,
+      "restart_auto_rebuild_observed": true,
+      "post_forget_live_source_count": 309,
+      "log": "shared/logs/diary-hierarchy-df2539f-mock.json",
+      "log_sha256": "b50e7f6b8f33952081834c207b517b238a2d30915422e178cad9f0ca9123e8db",
+      "check_count": 12,
+      "mode": "mock"
+    },
+    {
+      "kind": "isolated-diary-process-api",
+      "status": "passed",
+      "commit": "df2539f56cfcbca7b17d29d343b3f104148c3d2a",
+      "started_at": "2026-10-26T11:46:50.043400+00:00",
+      "finished_at": "2026-10-26T11:46:55.599924+00:00",
+      "checks": [
+        "all diary reads and exports require authentication",
+        "diary mutations enforce CSRF and exact origin",
+        "automatic collection and model egress default off",
+        "versioned source authorization is discoverable",
+        "day is persisted with stable identity and idempotent revision",
+        "authorized provider creates a real persisted diary with separate feelings",
+        "generated diary retains exact source identity and revision",
+        "correction invalidates generated diary and rejects stale writes",
+        "forget tombstone survives restart and export contains no forgotten text"
+      ],
+      "external_model_requested": true,
+      "external_model_passed": true,
+      "real_channel_tested": false,
+      "log": "shared/logs/diary-df2539f-real.json",
+      "log_sha256": "4c4e79eb3d7a259d829a3fe2c2abaf814af77b0eb8552157ce404146e40f92d5",
+      "check_count": 9,
+      "mode": "real"
+    },
+    {
+      "kind": "isolated-relationships-process-api",
+      "status": "passed",
+      "commit": "df2539f56cfcbca7b17d29d343b3f104148c3d2a",
+      "started_at": "2026-10-26T11:46:55.720393+00:00",
+      "finished_at": "2026-10-26T11:46:59.275950+00:00",
+      "checks": [
+        "all people, edges, model jobs and policy reads require authentication",
+        "relationship mutations enforce CSRF and exact origin",
+        "same display names retain separate stable person IDs and source owners",
+        "new profile assertions remain pending with explicit provenance",
+        "approved profiles keep source revisions and reject stale person changes",
+        "cross-account identity groups map identity without moving source ownership",
+        "cross-account mapping is explicitly reversible",
+        "directed relationship proposals remain pending",
+        "relationship approval does not invent reciprocal edges",
+        "contact authorization is separate and delivery remains blocked",
+        "affinity policy preview does not mutate policy or contact permission",
+        "authorized selected-source model job completes with pending profile candidates",
+        "model candidates retain selected source and never approve themselves",
+        "source forgetting removes all dependent model-generated assertions",
+        "person identity, mapping split and source tombstone survive restart"
+      ],
+      "external_model_requested": true,
+      "external_model_passed": true,
+      "real_channel_tested": false,
+      "log": "shared/logs/relationships-df2539f-real.json",
+      "log_sha256": "67ce15806b98c96819ee81aa72cc6de73e3a4cbfdc7a937554094d3a3aa8a8f3",
+      "check_count": 15,
+      "mode": "real"
+    },
+    {
+      "kind": "isolated-schedule-process-api",
+      "status": "passed",
+      "commit": "df2539f56cfcbca7b17d29d343b3f104148c3d2a",
+      "started_at": "2026-10-26T11:46:59.393917+00:00",
+      "finished_at": "2026-10-26T11:47:39.981941+00:00",
+      "checks": [
+        "all schedule reads require authentication",
+        "schedule writes require CSRF and exact origin",
+        "authorized text is private, immutable and content addressed",
+        "activity creation is idempotent and mismatched replay conflicts",
+        "stale activity revisions cannot override the schedule",
+        "another owner cannot see private title, activity or resource",
+        "model notes advance exact real text coverage across multiple chunks",
+        "completed reading checkpoint and notes survive daemon restart",
+        "model autonomously schedules only within an existing bounded grant",
+        "autonomy revocation is versioned and rejects stale policy writes",
+        "video and active messaging remain blocked without verified capabilities",
+        "out of scope proposal remains pending without self approval",
+        "explicit exact revision series approval preserves AI origin and cannot enable video",
+        "source revocation clears derived reading notes and blocks future reads"
+      ],
+      "external_model_requested": true,
+      "external_reading_passed": true,
+      "external_planning_passed": true,
+      "real_channel_tested": false,
+      "log": "shared/logs/schedule-df2539f-real.json",
+      "log_sha256": "86e28492e564a45be63672521bac72c6b9755abae0deb4b92d5a8b02f37ed276",
+      "check_count": 14,
+      "mode": "real"
+    },
+    {
+      "kind": "isolated-310-event-month-hierarchy",
+      "status": "passed",
+      "commit": "df2539f56cfcbca7b17d29d343b3f104148c3d2a",
+      "started_at": "2026-10-26T11:46:22.345581+00:00",
+      "finished_at": "2026-10-26T11:46:49.922867+00:00",
+      "checks": [
+        "31 sealed daily parents cover all 310 events without text truncation",
+        "all complete daily parent text exceeds one 48 KB request",
+        "model-disabled daily construction creates no 31-job model backlog",
+        "month really completes model aggregation of all 310 sources",
+        "at least two persisted fragments precede final merge within eight requests",
+        "every serialized provider request is within 48000 bytes and completed",
+        "bounded source pages preserve the complete exact 310-origin chain",
+        "forget invalidates old day week month revisions and clears all derived fragment prose",
+        "restart retains tombstone erased old revisions and exactly 309 live source events",
+        "rebuilt month is a newer 309-source catalogue rather than the erased model body",
+        "safe reconstruction preserves every remaining source and excludes the forgotten origin"
+      ],
+      "external_model_requested": true,
+      "external_model_passed": true,
+      "real_channel_tested": false,
+      "model_requests": 4,
+      "fragment_count": 3,
+      "maximum_request_input_bytes": 45905,
+      "raw_source_count": 310,
+      "parent_count": 31,
+      "total_parent_text_bytes": 113618,
+      "restart_auto_rebuild_observed": true,
+      "post_forget_live_source_count": 309,
+      "log": "shared/logs/diary-hierarchy-df2539f-real.json",
+      "log_sha256": "6435154c72816bd2d8407831355a7be53d4cc96783a03032f40dacb49b31c424",
+      "check_count": 11,
+      "mode": "real"
+    }
+  ],
+  "retained_failures": [
+    {
+      "log": "shared/logs/schedule-94ab0ae-real-1.json",
+      "log_sha256": "11ebb06ca2b7cf8bb342d83c6a2e10aa3513f74d9fedd156c6c0571a412c1958",
+      "status": "failed",
+      "failure_stage": null,
+      "completed_checks_before_failure": 8
+    },
+    {
+      "log": "shared/logs/diary-hierarchy-774d89b-mock.json",
+      "log_sha256": "45719fafafdca5124bdfe9136f21fe6d462c366a7cf1dddeaa2cd18e0bb7f335",
+      "status": "failed",
+      "failure_stage": "forget-and-restart-fences",
+      "completed_checks_before_failure": 9
+    },
+    {
+      "log": "shared/logs/diary-hierarchy-774d89b-rebuild-real.json",
+      "log_sha256": "82458fc2e7658ee4cff60de14961b8d46f73d3c88cbd5011ccd29082762862cf",
+      "status": "failed",
+      "failure_stage": "bounded-month-model-reduction",
+      "completed_checks_before_failure": 3
+    }
+  ],
+  "production_audit": {
+    "status": "passed",
+    "commit": "df2539f56cfcbca7b17d29d343b3f104148c3d2a",
+    "checks": [
+      {
+        "name": "current is requested managed release",
+        "passed": true
+      },
+      {
+        "name": "source HEAD is exact full SHA",
+        "passed": true
+      },
+      {
+        "name": "web manifest matches exact SHA",
+        "passed": true
+      },
+      {
+        "name": "systemd active running successful",
+        "passed": true
+      },
+      {
+        "name": "running process is exact current binary",
+        "passed": true
+      },
+      {
+        "name": "health live has current SHA and expected status",
+        "passed": true
+      },
+      {
+        "name": "health ready has current SHA and expected status",
+        "passed": true
+      },
+      {
+        "name": "deployment metadata identifies requested SHA",
+        "passed": true
+      },
+      {
+        "name": "previous healthy release is user UI 2fbf100",
+        "passed": true
+      },
+      {
+        "name": "active configuration remains revision six",
+        "passed": true
+      },
+      {
+        "name": "personality digest is unchanged",
+        "passed": true
+      },
+      {
+        "name": "existing production counts unchanged",
+        "passed": true
+      },
+      {
+        "name": "new feature source tables remain empty",
+        "passed": true
+      },
+      {
+        "name": "diary schema reader remains two",
+        "passed": true
+      },
+      {
+        "name": "diary leases include output_metadata_json",
+        "passed": true
+      },
+      {
+        "name": "read-only gate current_reader_two expected exit",
+        "passed": true
+      },
+      {
+        "name": "read-only gate previous_ui_reader_two expected exit",
+        "passed": true
+      },
+      {
+        "name": "read-only gate legacy_reader_one expected exit",
+        "passed": true
+      },
+      {
+        "name": "one matching pre-deployment backup exists",
+        "passed": true
+      },
+      {
+        "name": "backup path is within managed directory",
+        "passed": true
+      },
+      {
+        "name": "backup passes integrity check",
+        "passed": true
+      },
+      {
+        "name": "backup prior data counts match baseline",
+        "passed": true
+      },
+      {
+        "name": "backup preserves config and personality",
+        "passed": true
+      },
+      {
+        "name": "isolated restored backup passes integrity check",
+        "passed": true
+      },
+      {
+        "name": "restored backup safe metadata matches original",
+        "passed": true
+      }
+    ],
+    "deployment": {
+      "commit": "df2539f56cfcbca7b17d29d343b3f104148c3d2a",
+      "previous_release": "/home/campanus/apps/dsh/releases/2fbf100ba40f0593aa8f4baa9a108d119ef11df6",
+      "deployed_at": "2026-10-26T11:46:01.769171+00:00"
+    },
+    "backup": {
+      "path": "/home/campanus/apps/dsh/shared/backups/pre-df2539f56cfcbca7b17d29d343b3f104148c3d2a-20261026T114600239375481.sqlite",
+      "sha256": "b2f90cbd45d8074f231a03d47573df1ca3fe4e3cb85d6f22a0b66364e872542e",
+      "counts": {
+        "memory_records": 0,
+        "runs": 35,
+        "messages": 68,
+        "conversations": 4,
+        "diary_events": 0,
+        "diary_entries": 0,
+        "diary_source_policies": 0,
+        "schedule_autonomy_grants": 0,
+        "relationship_people": 0
+      },
+      "active_config_revision": 6,
+      "personality_sha256": "0bd6eb0de83707be8bfcf11bfe281268ce1a95cb7968fd8084239d416e586751",
+      "diary_schema_reader": 2,
+      "diary_leases_output_metadata_json_column": false,
+      "integrity_check": [
+        "ok"
+      ]
+    },
+    "log": "shared/logs/life-df2539f-audit.json",
+    "log_sha256": "70c585d22166f306d5cc779580e597179c317b60899813a90c6320202bbfd8c4",
+    "check_count": 25
+  },
+  "mock_check_count": 50,
+  "real_check_count": 49,
+  "status": "passed",
+  "local_checks": {
+    "rust_domain": 386,
+    "rust_kernel": 4,
+    "frontend_files": 22,
+    "frontend_tests": 155,
+    "deployment_python_tests": 45,
+    "format": "passed",
+    "typecheck_and_production_build": "passed"
+  },
+  "remote_checks": {
+    "rust_domain": 387,
+    "rust_kernel": 4,
+    "test_seconds": 235.44,
+    "release_build": "passed",
+    "release_build_duration": "9m 21s",
+    "deployment_exit_code": 0
+  },
+  "browser": {
+    "status": "passed",
+    "test_source_commit": "a1d4e3f4628d7eb42e2c9d04a2dce462eb4eb9f8",
+    "clean_worktree_verified": true,
+    "deployed_commit": "df2539f56cfcbca7b17d29d343b3f104148c3d2a",
+    "production_data_accessed": false,
+    "network": {
+      "status": "passed",
+      "process_exit_code": 0,
+      "total_seconds": 3.5,
+      "synthetic_people": 10,
+      "approved_edges": 12
+    },
+    "life_systems": {
+      "status": "passed",
+      "process_exit_code": 0,
+      "total_seconds": 10.0,
+      "diary_source_pagination": [
+        100,
+        102
+      ]
+    },
+    "screenshots": ".local/life-remote-df2539f-r3/evidence/",
+    "retained_selector_failure": ".local/life-remote-df2539f/life-flow-selector-failure.md",
+    "note": "Test-only selector scope change; application remained at the deployed fixed SHA."
+  }
+}
