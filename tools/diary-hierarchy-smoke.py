@@ -18,6 +18,9 @@ import platform
 import tempfile
 import threading
 import time
+import traceback
+import urllib.error
+import urllib.request
 
 spec = importlib.util.spec_from_file_location(
     'diary_smoke', pathlib.Path(__file__).with_name('diary-smoke.py'))
@@ -37,6 +40,48 @@ def month_31():
             year -= 1
         if calendar.monthrange(year, month)[1] == 31:
             return year, month
+
+
+def read_optional_entry(harness, entry_id):
+    """Observe 200/404 atomically; two expected-status requests would race."""
+    request = urllib.request.Request(
+        harness.base + PREFIX + '/diary/entries/' + entry_id,
+        headers={'Origin': harness.base}, method='GET')
+    try:
+        response = harness.client.open(request, timeout=15)
+    except urllib.error.HTTPError as error:
+        response = error
+    with response:
+        code, raw = response.code, response.read()
+    if code not in (200, 404):
+        raise AssertionError('unexpected diary read state')
+    return code, json.loads(raw)
+
+
+def assert_erased_revisions(harness, forgotten, old_entries):
+    """Old prose must be gone even when valid remaining sources were rebuilt."""
+    with harness.db() as db:
+        source = db.execute('SELECT revision,deleted_at,content FROM diary_events WHERE id=?',
+                            (forgotten,)).fetchone()
+        if not source or source['revision'] != 2 or source['deleted_at'] is None or source['content'] is not None:
+            raise AssertionError('source tombstone missing or source content revived')
+        if db.execute('SELECT count(*) FROM diary_event_versions WHERE event_id=? AND content IS NOT NULL',
+                      (forgotten,)).fetchone()[0]:
+            raise AssertionError('forgotten source revision prose survived')
+        for old in old_entries:
+            if db.execute('SELECT count(*) FROM diary_entry_versions WHERE entry_id=? AND revision<=? '
+                          'AND (facts IS NOT NULL OR feelings IS NOT NULL)',
+                          (old['id'], old['revision'])).fetchone()[0]:
+                raise AssertionError('old derived revision prose survived')
+            if db.execute('SELECT count(*) FROM diary_model_fragments WHERE entry_id=?',
+                          (old['id'],)).fetchone()[0]:
+                raise AssertionError('old model fragment prose survived')
+            current = db.execute('SELECT revision,status,facts,feelings,content FROM diary_entries WHERE id=?',
+                                 (old['id'],)).fetchone()
+            if current and current['status'] != 'invalidated' and current['revision'] <= old['revision']:
+                raise AssertionError('old published revision became visible again')
+            if current and current['status'] == 'invalidated' and any(current[field] for field in ('facts', 'feelings', 'content')):
+                raise AssertionError('invalidated canonical body retained prose')
 
 
 def main():
@@ -187,28 +232,67 @@ def main():
                     'source_owner_id': h.owner})
                 stage = 'forget-and-restart-fences'
                 forgotten = origins[190]
+                old_entries = (days[20], week, generated)
                 h.request('DELETE', PREFIX + '/diary/events/' + forgotten, headers={'If-Match': '1'})
-                for entry_id in (days[20]['id'], week['id'], month_entry['id']):
-                    h.request('GET', PREFIX + '/diary/entries/' + entry_id, expected=404)
-                with h.db() as db:
-                    remaining = db.execute('SELECT count(*) FROM diary_model_fragments WHERE entry_id=?',
-                                           (month_entry['id'],)).fetchone()[0]
-                check('forget invalidates day week month and clears all derived fragment prose', remaining == 0)
+                assert_erased_revisions(h, forgotten, old_entries)
+                check('forget invalidates old day week month revisions and clears all derived fragment prose', True)
                 h.stop()
                 h.start()
                 h.login()
+                # Linux can trust NTP and run the shared scheduler immediately
+                # on startup. Confirm time here too so Windows exercises the
+                # same legitimate rebuild rather than relying on a 404 race.
+                h.request('POST', PREFIX + '/task-triggers/clock/acknowledge',
+                          {'observed_now': int(time.time()), 'confirmed': True})
+                time.sleep(2)
+                stage = 'restart-source-tombstone-and-erased-revisions'
                 h.request('GET', PREFIX + '/diary/events/' + forgotten, expected=404)
-                h.request('GET', PREFIX + '/diary/entries/' + month_entry['id'], expected=404)
+                assert_erased_revisions(h, forgotten, old_entries)
                 with h.db() as db:
-                    remaining = db.execute('SELECT count(*) FROM diary_model_fragments WHERE entry_id=?',
-                                           (month_entry['id'],)).fetchone()[0]
-                check('restart never resurrects forgotten source or stale model fragments', remaining == 0)
+                    active = {row[0] for row in db.execute(
+                        'SELECT id FROM diary_events WHERE source_owner_id=? AND deleted_at IS NULL',
+                        (h.owner,))}
+                expected_sources = set(origins) - {forgotten}
+                check('restart retains tombstone erased old revisions and exactly 309 live source events',
+                      active == expected_sources)
+                stage = 'restart-safe-month-rebuild-and-complete-source-chain'
+                code, rebuilt = read_optional_entry(h, month_entry['id'])
+                report['restart_auto_rebuild_observed'] = code == 200
+                if code == 404:
+                    # A slower scheduler may leave the entry invalidated. The
+                    # destructive-state checks above must still pass; rebuild
+                    # through the authenticated API to verify the whole chain.
+                    rebuilt, _, _ = h.request('POST', PREFIX + '/diary/consolidate', {
+                        'period': 'month', 'day': f'{year:04}-{month:02}-01',
+                        'timezone': 'Asia/Shanghai', 'visibility': 'private',
+                        'source_owner_id': h.owner})
+                check('rebuilt month is a newer 309-source catalogue rather than the erased model body',
+                      rebuilt['revision'] > generated['revision'] and rebuilt['source_count'] == 309
+                      and rebuilt['generator'] == 'parent_catalogue_v2'
+                      and (rebuilt['facts'], rebuilt['feelings']) != (generated['facts'], generated['feelings']))
+                seen, offset = set(), 0
+                while True:
+                    page, _, _ = h.request('GET', PREFIX + '/diary/entries/' + month_entry['id']
+                                          + f'/sources?limit=100&offset={offset}')
+                    if page['total'] != 309 or len(page['items']) > 100:
+                        raise AssertionError('rebuilt source page misreported coverage')
+                    seen.update(event['id'] for event in page['items'])
+                    if not page['has_more']:
+                        break
+                    offset += page['limit']
+                assert_erased_revisions(h, forgotten, old_entries)
+                check('safe reconstruction preserves every remaining source and excludes the forgotten origin',
+                      seen == expected_sources and forgotten not in seen)
+                report['post_forget_live_source_count'] = len(seen)
                 report['status'] = 'passed'
             finally:
                 h.close()
     except Exception as error:
         failed = True
         report.update(status='failed', failure_stage=stage, error_type=type(error).__name__)
+        frames = traceback.extract_tb(error.__traceback__)
+        if frames:
+            report['failure_line'] = f'{pathlib.Path(frames[-1].filename).name}:{frames[-1].lineno}'
         print('FAIL ' + stage + ' (' + type(error).__name__ + ')', flush=True)
     finally:
         provider.shutdown()
