@@ -1,0 +1,103 @@
+{
+  "kind": "read-only authorized QQ arithmetic batch audit",
+  "passed": true,
+  "production_database_modified": false,
+  "test_texts": [
+    "帮我算总和",
+    "17+19",
+    "+23"
+  ],
+  "checks": {
+    "three_authorized_fragments_received": true,
+    "one_logical_run": true,
+    "test_order_preserved": true,
+    "receive_clock_monotonic": true,
+    "receive_gaps_inside_policy": true
+  },
+  "fragments": [
+    {
+      "test_ordinal": 1,
+      "run_id": "341d36e8-26c0-4882-a7e9-f87613d80e54",
+      "batch_ordinal": 1,
+      "text": "帮我算总和",
+      "received_at": 1792984849,
+      "received_ms": 1792984849532,
+      "gap_ms": null
+    },
+    {
+      "test_ordinal": 2,
+      "run_id": "341d36e8-26c0-4882-a7e9-f87613d80e54",
+      "batch_ordinal": 2,
+      "text": "17+19",
+      "received_at": 1792984850,
+      "received_ms": 1792984850683,
+      "gap_ms": 1151
+    },
+    {
+      "test_ordinal": 3,
+      "run_id": "341d36e8-26c0-4882-a7e9-f87613d80e54",
+      "batch_ordinal": 3,
+      "text": "+23",
+      "received_at": 1792984852,
+      "received_ms": 1792984852938,
+      "gap_ms": 2255
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "341d36e8-26c0-4882-a7e9-f87613d80e54",
+      "checks": {
+        "completed": true,
+        "ordinary_model": true,
+        "combined_input_correct": true,
+        "persona_1": true,
+        "expected_result_present": true,
+        "user_message_correct": true,
+        "latest_reply_target_correct": true,
+        "all_run_fragments_are_authorized_test": true,
+        "durable_receive_times_match_fragments": true,
+        "independent_inbox_events_preserved": true,
+        "batch_metadata_correct": true,
+        "one_prompt_snapshot": true,
+        "prompt_digest_correct": true,
+        "prompt_input_correct": true,
+        "prompt_time_guard": true,
+        "prompt_batch_guard": true,
+        "single_outbox": true,
+        "outbox_sent": true,
+        "outbox_target_snapshot_correct": true,
+        "outbox_has_platform_receipt": true,
+        "ordered_reply_parts_sent": true
+      }
+    }
+  ],
+  "status": "passed",
+  "commit": "1bce688edb4d22573168ba893eede785d4c143b3",
+  "real_qq_inbound_tested": true,
+  "real_qq_outbound_platform_acceptance": true,
+  "inbound_transport": "websocket",
+  "client_verified": false,
+  "client_observation_recorded_separately": true,
+  "logical_chat_model_requests": 1,
+  "checked_at": "2026-10-26T03:21:36.945654+00:00",
+  "run_id": "341d36e8-26c0-4882-a7e9-f87613d80e54",
+  "distinct_platform_messages": 3,
+  "logical_model_runs": 1,
+  "prompt_snapshots": 1,
+  "outboxes": 1,
+  "parts": [
+    {
+      "seq": 1,
+      "status": "sent",
+      "has_platform_receipt": 1
+    }
+  ],
+  "production_counts": {
+    "conversations": 4,
+    "runs": 27,
+    "memory_records": 0
+  },
+  "summary_jobs_triggered": 0,
+  "inbox_count": 3,
+  "active_model_leases_after_completion": 0
+}

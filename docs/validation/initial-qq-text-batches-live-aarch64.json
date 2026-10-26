@@ -1,0 +1,32 @@
+{
+  "kind": "isolated signed synthetic QQ batch with real configured model",
+  "status": "passed",
+  "started_at": "2026-10-26T02:50:58.414275+00:00",
+  "commit": "401e7ca5a1f2b9162dcb8906cdaba08f57419503",
+  "binary_sha256": "eec89819bec78bfa516609838fc4b3b607a0279d1a119fcc8d0d6f02b6a59b5f",
+  "model_request_budget": 1,
+  "real_external_model_attempted": true,
+  "real_external_model_tested": true,
+  "real_qq_tested": false,
+  "qq_outbound_http_tested": false,
+  "production_database_modified": false,
+  "real_user_content_accessed": false,
+  "synthetic_conversation_only": true,
+  "checks": [
+    "temporary instance uses the unchanged production single personality",
+    "three signed synthetic QQ messages share one queued batch",
+    "one-request budget fence prevents inference before batch verification",
+    "single real-model batch completes and answers the combined question",
+    "original three fragments and ordered combined prompt are preserved",
+    "one logical request produces one fenced Outbox without QQ dispatch",
+    "reply is bound to the latest actual synthetic platform message"
+  ],
+  "source_personality_revision": 1,
+  "production_model_configuration_read": true,
+  "production_model_credential_read": true,
+  "synthetic_response": "323",
+  "logical_model_requests": 1,
+  "fragment_count": 3,
+  "finished_at": "2026-10-26T02:51:02.737870+00:00",
+  "passed": 7
+}

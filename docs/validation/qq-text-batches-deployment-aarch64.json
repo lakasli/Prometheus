@@ -1,0 +1,110 @@
+{
+  "kind": "fixed-SHA Raspberry Pi deployment and acceptance metadata",
+  "commit": "1bce688edb4d22573168ba893eede785d4c143b3",
+  "previous_release": "/home/campanus/apps/dsh/releases/401e7ca5a1f2b9162dcb8906cdaba08f57419503",
+  "deployed_at": "2026-10-26T03:18:44.382707+00:00",
+  "target": "campanus@192.168.189.191",
+  "host": {
+    "model": "Raspberry Pi 5 Model B Rev 1.1",
+    "memory_mib": 7933,
+    "os": "Ubuntu 24.04.4 LTS",
+    "architecture": "aarch64",
+    "rust": "1.88.0",
+    "cargo": "1.88.0"
+  },
+  "quiet_ms": 3500,
+  "max_wait_ms": 8000,
+  "web_archive_sha256": "263c1ba69e98d36768ffdccb296eff3ced0fe9a633e4acc9c24b74915951a9b2",
+  "binary_sha256": "dcf4dfaf64e3a930178ff03000229656ae9f24d4be5d913813ca67962118d031",
+  "source_worktree_clean": true,
+  "running_health_commit_matches": true,
+  "web_manifest_commit_matches": true,
+  "service": "systemctl --user dsh.service",
+  "deployment_exit_code": 0,
+  "local_rust_tests": {
+    "daemon": 301,
+    "kernel": 4,
+    "failed": 0
+  },
+  "remote_rust_tests": {
+    "daemon": 302,
+    "kernel": 4,
+    "failed": 0
+  },
+  "remote_python_tests": {
+    "passed": 91,
+    "failed": 0
+  },
+  "remote_shell_syntax_exit_code": 0,
+  "before_switch_metadata": {
+    "identity_sha256": "02d4c0a19fec90e8753c4b64cda52e9b7ef5d3b60b779abef91b67319447724d",
+    "personality_sha256": "290e6fe05b91df8715e69a83f56d6770548e2d489675ce599457f39f30c2fbe1",
+    "personality_revision": 1,
+    "active_config_revision": "5",
+    "counts": {
+      "conversations": 4,
+      "runs": 26,
+      "memory_records": 0
+    },
+    "inflight_runs": 0
+  },
+  "after_switch_before_real_client_test": {
+    "identity_sha256": "02d4c0a19fec90e8753c4b64cda52e9b7ef5d3b60b779abef91b67319447724d",
+    "personality_sha256": "290e6fe05b91df8715e69a83f56d6770548e2d489675ce599457f39f30c2fbe1",
+    "personality_revision": 1,
+    "active_config_revision": "5",
+    "counts": {
+      "conversations": 4,
+      "runs": 26,
+      "memory_records": 0
+    },
+    "inflight_runs": 0
+  },
+  "identity_unchanged": true,
+  "personality_unchanged": true,
+  "configuration_revision_unchanged": true,
+  "user_data_counts_unchanged_during_deployment": true,
+  "automatic_reports": {
+    "mock_batch": {
+      "file": "qq-text-batches-aarch64.json",
+      "passed": 26,
+      "status": "passed"
+    },
+    "time_personality": {
+      "file": "qq-text-batches-presence-aarch64.json",
+      "passed": 19,
+      "status": "passed"
+    },
+    "reply_plan": {
+      "file": "qq-text-batches-replies-aarch64.json",
+      "passed": 13,
+      "status": "passed"
+    },
+    "isolated_real_model": {
+      "file": "qq-text-batches-live-aarch64.json",
+      "passed": 7,
+      "status": "passed"
+    }
+  },
+  "production_rollback_executed": false,
+  "real_client_acceptance": {
+    "machine_report": "qq-text-batches-real-qq-aarch64.json",
+    "client_report": "qq-text-batches-client-observations.json",
+    "status": "passed"
+  },
+  "pre_upgrade_backup": "/home/campanus/apps/dsh/shared/backups/pre-1bce688edb4d22573168ba893eede785d4c143b3-20261026T031842902865669.sqlite",
+  "unauthenticated_admin_status_http": 403,
+  "browser_verified": {
+    "page": "authenticated overview",
+    "qq_connected": true,
+    "active_configuration": 5,
+    "web_and_service_commit_prefix": "1bce688edb",
+    "checked_after_switch": true
+  },
+  "remote_commands": {
+    "deploy": "DSH_BUILD_JOBS=1 DSH_CARGO_MIRROR=rsproxy bash /home/campanus/.cache/dsh/deploy-1bce688.sh <commit> /home/campanus/.cache/dsh/admin-<commit>.tar.gz <archive_sha256>",
+    "rust_test_log": "shared/logs/test-<commit>.log",
+    "rust_build_log": "shared/logs/build-<commit>.log",
+    "python_test_log": "shared/logs/python-tests-1bce688.log"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "kind": "direct user reported QQ client observations",
+  "source": "user replies in this Codex conversation",
+  "client_automated_ui_observed": false,
+  "observations": [
+    {
+      "phase": "initial repeated complete formula messages",
+      "commit": "401e7ca5a1f2b9162dcb8906cdaba08f57419503",
+      "user_statement": "已发，收到一次统一结果 59",
+      "scope": "user confirms a single unified result; machine evidence separately shows three identical complete formula texts",
+      "machine_report": "qq-text-batches-real-qq-repeated-aarch64.json"
+    },
+    {
+      "phase": "initial distinct fragments",
+      "commit": "401e7ca5a1f2b9162dcb8906cdaba08f57419503",
+      "user_statement": "已发，出现异常",
+      "scope": "desired distinct-fragment behavior failed; three runs correspond to receive gaps beyond the initial quiet window",
+      "machine_report": "qq-text-batches-real-qq-initial-failure.json"
+    },
+    {
+      "phase": "fixed distinct fragments",
+      "commit": "1bce688edb4d22573168ba893eede785d4c143b3",
+      "user_statement": "已发，只收到一次统一结果 59",
+      "scope": "user confirms three separate test messages produced a single result 59 in the QQ client",
+      "machine_report": "qq-text-batches-real-qq-aarch64.json"
+    }
+  ]
+}
