@@ -29,5 +29,5 @@ fi
 ln -sfn "$release" "$root/current.next"
 mv -Tf "$root/current.next" "$root/current"
 systemctl --user restart dsh.service
-curl --retry 10 --retry-delay 1 --max-time 2 -fsS http://127.0.0.1:8419/health/ready | python3 -c 'import json,sys; assert json.load(sys.stdin)["commit"]==sys.argv[1]' "$sha"
+curl --retry 10 --retry-connrefused --retry-delay 1 --max-time 2 -fsS http://127.0.0.1:8419/health/ready | python3 -c 'import json,sys; assert json.load(sys.stdin)["commit"]==sys.argv[1]' "$sha"
 echo 'Application release restored. Database and external effects were not reverted.'

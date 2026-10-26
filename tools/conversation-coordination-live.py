@@ -51,6 +51,57 @@ def body_text(payload):
     return '\n'.join(message['content'] for message in payload['messages'])
 
 
+def assistant_text(payload):
+    return '\n'.join(message['content'] for message in payload['messages']
+                     if message['role'] == 'assistant')
+
+
+def proposed_text(raw):
+    """Suppressed results remain raw audit candidates, not published text."""
+    try:
+        value = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return raw
+    if isinstance(value, list) and value and all(
+            isinstance(item, dict) and item.get('type') == 'text'
+            and isinstance(item.get('text'), str) for item in value):
+        return '\n'.join(item['text'] for item in value)
+    return raw
+
+
+def run_diagnostics(harness, scenarios, forward_state):
+    """Read only our three disposable synthetic Runs before fixture cleanup."""
+    result = []
+    redactions = [value for value in (forward_state.key, harness.key)
+                  if isinstance(value, str) and value]
+
+    def bounded(value):
+        if value is None:
+            return None
+        for secret in redactions:
+            value = value.replace(secret, '[credential-redacted]')
+        return value[:600]
+
+    for role, run in scenarios.items():
+        found = batch.rows(harness, 'SELECT id,status,error,response FROM runs WHERE id=?', (run,))
+        entry = {'scenario_role': role, 'run_id': run, 'source': 'disposable_synthetic_fixture'}
+        if found:
+            entry.update(run_status=found[0]['status'], host_error=bounded(found[0]['error']),
+                         synthetic_response=bounded(found[0]['response']))
+        entry['publication'] = batch.rows(harness,
+            'SELECT decision,revision,reason FROM run_publication_decisions WHERE run_id=?', (run,))
+        entry['outbox'] = batch.rows(harness, 'SELECT status FROM outbox WHERE run_id=?', (run,))
+        entry['parts'] = batch.rows(harness,
+            'SELECT p.seq,p.status,p.error FROM outbox_reply_parts p JOIN outbox o '
+            'ON o.id=p.outbox_id WHERE o.run_id=? ORDER BY p.seq', (run,))
+        entry['prompt'] = batch.rows(harness,
+            'SELECT digest,compiler_version FROM run_prompt_snapshots WHERE run_id=?', (run,))
+        entry['physical_lease_present'] = bool(batch.rows(harness,
+            'SELECT 1 FROM native_worker_leases WHERE run_id=?', (run,)))
+        result.append(entry)
+    return result
+
+
 def external_endpoint(base_url):
     parsed = urllib.parse.urlsplit(base_url)
     if (parsed.scheme != 'https' or not parsed.hostname or parsed.username is not None
@@ -88,6 +139,7 @@ class ForwardState(base.MockState):
         self.forward_attempts = 0
         self.forwarded_requests = 0
         self.harness = None
+        self.scenarios = {}
 
     def forward(self, payload, raw, question):
         if (payload.get('stream') is not False or payload.get('max_tokens', 0) <= 0
@@ -99,7 +151,7 @@ class ForwardState(base.MockState):
             self.forward_attempts += 1
             record = {'ordinal': self.forward_attempts, 'body_sha256': sha(raw),
                       'input_bytes': len(raw), 'max_output_tokens': payload['max_tokens'],
-                      'status': 'started'}
+                      'status': 'started', 'scenario_role': self.scenarios.get(question, 'unexpected')}
             self.records.append(record)
         found = batch.rows(self.harness,
                            'SELECT p.messages_json FROM run_prompt_snapshots p '
@@ -213,6 +265,7 @@ def main():
     parser.add_argument('--source-data-dir', required=True)
     parser.add_argument('--report', required=True)
     parser.add_argument('--expected-commit', required=True)
+    parser.add_argument('--prior-model-requests', type=int, default=0)
     parser.add_argument('--openssl')
     args = parser.parse_args()
     binary = pathlib.Path(args.binary).resolve(strict=True)
@@ -224,6 +277,7 @@ def main():
         'expected_commit': args.expected_commit, 'commit': None,
         'architecture': platform.machine(), 'binary_sha256': sha(binary.read_bytes()),
         'model_request_budget': MAX_REQUESTS, 'max_input_bytes_per_request': MAX_INPUT_BYTES,
+        'prior_real_model_requests': args.prior_model_requests,
         'max_output_tokens_per_request': MAX_OUTPUT_TOKENS,
         'real_external_model_attempted': False, 'real_external_model_tested': False,
         'production_model_configuration_read': False, 'production_model_credential_read': False,
@@ -247,6 +301,8 @@ def main():
     try:
         if not re.fullmatch('[0-9a-f]{40}', args.expected_commit):
             raise ValueError('a full expected release SHA is required')
+        if not 0 <= args.prior_model_requests <= 1000:
+            raise ValueError('prior request count must be an explicit nonnegative bounded integer')
         with closing(sqlite3.connect((source / 'dsh.db').as_uri() + '?mode=ro', uri=True)) as db:
             db.execute('PRAGMA query_only=ON')
             row = db.execute("SELECT json_extract(c.config_json,'$.model') FROM config_revisions c "
@@ -272,6 +328,7 @@ def main():
         with tempfile.TemporaryDirectory(prefix='dsh-coordination-live-') as temporary:
             h = base.Harness(str(binary), str(web), temporary, forward_state)
             forward_state.harness = h
+            scenarios = {}
             try:
                 h.start()
                 h.bootstrap()
@@ -298,17 +355,20 @@ def main():
                       h.applied['model']['base_url'].startswith('http://127.0.0.1:'))
                 suffix = secrets.token_hex(6)
                 a_marker, b_marker = 'A_PRIVATE_' + suffix, 'B_PRIVATE_' + suffix
-                old_marker = 'STALE_CANDIDATE_' + suffix
-                original_text = f'合成资料{a_marker}，记录数字17。此轮只回答{old_marker}。'
-                corrected_text = '等等，改成23，记录数字改为23。只回答当前数字。'
-                b_text = f'合成独立资料{b_marker}。请计算19乘17，只回答结果323。'
+                original_text = f'合成资料{a_marker}。记录数字17。为合成验收只回复17，不加说明或其他内容。'
+                corrected_text = '等等，改成23，前面的合成记录数字从17改为23。只回复当前数字23，不加说明或其他内容。'
+                b_text = f'合成独立资料{b_marker}。请计算19乘17，只回复数字323，不加说明或其他内容。'
+                forward_state.scenarios = {original_text: 'a_original', corrected_text: 'a_corrected',
+                                           b_text: 'b_independent'}
                 forward_state.hold_question = original_text
                 old = receive(h, signer, 'synthetic_a_' + suffix, original_text)
+                scenarios['a_original'] = old
                 if not forward_state.hold_received.wait(timeout=15):
                     raise TimeoutError('original request did not reach the loopback HTTP barrier')
                 before = snapshot(h, old)
                 before_payload = copy.deepcopy(forward_state.for_question(original_text))
                 successor = receive(h, signer, 'synthetic_a_' + suffix, corrected_text)
+                scenarios['a_corrected'] = successor
                 batch.wait_for(lambda: decision(h, old)['decision'] == 'suppressed',
                                'same-source correction did not suppress old publication', timeout=10)
                 check('same-source correction queues a successor while the original HTTP lease is held',
@@ -319,6 +379,7 @@ def main():
                       snapshot(h, old) == before and before_payload == forward_state.for_question(original_text)
                       and corrected_text not in body_text(before_payload))
                 other = receive(h, signer, 'synthetic_b_' + suffix, b_text)
+                scenarios['b_independent'] = other
                 forward_state.hold_release.set()
                 stage = 'bounded real-model requests settle'
                 old_result = completed(h, old)
@@ -330,12 +391,14 @@ def main():
                 check('actual forwarded A/B request bodies contain only their own private synthetic markers',
                       a_marker in body_text(a_old) and b_marker not in body_text(a_old)
                       and a_marker in body_text(a_next) and b_marker not in body_text(a_next)
-                      and b_marker in body_text(b_request) and a_marker not in body_text(b_request)
-                      and old_marker not in body_text(b_request))
+                      and b_marker in body_text(b_request) and a_marker not in body_text(b_request))
                 check('real stale answer is retained only for audit without any QQ Outbox',
-                      old_marker in old_result['response']
+                      re.fullmatch(r'\s*17[。.!！]?\s*', proposed_text(old_result['response'])) is not None
                       and not batch.rows(h, 'SELECT 1 FROM outbox WHERE run_id=?', (old,))
-                      and old_marker not in body_text(a_next) and snapshot(h, old) == before)
+                      and not assistant_text(a_next) and snapshot(h, old) == before)
+                check('successor preserves the original user question and correction without promoting either into delivered assistant history',
+                      original_text in body_text(a_next) and corrected_text in body_text(a_next)
+                      and not any(message['role'] == 'assistant' for message in a_next['messages']))
                 check('successor real model uses the corrected fact without the unsent old candidate',
                       re.fullmatch(r'\s*23[。.!！]?\s*', successor_result['response']) is not None
                       and 'DSH_CONVERSATION_CORRECTION_V1' in body_text(a_next))
@@ -359,6 +422,10 @@ def main():
                 report.update(status='passed', real_external_model_tested=True)
             finally:
                 forward_state.hold_release.set()
+                try:
+                    report['synthetic_run_diagnostics'] = run_diagnostics(h, scenarios, forward_state)
+                except Exception as error:
+                    report['synthetic_run_diagnostics_error_type'] = type(error).__name__
                 h.close()
     except Exception as error:
         report.update(status='failed', failed_phase=stage, error_type=type(error).__name__)
@@ -371,6 +438,7 @@ def main():
             report['real_external_model_tested'] = any(
                 item['status'] == 'completed' for item in forward_state.records)
             report['model_requests'] = forward_state.forwarded_requests
+            report['cumulative_real_model_requests'] = args.prior_model_requests + forward_state.forwarded_requests
             report['forward_attempts'] = forward_state.forward_attempts
             report['request_evidence'] = forward_state.records
             report['forward_failure_types'] = forward_state.failures

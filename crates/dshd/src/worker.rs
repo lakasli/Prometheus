@@ -613,11 +613,31 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
         }
         Err(_) => Err("准备或持久化会话上下文失败；未发送模型请求".into()),
     };
+    let generation_for_audit =
+        if !plugin_command && trigger_context.is_none() && matches!(&selected, Ok(None)) {
+            result.as_ref().ok().cloned()
+        } else {
+            None
+        };
     let result = match result {
         Ok(content)
             if !plugin_command && trigger_context.is_none() && matches!(&selected, Ok(None)) =>
         {
             let prepared = async {
+                let publish = state
+                    .db(|db| {
+                        let tx = db.transaction()?;
+                        let allowed = crate::turn_control::publication_allowed_in(&tx, &item.id)?;
+                        tx.commit()?;
+                        Ok(allowed)
+                    })
+                    .map_err(|_| "回复发布状态不可用".to_owned())?;
+                // An unpublished generation is audit data, not a channel
+                // presentation. It must not synthesize media or fail a turn
+                // merely because its unused presentation was malformed.
+                if !publish {
+                    return Ok((content.clone(), None));
+                }
                 let owner = state
                     .db(|db| {
                         Ok(db.query_row(
@@ -703,9 +723,15 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
         let tx=db.transaction()?;
         let status:String=tx.query_row("SELECT status FROM runs WHERE id=?1",[&item.id],|r|r.get(0))?;
         if status!="running" {return Ok(());}
+        let publish=crate::turn_control::publication_allowed_in(&tx,&item.id)?;
+        // A correction can win while presentation validation is in progress.
+        // Reconcile that race under the same transaction as result/Outbox save.
+        let result=match (result,generation_for_audit) {
+            (Err(_),Some(raw)) if !publish=>Ok((raw,None)),
+            (result,_)=>result,
+        };
         match result {
             Ok((content,plan))=> {
-                let publish=crate::turn_control::publication_allowed_in(&tx,&item.id)?;
                 tx.execute("INSERT INTO messages(id,conversation_id,run_id,role,content,created_at) VALUES(?1,?2,?3,'assistant',?4,?5)",params![uuid::Uuid::new_v4().to_string(),item.conversation,item.id,content,now()])?;
                 tx.execute("UPDATE runs SET status='completed',response=?1,error=?4,updated_at=?2 WHERE id=?3",params![content,now(),item.id,if publish {None}else{Some("output_suppressed_by_correction")}])?;
                 if let Some(plan)=&plan {crate::chat_reply::store_in(&tx,&item.id,plan)?;}

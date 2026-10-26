@@ -177,6 +177,10 @@ def main():
                 question = 'ORIGINAL_PRIVATE_QUESTION_' + suffix
                 stale_answer = 'NEVER_DELIVERED_OLD_ASSISTANT_' + suffix
                 old = hold(h, signer, mock, user, question, stale_answer)
+                # Deliberately invalid for a published text item (two sentences).
+                # Once suppressed, the raw generation is audit-only and must
+                # not enter presentation validation or media materialization.
+                mock.answers[question] = [stale_answer + '。另一个尚未发布的句子。']
                 before = snapshot(h, old)
                 prior_payload = copy.deepcopy(mock.for_question(question))
                 correction_text = '等等，改成明天'
@@ -191,6 +195,7 @@ def main():
                       snapshot(h, old) == before and mock.for_question(question) == prior_payload
                       and correction_text not in text(prior_payload, 'user'))
                 mock.hold_release.set()
+                stage = 'suppressed malformed generation settles as audit'
                 complete(h, old)
                 complete(h, successor)
                 following = mock.for_question(correction_text)
@@ -198,6 +203,9 @@ def main():
                       stale_answer in rows(h, 'SELECT response FROM runs WHERE id=?', (old,))[0]['response']
                       and not rows(h, 'SELECT 1 FROM outbox WHERE run_id=?', (old,))
                       and not rows(h, 'SELECT 1 FROM native_worker_leases WHERE run_id=?', (old,)))
+                check('a suppressed malformed presentation remains raw audit without a reply plan',
+                      '另一个尚未发布的句子' in rows(h, 'SELECT response FROM runs WHERE id=?', (old,))[0]['response']
+                      and not rows(h, 'SELECT 1 FROM run_reply_plans WHERE run_id=?', (old,)))
                 check('successor HTTP input retains original question and correction but excludes the unsent assistant',
                       question in text(following) and correction_text in text(following)
                       and stale_answer not in text(following)
