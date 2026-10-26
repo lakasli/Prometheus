@@ -459,6 +459,13 @@ test("reviewed relationship network animates, supports safe node dragging and ho
     await svg.getAttribute("data-test-drag-pointer"),
   );
   expect(Number.isInteger(cancelledPointer) && cancelledPointer > 0).toBe(true);
+  expect(
+    await selectedNode.evaluate(
+      (element, pointerId) =>
+        (element as SVGGElement).hasPointerCapture(pointerId),
+      cancelledPointer,
+    ),
+  ).toBe(true);
   await svg.evaluate((element, pointerId) => {
     element.dispatchEvent(
       new PointerEvent("pointercancel", {
@@ -470,6 +477,13 @@ test("reviewed relationship network animates, supports safe node dragging and ho
     );
   }, cancelledPointer);
   await expect(selectedNode).not.toHaveClass(/dragged/);
+  expect(
+    await selectedNode.evaluate(
+      (element, pointerId) =>
+        (element as SVGGElement).hasPointerCapture(pointerId),
+      cancelledPointer,
+    ),
+  ).toBe(false);
   expect(
     await svg.evaluate(
       (element, pointerId) =>
