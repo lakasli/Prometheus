@@ -1,0 +1,19 @@
+{
+  "kind": "isolated daily-life acceptance",
+  "status": "failed",
+  "started_at": "2026-10-27T04:58:30.599798+00:00",
+  "architecture": "aarch64",
+  "external_model": true,
+  "production_modified": false,
+  "real_qq_tested": false,
+  "real_weixin_tested": false,
+  "checks": [
+    "new schedule reads require authentication",
+    "personal schedule grants require CSRF and reject stale versions",
+    "ordinary native conversation completes with the schedule protocol"
+  ],
+  "commit": "e771937f2e8ca8c69e5daf47ef8a4a865029dab7",
+  "last_check": "spoken own plan is persisted as an enabled autonomous calendar activity",
+  "error_type": "AssertionError",
+  "finished_at": "2026-10-27T04:58:32.724267+00:00"
+}

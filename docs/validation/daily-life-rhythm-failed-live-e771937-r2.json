@@ -1,0 +1,22 @@
+{
+  "kind": "isolated daily-life acceptance",
+  "status": "failed",
+  "started_at": "2026-10-27T04:59:47.803481+00:00",
+  "architecture": "aarch64",
+  "external_model": true,
+  "production_modified": false,
+  "real_qq_tested": false,
+  "real_weixin_tested": false,
+  "checks": [
+    "new schedule reads require authentication",
+    "personal schedule grants require CSRF and reject stale versions",
+    "ordinary native conversation completes with the schedule protocol"
+  ],
+  "commit": "e771937f2e8ca8c69e5daf47ef8a4a865029dab7",
+  "last_check": "spoken own plan is persisted as an enabled autonomous calendar activity",
+  "synthetic_plan_answer": "我会在接下来这个十分钟的时段里抄录王维的《鹿柴》，并记到日程上。",
+  "offered_slot_count": 3,
+  "activity_count": 0,
+  "error_type": "AssertionError",
+  "finished_at": "2026-10-27T04:59:49.821958+00:00"
+}

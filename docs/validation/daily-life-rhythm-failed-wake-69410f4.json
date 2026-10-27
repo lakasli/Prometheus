@@ -1,0 +1,26 @@
+{
+  "kind": "isolated real-clock sleeping wake acceptance",
+  "status": "failed",
+  "started_at": "2026-10-27T04:28:11.494781+00:00",
+  "architecture": "aarch64",
+  "checks": [
+    "temporary daemon matches the published binary",
+    "pre-sleep interaction completes",
+    "actual daemon enters sleeping before the future civil wake",
+    "sleeping instance can receive the one-minute model decision",
+    "notice uses the real one-minute window",
+    "actual provider receives the sleeping state for this exact wake",
+    "fixed wake executes without another model request",
+    "post-wake conversation completes",
+    "sleep boundary excludes previous raw assistant turns from the real next request",
+    "original messages and captured diary evidence remain"
+  ],
+  "production_accessed": false,
+  "external_model": false,
+  "real_channel_tested": false,
+  "synthetic_clock_or_event_injected": false,
+  "commit": "69410f427746bb59cdf9d6b7e41164672186072f",
+  "last_check": "post-wake request recalls the recorded fact through diary evidence",
+  "error_type": "AssertionError",
+  "finished_at": "2026-10-27T04:30:00.596132+00:00"
+}

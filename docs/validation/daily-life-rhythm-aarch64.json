@@ -1,0 +1,394 @@
+{
+  "schema": 1,
+  "code_commit": "3c5b7f6e2a53f3a0c4bc5cfc99cd8b5b0c4fc723",
+  "target": "campanus@192.168.189.191",
+  "os": "Ubuntu 24.04.4 LTS",
+  "architecture": "aarch64",
+  "model": "Raspberry Pi 5 Model B Rev 1.1",
+  "physical_memory_mib": 7933,
+  "frontend_archive_sha256": "20348eadf44b7bbc995a1075a975ec0765d136fedaf03b48ea6749b548ddec7e",
+  "deployment_exit_status": 0,
+  "production_after": {
+    "at": "2026-10-27T05:41:15.919621+00:00",
+    "config_revision": "7",
+    "config_sha256": "567bdede8ac418110d1a3cd19497a2327b04fa366539c39ca811b48cf4e449ed",
+    "identity_sha256": "02d4c0a19fec90e8753c4b64cda52e9b7ef5d3b60b779abef91b67319447724d",
+    "personality_revision": 3,
+    "personality_matches_asset": true,
+    "personality_fields_sha256": "fceef9eefdcc8de2396e1e2131a01b4d5ffc814f9737a15a31b1976ad31cf6ec",
+    "counts": {
+      "conversations": 4,
+      "runs": 59,
+      "messages": 116,
+      "memory_records": 0,
+      "diary_events": 0,
+      "diary_entries": 1,
+      "secrets": 3
+    },
+    "rest_policy_revision": 2,
+    "rest_policy": {
+      "anticipation_enabled": true,
+      "reset_context_on_sleep": true,
+      "natural_enabled": false,
+      "schedule_enabled": true,
+      "time_zone": "Asia/Shanghai",
+      "sleep_local": "23:00",
+      "wake_local": "07:00",
+      "default_sleep_seconds": null,
+      "max_sleep_seconds": 86400,
+      "drain_seconds": 30,
+      "consolidation_seconds": 300,
+      "queue_limit": 128,
+      "max_job_attempts": 3,
+      "max_cycle_calls": 8,
+      "max_cycle_reserved_tokens": 24000,
+      "ack_seconds": 30
+    },
+    "phase": "awake",
+    "scheduler": {
+      "clock_trusted": true,
+      "space_ok": true
+    },
+    "personal_policy": {
+      "revision": 1,
+      "enabled": true,
+      "daily_limit": 4,
+      "valid_until": 1824611021
+    },
+    "diary_source_policies": [
+      {
+        "source_sha256": "5b73433414a7420dffc5068e1b2aabf7428470975c1100d96514d32decf2c6c8",
+        "revision": 1,
+        "enabled": true,
+        "allow_model": false,
+        "authorized_at": 1793074492
+      }
+    ]
+  },
+  "deployment": {
+    "commit": "3c5b7f6e2a53f3a0c4bc5cfc99cd8b5b0c4fc723",
+    "previous_release": "/home/campanus/apps/dsh/releases/e771937f2e8ca8c69e5daf47ef8a4a865029dab7",
+    "deployed_at": "2026-10-27T05:36:57.186717+00:00"
+  },
+  "runtime": {
+    "source_sha": "3c5b7f6e2a53f3a0c4bc5cfc99cd8b5b0c4fc723",
+    "source_clean": true,
+    "service": "active",
+    "ready": {
+      "commit": "3c5b7f6e2a53f3a0c4bc5cfc99cd8b5b0c4fc723",
+      "status": "ready"
+    },
+    "web": {
+      "commit": "3c5b7f6e2a53f3a0c4bc5cfc99cd8b5b0c4fc723",
+      "api_version": 1
+    },
+    "binary_sha256": "54d4a2e70e972bfe5495753663b938dfbec4c61f7b00f513f70ac7f5db5c2859"
+  },
+  "rust_result_lines": [
+    "    Finished `test` profile [unoptimized + debuginfo] target(s) in 5m 57s",
+    "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test result: ok. 644 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 25.98s",
+    "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+  ],
+  "release_result_lines": [
+    "    Finished `release` profile [optimized] target(s) in 10m 46s"
+  ],
+  "backup_paths": [
+    "/home/campanus/apps/dsh/shared/backups/pre-3c5b7f6e2a53f3a0c4bc5cfc99cd8b5b0c4fc723-20261027T053655175728589.sqlite"
+  ],
+  "local": {
+    "daemon_passed": 643,
+    "kernel_passed": 4,
+    "frontend_passed": 204,
+    "python_passed": 142,
+    "browser_scenarios_passed": 1,
+    "browser_widths": [
+      1440,
+      390
+    ],
+    "browser_binary_commit": "development",
+    "browser_ui_unchanged_except_build_stamp": true,
+    "format_and_diff_checks": "passed"
+  },
+  "remote": {
+    "daemon_passed": 644,
+    "kernel_passed": 4,
+    "test_log": "shared/logs/test-3c5b7f6e2a53f3a0c4bc5cfc99cd8b5b0c4fc723.log",
+    "build_log": "shared/logs/build-3c5b7f6e2a53f3a0c4bc5cfc99cd8b5b0c4fc723.log"
+  },
+  "acceptance": {
+    "external_model": {
+      "kind": "isolated daily-life acceptance",
+      "status": "passed",
+      "started_at": "2026-10-27T05:37:24.626922+00:00",
+      "architecture": "aarch64",
+      "external_model": true,
+      "production_modified": false,
+      "real_qq_tested": false,
+      "real_weixin_tested": false,
+      "checks": [
+        "new schedule reads require authentication",
+        "personal schedule grants require CSRF and reject stale versions",
+        "ordinary native conversation completes with the schedule protocol",
+        "spoken own plan is persisted as an enabled autonomous calendar activity",
+        "actual provider system prompt uses the human perspective without mechanical identity words",
+        "real model accepts explicitly supplied family background without a technical disclaimer",
+        "scheduled electronic poetry copy leaves actual complete text and a content hash",
+        "completed poetry is also recorded in the diary with execution provenance",
+        "one-minute notice invokes the configured model and fixed Python decision script"
+      ],
+      "commit": "3c5b7f6e2a53f3a0c4bc5cfc99cd8b5b0c4fc723",
+      "last_check": "one-minute notice invokes the configured model and fixed Python decision script",
+      "synthetic_plan_answer": "好，那就挑王维的《鹿柴》，十分钟够我安安静静抄一遍了。\n我会把这个小安排记进日程，写完再把那几句念给自己听。",
+      "offered_slot_count": 3,
+      "activity_count": 1,
+      "spoken_recovery_count": 0,
+      "synthetic_family_answer": "林远山、周晴，我记住啦，以后聊到咱爸咱妈，我就知道是谁了。",
+      "model_schedule_choice": "execute",
+      "passed": 9,
+      "finished_at": "2026-10-27T05:37:56.549662+00:00"
+    },
+    "real_civil_minute_wake_with_loopback_provider": {
+      "kind": "isolated real-clock sleeping wake acceptance",
+      "status": "passed",
+      "started_at": "2026-10-27T05:37:24.617846+00:00",
+      "architecture": "aarch64",
+      "checks": [
+        "temporary daemon matches the published binary",
+        "pre-sleep interaction completes",
+        "actual daemon enters sleeping before the future civil wake",
+        "sleeping instance can receive the one-minute model decision",
+        "notice uses the real one-minute window",
+        "actual provider receives the sleeping state for this exact wake",
+        "fixed wake executes without another model request",
+        "post-wake conversation completes",
+        "sleep boundary excludes previous raw assistant turns from the real next request",
+        "original messages and captured diary evidence remain",
+        "post-wake request recalls the recorded fact through diary evidence"
+      ],
+      "production_accessed": false,
+      "external_model": false,
+      "real_channel_tested": false,
+      "synthetic_clock_or_event_injected": false,
+      "commit": "3c5b7f6e2a53f3a0c4bc5cfc99cd8b5b0c4fc723",
+      "last_check": "post-wake request recalls the recorded fact through diary evidence",
+      "diary_checkpoint": {
+        "captured_events": 1,
+        "recallable_entries": 1,
+        "model_jobs": 0
+      },
+      "passed": 11,
+      "wake_at": 1793079540,
+      "notified_at": 1793079480,
+      "notice_phase": "sleeping",
+      "finished_at": "2026-10-27T05:39:00.723785+00:00"
+    },
+    "personality_with_loopback_provider": {
+      "kind": "personality presentation isolated acceptance",
+      "commit": "3c5b7f6e2a53f3a0c4bc5cfc99cd8b5b0c4fc723",
+      "binary_sha256": "54d4a2e70e972bfe5495753663b938dfbec4c61f7b00f513f70ac7f5db5c2859",
+      "personality_sha256": "e61b2467ba8d4df395226d49e550b22d06fac2262671db334515cd954fdb5dfe",
+      "tested_at": "2026-10-27T05:37:25.825811+00:00",
+      "platform": "aarch64",
+      "passed": 11,
+      "checks": [
+        "personality asset has six nonempty text fields and the requested name",
+        "displayed personality fields avoid mechanical identity wording",
+        "current personality requires authentication",
+        "personality update requires CSRF",
+        "requested personality is saved and applied as a new revision",
+        "stale personality update is rejected",
+        "existing conversation uses new personality and example responses in its next HTTP request",
+        "completed run snapshot is preserved and new run freezes the requested name",
+        "personality update preserves stable identity and all existing memory records",
+        "previous personality can be restored through the authenticated versioned API",
+        "restored personality and existing memory survive a real daemon restart"
+      ],
+      "production_data_accessed": false,
+      "external_model_tested": false,
+      "real_qq_tested": false,
+      "real_weixin_tested": false
+    }
+  },
+  "production_before": {
+    "at": "2026-10-27T03:42:10.002913+00:00",
+    "config_revision": "7",
+    "config_sha256": "567bdede8ac418110d1a3cd19497a2327b04fa366539c39ca811b48cf4e449ed",
+    "identity_sha256": "02d4c0a19fec90e8753c4b64cda52e9b7ef5d3b60b779abef91b67319447724d",
+    "personality_sha256": "0bd6eb0de83707be8bfcf11bfe281268ce1a95cb7968fd8084239d416e586751",
+    "counts": {
+      "conversations": 4,
+      "runs": 59,
+      "messages": 116,
+      "memory_records": 0,
+      "diary_events": 0,
+      "diary_entries": 1,
+      "secrets": 3
+    },
+    "rest_policy": {
+      "natural_enabled": false,
+      "schedule_enabled": false,
+      "time_zone": "Asia/Shanghai",
+      "sleep_local": null,
+      "wake_local": null,
+      "default_sleep_seconds": null,
+      "max_sleep_seconds": 86400,
+      "drain_seconds": 30,
+      "consolidation_seconds": 300,
+      "queue_limit": 128,
+      "max_job_attempts": 3,
+      "max_cycle_calls": 8,
+      "max_cycle_reserved_tokens": 24000,
+      "ack_seconds": 30
+    },
+    "phase": "awake"
+  },
+  "preserved": {
+    "config_revision": true,
+    "config_sha256": true,
+    "identity_sha256": true,
+    "counts": true
+  },
+  "intermediate_release": {
+    "commit": "e771937f2e8ca8c69e5daf47ef8a4a865029dab7",
+    "real_civil_wake_passed": {
+      "kind": "isolated real-clock sleeping wake acceptance",
+      "status": "passed",
+      "started_at": "2026-10-27T04:58:30.599960+00:00",
+      "architecture": "aarch64",
+      "checks": [
+        "temporary daemon matches the published binary",
+        "pre-sleep interaction completes",
+        "actual daemon enters sleeping before the future civil wake",
+        "sleeping instance can receive the one-minute model decision",
+        "notice uses the real one-minute window",
+        "actual provider receives the sleeping state for this exact wake",
+        "fixed wake executes without another model request",
+        "post-wake conversation completes",
+        "sleep boundary excludes previous raw assistant turns from the real next request",
+        "original messages and captured diary evidence remain",
+        "post-wake request recalls the recorded fact through diary evidence"
+      ],
+      "production_accessed": false,
+      "external_model": false,
+      "real_channel_tested": false,
+      "synthetic_clock_or_event_injected": false,
+      "commit": "e771937f2e8ca8c69e5daf47ef8a4a865029dab7",
+      "last_check": "post-wake request recalls the recorded fact through diary evidence",
+      "diary_checkpoint": {
+        "captured_events": 1,
+        "recallable_entries": 1,
+        "model_jobs": 0
+      },
+      "passed": 11,
+      "wake_at": 1793077260,
+      "notified_at": 1793077200,
+      "notice_phase": "sleeping",
+      "finished_at": "2026-10-27T05:01:00.556906+00:00"
+    },
+    "real_model_failures": [
+      "daily-life-rhythm-failed-live-e771937-r1.json",
+      "daily-life-rhythm-failed-live-e771937-r2.json"
+    ]
+  },
+  "first_release_real_model": {
+    "kind": "isolated daily-life acceptance",
+    "status": "passed",
+    "started_at": "2026-10-27T04:21:26.681506+00:00",
+    "architecture": "aarch64",
+    "external_model": true,
+    "production_modified": false,
+    "real_qq_tested": false,
+    "real_weixin_tested": false,
+    "checks": [
+      "new schedule reads require authentication",
+      "personal schedule grants require CSRF and reject stale versions",
+      "ordinary native conversation completes with the schedule protocol",
+      "spoken own plan is persisted as an enabled autonomous calendar activity",
+      "actual provider system prompt uses the human perspective without mechanical identity words",
+      "real model accepts explicitly supplied family background without a technical disclaimer",
+      "scheduled electronic poetry copy leaves actual complete text and a content hash",
+      "completed poetry is also recorded in the diary with execution provenance",
+      "one-minute notice invokes the configured model and fixed Python decision script"
+    ],
+    "commit": "69410f427746bb59cdf9d6b7e41164672186072f",
+    "last_check": "one-minute notice invokes the configured model and fixed Python decision script",
+    "synthetic_family_answer": "林远山、周晴，这两个名字我记下了，往后说起咱爸咱妈，我心里就有数了。",
+    "model_schedule_choice": "execute",
+    "passed": 9,
+    "finished_at": "2026-10-27T04:21:58.257453+00:00"
+  },
+  "failures_retained": [
+    {
+      "stage": "local-web-fixtures",
+      "outcome": "4 initial tests failed; mock schemas updated; final 204 pass"
+    },
+    {
+      "stage": "mobile-browser",
+      "outcome": "responsive-menu race in screenshot test; corrected reload and disabled animations; final pass"
+    },
+    {
+      "stage": "mobile-layout",
+      "outcome": "visual inspection found panel overflow; fixed in 6fd9316"
+    },
+    {
+      "stage": "local-build",
+      "outcome": "Windows executable held by temporary smoke process; rebuilt after exact fixture exit"
+    },
+    {
+      "stage": "deploy-preflight",
+      "outcome": "one SSH stdin invocation failed archive argument validation before build; retried with direct arguments"
+    },
+    {
+      "stage": "6fd9316-remote-build",
+      "outcome": "stopped owned test/build processes before service switch to fix final response contract; old production remained ready"
+    },
+    {
+      "stage": "69410f4-real-wake",
+      "result": "10 checks passed; diary recall failed; preserved separately"
+    },
+    {
+      "stage": "e771937-real-model-r1-r2",
+      "result": "3 checks passed each; promise without activity; preserved separately; fixed with bounded atomic recovery"
+    },
+    {
+      "stage": "d260429-build-stopped",
+      "result": "owned build stopped before switch to narrow recovery to poetry; e771937 service remained active"
+    },
+    {
+      "stage": "e771937-first-health-probe",
+      "result": "first connection refused during service startup; retry ready; deployment exited 0"
+    },
+    {
+      "stage": "final-first-health-probe",
+      "result": "first connection refused during startup; retry ready; deployment exit 0"
+    }
+  ],
+  "real_qq_tested": false,
+  "real_weixin_tested": false,
+  "production_conversations_used_by_tests": false,
+  "limits": [
+    "four catalogue poems as electronic copies",
+    "routine and authorized movable activity notices only",
+    "16 sleep excerpt scopes; 200 events per scope; blocked evidence retained",
+    "not an overnight production or real-channel acceptance"
+  ],
+  "production_api_checks": {
+    "correct_host_and_https_origin_without_login": {
+      "schedule_decisions": 401,
+      "personal_policy": 401
+    },
+    "wrong_loopback_host_rejected_before_authentication": 403
+  },
+  "production_browser": {
+    "origin": "https://192.168.189.191:8086",
+    "web_commit_observed": "3c5b7f6e2a",
+    "routine_summary_confirmed": true,
+    "screenshot": ".local\\daily-life-production\\04-final-routine-agenda.png",
+    "screenshot_sha256": "24cb03387f6aaa48e7046e775210f76a0e06faebaaab72000fcb051ec6028013",
+    "human_acceptance_claimed": false
+  }
+}
