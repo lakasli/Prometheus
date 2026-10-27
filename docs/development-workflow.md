@@ -21,7 +21,7 @@
 | Rust 工具链 | 本轮用户级安装 Rust / Cargo 1.88.0，路径 `/home/campanus/.cargo/bin` |
 | Node 工具链 | 本轮实测 Node 24.22.1、npm 11.19.1；M1静态前端运行不依赖Node服务 |
 | 当前应用部署状态 | 2026-10-27 睡眠集成 `6e8524a21f2813a802a2f99254c56316dac15bd5` 已部署，上一可用版本 ac9b703，见 [本轮验收](rest-release-validation.md)；正式作息默认关闭，配置、性格、身份与授权摘要保留。既有语音及性格报告保留为历史结果 |
-| Web 管理方式 | 用户浏览器访问 Rust 提供的静态管理页面；经 SSH 隧道或 HTTPS 代理连接 |
+| Web 管理方式 | 当前正式入口 `https://192.168.189.191:8086/admin/`，专用 CA 的局域网 HTTPS 代理；各设备导入根证书后使用原账户登录，见 [验收](lan-https-validation.md) |
 
 SSH 密码使用用户已提供的会话凭证，不在本文件保存。后续可使用本地凭证管理器或 SSH key；不得把真实值写入脚本或提交记录。
 
@@ -149,15 +149,11 @@ python3 /home/campanus/apps/dsh/current/source/tools/smoke.py \
 
 ### Web 管理访问路径
 
-Rust 服务默认监听 `127.0.0.1:8419`，页面路径 `/admin/`。SSH 隧道方式在用户电脑执行：
+2026-10-27 用户选择局域网 HTTPS，正式入口为 **[https://192.168.189.191:8086/admin/](https://192.168.189.191:8086/admin/)**，Caddy 用户服务只绑定该私有 IPv4 / 8086，允许 `192.168.189.0/24`；Rust 仍只监听 `127.0.0.1:8419`，健康检查命令保持不变。应用采用精确 HTTPS Origin 与 Secure Cookie，仍须登录并通过原有 CSRF / 授权检查。
 
-```sh
-ssh -N -L 18419:127.0.0.1:8419 campanus@192.168.189.191
-```
+从已推送的干净固定提交执行 `python3 deploy/lan_https.py --expected-script-commit <完整配置SHA>`，先跑临时库的真实 TLS / 认证预演，再安装项目专属的 `dsh-https.service` 与 `dsh.service.d/10-lan-https.conf`。配置、证书、备份均在 release 外；应用制品升级不会清除它们。此配置交付沿用已核验的应用二进制与静态资源，不把配置脚本 SHA 冒充重新构建的应用 SHA。
 
-随后在该电脑浏览器打开 `http://127.0.0.1:18419/admin/`，仍需登录 DSH 管理账户。隧道保持运行期间有效；具体上线状态以验证记录为准。
-
-日常通过局域网链接访问时，在树莓派配置 HTTPS 反向代理，提供 `https://<树莓派局域网地址或域名>/admin/` 并代理到 Rust 本地端口；需部署受浏览器信任的证书及正确的代理来源配置。跨互联网访问优先经 VPN 或受控入口，不直接开放未保护的管理端口。页面与 API 使用同一来源，业务 Webhook 的公开策略与管理入口分别配置。
+各客户端首次导入公有根证书；私钥仅存树莓派。具体指纹、实际配置 SHA、测试、恢复路径见 [局域网 HTTPS 验收](lan-https-validation.md)。原 `http://127.0.0.1:18419/admin/` 隧道不是当前生产 Origin；恢复旧入口须同步恢复 Origin、Cookie 和代理配置。跨互联网访问仍优先 VPN 或受控入口，业务 Webhook 与管理入口分别配置。
 
 ## 6. 回滚与数据保留
 

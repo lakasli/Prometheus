@@ -24,7 +24,33 @@ Windows 可双击通过本次 SSH 安全取得的 `DSH-LAN-Root-CA.cer`，选择
 
 准备时确认树莓派 5 / 8GB / Ubuntu 24.04.4 LTS / aarch64，8086 空闲，现有 80 / 443 属于其他服务，不修改。正式应用是 `6e8524a21f2813a802a2f99254c56316dac15bd5`，服务 active、工作区干净。本地五项配置边界检查通过；首轮 Windows 渲染把 PosixPath 显示为反斜杠，三项静态检查失败，已用统一 POSIX 表示修复，未放宽网络或安全条件。记录 `.local/lan-https/local-unit-final.log`。
 
-配置提交、远端 Caddy 校验、实际 TLS / 认证预演、正式启动、客户端访问与证书摘要在执行后追加，不提前计作通过。
+本地 tools/tests **140 项通过**，5.309 秒；Linux 五项配置专项通过。配置初版 `688957e616e02ee4d3aa7e8d195ab0bf830ce741` 已推送并从独立干净工作树执行：实际 TLS / 登录 / CSRF / 注销七项通过，但错误 Host 落入 Caddy 的默认空 200，未进入上游，不满足明确拒绝的预期。原失败报告 `shared/logs/lan-https-688957e616e02ee4d3aa7e8d195ab0bf830ce741-preflight.json`、`.process.log` 与 `lan-https-apply-688957e.log` 保留，正式服务未切换。没有放宽到任意 200 或删除测试。
+
+本地加入错误 Host 的显式兜底 403，提交 / 推送为 **`09db6d73f44bc431a49ce3331db84030a51ea995`** 后重做同流程，预演 **9 项全部通过**，两个临时进程实际退出，再应用正式配置。实际命令：
+
+```sh
+python3 -u /home/campanus/.cache/dsh/lan-source-09db6d7/deploy/lan_https.py --expected-script-commit 09db6d73f44bc431a49ce3331db84030a51ea995
+```
+
+北京时间 **2026-10-27 10:31:15** 完成，退出 0。`dsh.service` 与 `dsh-https.service` 均 active/running，PID 分别 1342776 / 1342786，NRestarts 均 0；代理已启用开机启动。监听实测仅 `127.0.0.1:8419` 与 `192.168.189.191:8086`。应用与静态资源继续为 **`6e8524a21f2813a802a2f99254c56316dac15bd5`**，没有把参数变更冒充新应用构建。实际 profile 为 `shared/config/lan-https.json`；配置校验退出 0，保留了 Caddyfile 空格排版提示，它不是校验失败。
+
+运行库实测 `v2.11.7 h1:yj0Y4fYZGPkSvibBJ1sTWE33xC0fxztVyXEW5iIdUT4=`，可执行文件 SHA256 `0019d864a2cdee41c3675cb2a26185833c5d9540a48f5a6729142c0413461b60`；下载归档按本仓库的固定 SHA512 验证。首次 GitHub API 元数据请求遭公共限额，未依赖其失败结果；改从官方固定 release checksums 文件获取摘要，本机与树莓派两次读取一致，再用该摘要验证实际下载。
+
+09db 的完整预演报告为 `shared/logs/lan-https-09db6d73f44bc431a49ce3331db84030a51ea995-preflight.json`，其 `.process.log` 记录实际临时进程启动 / 退出；切换日志 `lan-https-apply-09db6d7.log`。临时账户、令牌、Cookie 和业务库均为全新合成资料，没有使用或重置生产管理员密码。
+
+10:32 从当前 Windows 电脑**直接经局域网**连接，独立指定专用 CA，严格校验证书链及 IP SAN，不使用 TLS 忽略参数：ready / 静态页面 200、未登录配置 API 401、外域 Origin 403、错误 Host 403，五项通过。记录 `.local/lan-https/windows-lan-check.json`。没有登录生产或提交配置操作。
+
+只读浏览器检查通过，1440 / 390 视口无横溢、JS error 为 0，两张真实登录页截图已目视核对，证据 `.local/lan-https/browser-check.json`、`lan-login-{1440,390}.png`。浏览器临时上下文仅为未安装 CA 的截图跳过证书错误；**不能据此声称客户端系统已经信任证书**。证书链另由 Python 与 Node 两个严格客户端验证，工具未安装 OS 根证书、未输入生产密码或发送写请求，浏览器进程已关闭。
+
+公有根证书通过已认证 SSH 取得，文件 `.local/lan-https/DSH-LAN-Root-CA.cer`（DER）及 `.crt`（PEM）。DER SHA256 / 根证书指纹为：
+
+```text
+8D:33:D4:3A:41:76:43:C5:9A:57:2F:30:24:48:AC:BE:5B:29:73:07:35:A5:A5:19:92:81:62:4B:12:E4:A9:AA
+```
+
+服务端 `root.key` / `root.crt` 实测 owner campanus、mode 600，私钥未复制。10:35 以 SQLite mode=ro / query_only 核对配置、性格 / 稳定身份、日记来源策略与日程授权四个 SELECT-rowset SHA256，与切换前完全一致。前后报告 `shared/logs/lan-https-before-688957e.json`、`lan-https-after-09db6d7.json`；副本在 `.local/lan-https/remote-evidence/`，profile 和原失败也保留。
+
+正式配置一次成功，未触发生产回滚。后续脚本异常恢复调整为先禁用新代理 unit、再删除 / 恢复文件，避免先移除 unit 后留下启用链接；该顺序修订不改变上述已安装配置。首次恢复入口的三个文件均在 `shared/backups/lan-https-09db6d73f44bc431a49ce3331db84030a51ea995-20261027T023114440846Z/manifest.json` 登记。实际安装数据 / 证书目录未清理，CA 随服务持久续期。
 
 ## 恢复
 

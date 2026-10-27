@@ -89,12 +89,6 @@ python -S tools/tests/test_deploy_compatibility.py
 - 回滚：[deploy/rollback.sh](deploy/rollback.sh)，只切换已有应用 release，不还原数据库或外部动作。
 - 操作步骤及真实部署信息：[开发与部署流程](docs/development-workflow.md)。
 
-远端默认监听 loopback。在用户电脑建立隧道后打开管理页面：
-
-```sh
-ssh -N -L 18419:127.0.0.1:8419 campanus@192.168.189.191
-```
-
-访问 `http://127.0.0.1:18419/admin/`。若改为直接通过 HTTPS 域名访问，使用受控反向代理，保持前后端同源，配置对应 `--origin https://<管理域名>` 和 `--secure-cookie`；不要将管理端口直接暴露为普通局域网 HTTP。
+正式局域网入口为 **[https://192.168.189.191:8086/admin/](https://192.168.189.191:8086/admin/)**。各设备首次使用需导入经 SSH 取得的专用根证书，再使用原管理账户登录。证书摘要、安装方法、访问范围与实际检查见 [HTTPS 8086 验收](docs/lan-https-validation.md)。Rust 后端仍仅监听本机 8419；原 18419 HTTP 隧道不再是正式管理 Origin，开发默认值保留。
 
 QQ 按 [最新官方指南](https://bot.q.qq.com/wiki/) 设置连接方式：个人树莓派默认选择 WebSocket，在页面录入 AppID / AppSecret，按实际账号权限订阅和测试；Webhook 才需要额外配置公网 HTTPS 回调。

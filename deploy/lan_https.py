@@ -258,13 +258,13 @@ def apply(source, expected_sha):
             print(json.dumps(profile), flush=True)
         except BaseException:
             subprocess.run(['systemctl', '--user', 'stop', 'dsh-https.service'], check=False)
+            if not old_enabled:
+                subprocess.run(['systemctl', '--user', 'disable', 'dsh-https.service'], check=False)
             for path, old in originals.items():
                 if old is None:
                     path.unlink(missing_ok=True)
                 else:
                     atomic_write(path, old)
-            if not old_enabled:
-                subprocess.run(['systemctl', '--user', 'disable', 'dsh-https.service'], check=False)
             command(['systemctl', '--user', 'daemon-reload'])
             command(['systemctl', '--user', 'restart', 'dsh.service'])
             if old_active:
