@@ -122,6 +122,8 @@ def main():
                     offered = db.execute('SELECT offer_json FROM daily_life_offers WHERE run_id=?', (run,)).fetchone()
                     report['offered_slot_count'] = len(json.loads(offered[0])['slots']) if offered else 0
                     report['activity_count'] = len(activities)
+                    report['spoken_recovery_count'] = db.execute(
+                        "SELECT count(*) FROM audit_events WHERE action='schedule.personal.reply_recovered' AND resource=?", (run,)).fetchone()[0]
                 check('spoken own plan is persisted as an enabled autonomous calendar activity',
                       len(activities) == 1 and activities[0]['creator'] == 'autonomous' and activities[0]['state'] == 'enabled')
                 aid = activities[0]['id']

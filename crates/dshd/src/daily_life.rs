@@ -185,6 +185,137 @@ pub fn split_reply(raw: &str) -> Result<(String, Option<Selection>), String> {
         envelope.self_activity,
     ))
 }
+
+/// Recover only a closed, affirmative first-person catalogue-copy commitment.
+/// This cannot create a new grant, time, recipient, resource or executable.
+/// Quoted, conditional, negative, historical and question text is not consent.
+pub fn selection_for_reply(
+    db: &Connection,
+    run: &str,
+    raw: &str,
+    spoken: &str,
+) -> anyhow::Result<Option<Selection>> {
+    let (_, explicit) = split_reply(raw).map_err(anyhow::Error::msg)?;
+    if explicit.is_some() {
+        return Ok(explicit);
+    }
+    if ["算了", "不去了", "不抄了", "取消", "先不"]
+        .iter()
+        .any(|s| spoken.contains(s))
+    {
+        return Ok(None);
+    }
+    let claims: Vec<&str> = spoken
+        .split_inclusive(['。', '！', '？', '!', '?', '\n', '；', ';'])
+        .filter(|line| {
+            ([
+                "我去抄",
+                "我也去抄",
+                "我这边去抄",
+                "我这边也去抄",
+                "我准备",
+                "我打算",
+                "我就去",
+                "我就抄",
+                "我现在",
+                "我先",
+                "我来",
+                "我接下来",
+            ]
+            .iter()
+            .any(|p| line.contains(p))
+                || (line.contains("我会")
+                    && ["接下来", "现在", "随后", "稍后", "这就", "记到日程", "安排"]
+                        .iter()
+                        .any(|p| line.contains(p))))
+                && ["抄诗", "抄首", "抄一首", "抄录", "誊抄"]
+                    .iter()
+                    .any(|p| line.contains(p))
+                && !line.contains(['？', '?', '“', '”', '「', '」', '『', '』', '\"', '\'', '`'])
+                && ![
+                    "如果",
+                    "要是",
+                    "假如",
+                    "比如",
+                    "例如",
+                    "等你",
+                    "或者",
+                    "也许",
+                    "可能",
+                    "考虑",
+                    "想去",
+                    "想抄",
+                    "要不要",
+                    "你说",
+                    "你刚",
+                    "你想",
+                    "你要",
+                    "说过",
+                    "昨天",
+                    "刚才",
+                    "以前",
+                    "去年",
+                    "上次",
+                    "过去",
+                    "曾经",
+                    "本来",
+                    "原本",
+                    "准备过",
+                    "打算过",
+                    "喜欢",
+                    "擅长",
+                    "希望",
+                    "愿意",
+                    "已经",
+                    "完成",
+                    "不会",
+                    "不能",
+                    "不去",
+                    "不抄",
+                    "没去",
+                    "没抄",
+                    "没有",
+                    "暂不",
+                ]
+                .iter()
+                .any(|p| line.contains(p))
+        })
+        .collect();
+    if claims.is_empty() {
+        return Ok(None);
+    }
+    let named: Vec<_> = POEMS
+        .iter()
+        .filter(|(_, title, _, _)| claims.iter().any(|s| s.contains(&format!("《{title}》"))))
+        .collect();
+    ensure!(named.len() <= 1, "daily_life_ambiguous_spoken_poem");
+    ensure!(
+        !named.is_empty() || !claims.iter().any(|s| s.contains('《')),
+        "daily_life_unsupported_spoken_poem"
+    );
+    let poem_id = named.first().map(|p| p.0).unwrap_or(POEMS[0].0);
+    let offered: String = db.query_row(
+        "SELECT offer_json FROM daily_life_offers WHERE run_id=?1",
+        [run],
+        |r| r.get(0),
+    )?;
+    let offered: Value = serde_json::from_str(&offered)?;
+    ensure!(
+        offered["catalog"]
+            .as_array()
+            .is_some_and(|a| a.iter().any(|p| p["poem_id"] == poem_id)),
+        "daily_life_spoken_catalog_unavailable"
+    );
+    let slot_id = offered["slots"][0]["slot_id"]
+        .as_str()
+        .context("daily_life_spoken_slot_unavailable")?;
+    db.execute("INSERT INTO audit_events(actor,action,resource,created_at) VALUES('system','schedule.personal.reply_recovered',?1,?2)",params![run,crate::state::now()])?;
+    Ok(Some(Selection {
+        poem_id: poem_id.into(),
+        slot_id: slot_id.into(),
+    }))
+}
+
 pub fn completion_prompt(db: &Connection, run: &str) -> anyhow::Result<String> {
     if !exists(db)? {
         return Ok(String::new());

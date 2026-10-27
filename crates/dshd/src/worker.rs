@@ -856,7 +856,7 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
                 tx.execute_batch("SAVEPOINT personal_schedule_commit")?;
                 let scheduling=(||->anyhow::Result<()>{
                     if let Some(raw)=crate::rest_runtime::cached_generation_in(&tx,&item.id)? {
-                        let (_,selection)=crate::daily_life::split_reply(&raw).map_err(anyhow::Error::msg)?;
+                        let selection=crate::daily_life::selection_for_reply(&tx,&item.id,&raw,&value.0)?;
                         if let Some(selection)=selection {crate::daily_life::commit_selection(&tx,&item.id,&selection,now())?;}
                     } Ok(())
                 })();

@@ -38,6 +38,102 @@ fn choice(decision: &str, delay: i64) -> life::Choice {
 }
 
 #[tokio::test]
+async fn plain_spoken_catalogue_commitment_is_registered_before_publication() {
+    let f = fixture().await;
+    configure(&f, now());
+    *f.model.response.lock().unwrap()=json!([{"type":"text","text":"我会在接下来这个十分钟的时段里抄录王维的《鹿柴》，并记到日程上。","delay_ms":0}]).to_string();
+    let current = start(&f.state, "a", "你自己安排十分钟抄诗。");
+    let run = current.input.id.clone();
+    process(&f.state, current, &CancellationToken::new()).await;
+    f.state.db(|db| {
+        assert_eq!(db.query_row("SELECT status FROM runs WHERE id=?1",[&run],|r|r.get::<_,String>(0))?,"completed");
+        assert_eq!(db.query_row("SELECT poem_id FROM daily_life_activities WHERE source_run_id=?1",[&run],|r|r.get::<_,String>(0))?,"luchai");
+        assert_eq!(db.query_row("SELECT count(*) FROM audit_events WHERE action='schedule.personal.reply_recovered' AND resource=?1",[&run],|r|r.get::<_,i64>(0))?,1);
+        Ok(())
+    }).unwrap();
+    // A new explicit promise after revocation must not become a message.
+    f.state
+        .db(|db| {
+            let tx = db.transaction()?;
+            life::save_personal_policy(&tx, &f.admin.id, 1, false, 4, now())?;
+            tx.commit()?;
+            Ok(())
+        })
+        .unwrap();
+    let blocked = start(&f.state, "a", "再安排一次。");
+    let blocked_run = blocked.input.id.clone();
+    process(&f.state, blocked, &CancellationToken::new()).await;
+    f.state
+        .db(|db| {
+            assert_eq!(
+                db.query_row("SELECT status FROM runs WHERE id=?1", [&blocked_run], |r| r
+                    .get::<_, String>(0))?,
+                "failed"
+            );
+            assert_eq!(
+                db.query_row(
+                    "SELECT count(*) FROM messages WHERE run_id=?1 AND role='assistant'",
+                    [&blocked_run],
+                    |r| r.get::<_, i64>(0)
+                )?,
+                0
+            );
+            assert_eq!(
+                db.query_row("SELECT count(*) FROM daily_life_activities", [], |r| r
+                    .get::<_, i64>(0))?,
+                1
+            );
+            Ok(())
+        })
+        .unwrap();
+}
+
+#[tokio::test]
+async fn spoken_recovery_excludes_quotes_conditions_negation_history_and_unknown_poems() {
+    let f = fixture().await;
+    configure(&f, now());
+    let run = start(&f.state, "a", "测试有界表达。");
+    f.state
+        .db(|db| {
+            let tx = db.transaction()?;
+            life::prompt_in(&tx, &run.input.id, now())?;
+            for text in [
+                "你说“我去抄诗了”。",
+                "如果有空，我也去抄诗。",
+                "我不会在接下来抄诗。",
+                "我昨天准备抄诗。",
+                "我去抄诗吗？",
+                "我会抄诗，也会画画。",
+                "我现在喜欢抄诗。",
+                "我去抄诗。算了，不去了。",
+            ] {
+                assert!(
+                    life::selection_for_reply(&tx, &run.input.id, "[]", text)?.is_none(),
+                    "{text}"
+                );
+            }
+            assert!(
+                life::selection_for_reply(&tx, &run.input.id, "[]", "我现在抄录《长恨歌》。")
+                    .is_err()
+            );
+            assert!(life::selection_for_reply(
+                &tx,
+                &run.input.id,
+                "[]",
+                "我现在抄录《春晓》和《鹿柴》。"
+            )
+            .is_err());
+            let selection =
+                life::selection_for_reply(&tx, &run.input.id, "[]", "我这边也去抄诗了。")?.unwrap();
+            assert_eq!(selection.poem_id, "chunxiao");
+            assert!(selection.slot_id.starts_with("slot-"));
+            tx.rollback()?;
+            Ok(())
+        })
+        .unwrap();
+}
+
+#[tokio::test]
 async fn chat_schedule_is_atomic_real_and_idempotent_without_private_projection() {
     let f = fixture().await;
     // A fixed, in-window test date is independent of the test machine's hour.
