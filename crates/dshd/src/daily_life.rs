@@ -225,12 +225,20 @@ pub fn selection_for_reply(
             .iter()
             .any(|p| line.contains(p))
                 || (line.contains("我会")
-                    && ["接下来", "现在", "随后", "稍后", "这就", "记到日程", "安排"]
-                        .iter()
-                        .any(|p| line.contains(p))))
-                && ["抄诗", "抄首", "抄一首", "抄录", "誊抄"]
+                    && [
+                        "接下来",
+                        "现在",
+                        "随后",
+                        "稍后",
+                        "这就",
+                        "记到日程",
+                        "安排",
+                        "《",
+                    ]
                     .iter()
-                    .any(|p| line.contains(p))
+                    .any(|p| line.contains(p))))
+                && (["抄诗", "抄首", "抄一首"].iter().any(|p| line.contains(p))
+                    || (line.contains('《') && line.contains(['抄', '誊'])))
                 && !line.contains(['？', '?', '“', '”', '「', '」', '『', '』', '\"', '\'', '`'])
                 && ![
                     "如果",

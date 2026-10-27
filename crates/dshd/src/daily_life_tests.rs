@@ -106,6 +106,7 @@ async fn spoken_recovery_excludes_quotes_conditions_negation_history_and_unknown
                 "我会抄诗，也会画画。",
                 "我现在喜欢抄诗。",
                 "我去抄诗。算了，不去了。",
+                "我现在抄录会议文件。",
             ] {
                 assert!(
                     life::selection_for_reply(&tx, &run.input.id, "[]", text)?.is_none(),
@@ -127,6 +128,12 @@ async fn spoken_recovery_excludes_quotes_conditions_negation_history_and_unknown
                 life::selection_for_reply(&tx, &run.input.id, "[]", "我这边也去抄诗了。")?.unwrap();
             assert_eq!(selection.poem_id, "chunxiao");
             assert!(selection.slot_id.starts_with("slot-"));
+            assert_eq!(
+                life::selection_for_reply(&tx, &run.input.id, "[]", "我准备抄《鹿柴》。")?
+                    .unwrap()
+                    .poem_id,
+                "luchai"
+            );
             tx.rollback()?;
             Ok(())
         })
