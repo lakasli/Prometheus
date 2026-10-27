@@ -69,8 +69,22 @@ cd "$release/source"
 "${cargo_cmd[@]}" build --release --locked -p dshd -j "$build_jobs" >"$root/shared/logs/build-$sha.log" 2>&1 || { tail -n 60 "$root/shared/logs/build-$sha.log"; exit 1; }
 install -m 0755 "$CARGO_TARGET_DIR/release/dshd" "$release/bin/dshd"
 
+# Deployment-only repairs can use a separately pinned, pushed gate revision
+# while the binary, frontend and release source retain their verified SHA.
+compat_source=$release/source
+compat_sha=$sha
+if [[ -n ${DSH_COMPATIBILITY_SOURCE_SHA:-} ]]; then
+  compat_sha=$DSH_COMPATIBILITY_SOURCE_SHA
+  [[ $compat_sha =~ ^[0-9a-f]{40}$ ]] || { echo 'A complete compatibility tooling SHA is required' >&2; exit 2; }
+  git -C "$repo" cat-file -e "$compat_sha^{commit}"
+  git -C "$repo" merge-base --is-ancestor "$compat_sha" origin/main
+  compat_source=$root/cache/deploy-tools/$compat_sha
+  mkdir -p "$root/cache/deploy-tools"
+  if [[ ! -d $compat_source ]]; then git -C "$repo" worktree add --detach "$compat_source" "$compat_sha"; fi
+  [[ $(git -C "$compat_source" rev-parse HEAD) == "$compat_sha" && -z $(git -C "$compat_source" status --porcelain) ]] || exit 2
+fi
 # Build before stopping the live service. Check durable features before switching.
-python3 deploy/check-compatibility.py "$root/shared/data" "$release/source"
+python3 "$compat_source/deploy/check-compatibility.py" "$root/shared/data" "$release/source"
 
 unit_dir=/home/campanus/.config/systemd/user
 mkdir -p "$unit_dir"
@@ -93,8 +107,14 @@ systemctl --user stop dsh.service
 # between the online preflight and stop. The current gate also knows features
 # that an older target release's gate cannot recognize.
 compatible=true
-if ! python3 "$release/source/deploy/check-compatibility.py" "$root/shared/data" "$release/source"; then compatible=false; fi
-if [[ -n $previous && -f $previous/source/deploy/check-compatibility.py ]] && ! python3 "$previous/source/deploy/check-compatibility.py" "$root/shared/data" "$release/source"; then compatible=false; fi
+if ! python3 "$compat_source/deploy/check-compatibility.py" "$root/shared/data" "$release/source"; then compatible=false; fi
+if [[ -n $previous && -f $previous/source/deploy/check-compatibility.py ]]; then
+  if [[ $(<"$compat_source/deploy/check-compatibility.py") == *'def check_previous('* ]]; then
+    if ! python3 "$compat_source/deploy/check-compatibility.py" "$root/shared/data" "$release/source" --previous-gate "$previous/source/deploy/check-compatibility.py"; then compatible=false; fi
+  elif ! python3 "$previous/source/deploy/check-compatibility.py" "$root/shared/data" "$release/source"; then
+    compatible=false
+  fi
+fi
 if [[ $compatible != true ]]; then
   if [[ $was_active == true ]]; then
     if ! systemctl --user start dsh.service; then
@@ -135,7 +155,7 @@ if [[ $healthy != true ]]; then
   systemctl --user stop dsh.service
   journalctl --user -u dsh.service -n 30 --no-pager || true
   if [[ -n $previous ]]; then
-    if ! python3 "$release/source/deploy/check-compatibility.py" "$root/shared/data" "$previous/source"; then
+    if ! python3 "$compat_source/deploy/check-compatibility.py" "$root/shared/data" "$previous/source"; then
       echo 'Previous release is incompatible with durable features; service stopped. Preserve data and inspect the private pre-upgrade backup.' >&2
       exit 1
     fi
@@ -149,10 +169,10 @@ if [[ $healthy != true ]]; then
   fi
   exit 1
 fi
-python3 - "$root" "$sha" "$previous" <<'PY'
+python3 - "$root" "$sha" "$previous" "$compat_sha" <<'PY'
 import datetime,json,pathlib,sys
-root,sha,previous=sys.argv[1:]
-value={'commit':sha,'previous_release':previous,'deployed_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'os':pathlib.Path('/etc/os-release').read_text(),'web_manifest':json.loads((pathlib.Path(root)/'current/web/release.json').read_text())}
+root,sha,previous,compat_sha=sys.argv[1:]
+value={'commit':sha,'previous_release':previous,'compatibility_tools_commit':compat_sha,'deployed_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'os':pathlib.Path('/etc/os-release').read_text(),'web_manifest':json.loads((pathlib.Path(root)/'current/web/release.json').read_text())}
 (pathlib.Path(root)/'shared/deployment.json').write_text(json.dumps(value,ensure_ascii=False,indent=2))
 print(json.dumps({'deployed_commit':sha,'health':'ready','service':'systemctl --user status dsh.service'}))
 PY

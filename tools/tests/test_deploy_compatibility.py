@@ -136,6 +136,62 @@ class CompatibilityTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,'generic personal'):
             compatibility.check(self.data,self.release)
 
+    def plan_cache_fixture(self):
+        with connect(self.data / 'dsh.db') as db:
+            seed_rest(db)
+            for column in sorted(compatibility.PLAN_CACHE_COLUMNS):
+                db.execute(f'ALTER TABLE rest_deferred_presentations ADD COLUMN {column} TEXT')
+            rest_row(db,'rest_deferred_presentations',raw_generation='synthetic-private-canary',self_plan_status='checked',self_plan_json='{}',self_plan_hash='synthetic-hash')
+        (self.release/'deploy/release-capabilities.json').write_text(json.dumps({'schema_reader':1,'rest':2,'daily_life':2}))
+
+    def test_real_rest_schema_with_all_plan_cache_columns_passes_current_reader(self):
+        self.plan_cache_fixture()
+        compatibility.check(self.data,self.release)
+
+    def test_partial_or_unknown_plan_cache_columns_remain_blocked(self):
+        for columns in [('self_plan_status',),('self_plan_status','self_plan_json','self_plan_hash','unknown_future')]:
+            with self.subTest(columns=columns):
+                with connect(self.data/'dsh.db') as db:
+                    db.executescript(rest_schema_sql())
+                    for column in columns:
+                        db.execute(f'ALTER TABLE rest_deferred_presentations ADD COLUMN {column} TEXT')
+                with self.assertRaisesRegex(RuntimeError,'Rest schema columns'):
+                    compatibility.check(self.data,self.release)
+                with connect(self.data/'dsh.db') as db:
+                    for column in columns:
+                        db.execute(f'ALTER TABLE rest_deferred_presentations DROP COLUMN {column}')
+
+    def test_plan_checkpoint_without_legacy_event_table_still_requires_reader2(self):
+        self.plan_cache_fixture()
+        (self.release/'deploy/release-capabilities.json').write_text(json.dumps({'rest':2,'daily_life':1}))
+        with self.assertRaisesRegex(RuntimeError,'generic personal plan checkpoints'):
+            compatibility.check(self.data,self.release)
+
+    def test_previous_real_gate_passes_only_private_projection_and_never_changes_source(self):
+        self.plan_cache_fixture()
+        gate=pathlib.Path(__file__).resolve().parents[1]/'fixtures/legacy-deployment-gate-c7fb2d6.py'
+        before=(self.data/'dsh.db').read_bytes()
+        rejected=subprocess.run([sys.executable,str(gate),str(self.data),str(self.release)],capture_output=True)
+        self.assertNotEqual(rejected.returncode,0)
+        compatibility.check_previous(self.data,self.release,gate)
+        self.assertEqual(before,(self.data/'dsh.db').read_bytes())
+        with connect(self.data/'dsh.db') as db:
+            self.assertEqual(db.execute('SELECT raw_generation,self_plan_status FROM rest_deferred_presentations').fetchone(),('synthetic-private-canary','checked'))
+
+    def test_previous_gate_refusal_and_unknown_schema_are_never_ignored(self):
+        self.plan_cache_fixture()
+        fixture=pathlib.Path(__file__).resolve().parents[1]/'fixtures/legacy-deployment-gate-c7fb2d6.py'
+        gate=self.root/'refusing-legacy-gate.py'
+        gate.write_text(fixture.read_text(encoding='utf-8')+'\nraise RuntimeError("legacy_extra_refusal")\n',encoding='utf-8')
+        before=(self.data/'dsh.db').read_bytes()
+        with self.assertRaisesRegex(RuntimeError,'Previous release compatibility'):
+            compatibility.check_previous(self.data,self.release,gate)
+        self.assertEqual(before,(self.data/'dsh.db').read_bytes())
+        with connect(self.data/'dsh.db') as db:
+            db.execute('ALTER TABLE rest_operations ADD COLUMN unknown_future TEXT')
+        with self.assertRaisesRegex(RuntimeError,'Rest schema columns'):
+            compatibility.check_previous(self.data,self.release,fixture)
+
     def test_rest_empty_complete_additive_schema_and_exact_default_seeds_allow_legacy(self):
         with connect(self.data / "dsh.db") as db:
             db.executescript(rest_schema_sql())

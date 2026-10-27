@@ -65,7 +65,7 @@ python3() {
     return 0
   fi
   [[ $stopped == true ]] || { trace GATE_BEFORE_STOP; return 96; }
-  if [[ "$1" == "$previous/source/deploy/check-compatibility.py" ]]; then
+  if [[ "$1" == "$previous/source/deploy/check-compatibility.py" || ${4:-} == --previous-gate ]]; then
     trace GATE_CURRENT
     if [[ ${SIM_REAL_GATE:-0} == 1 ]]; then "$REAL_PYTHON" -s "$@"; else return "$SIM_CURRENT_RC"; fi
   else
@@ -119,6 +119,7 @@ class DeployStopGateTests(unittest.TestCase):
             "root": self.root.as_posix(),
             "previous": self.previous.as_posix() if has_previous else "",
             "release": self.release.as_posix(),
+            "compat_source": (self.release / "source").as_posix(),
             "gate": (self.release / "source/deploy/check-compatibility.py").as_posix(),
             "sha": "a" * 40,
             "healthy": "false",

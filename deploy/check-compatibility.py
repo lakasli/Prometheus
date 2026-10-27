@@ -1,9 +1,13 @@
 """Read-only deployment gate for durable assistant feature semantics."""
+import argparse
+import ast
 import json
 from contextlib import closing
 import pathlib
 import sqlite3
+import subprocess
 import sys
+import tempfile
 
 
 REST_COLUMNS = {
@@ -27,7 +31,7 @@ REST_COLUMNS = {
     "rest_management_requests": "assistant_id actor_id operation request_key request_digest result_json created_at",
     "rest_control_candidates": "run_id input_digest received_at status operation_id error_code finished_at",
     "rest_schedule_receipts": "policy_revision nominal_at status operation_id",
-    "rest_deferred_presentations": "run_id raw_generation plan_json media_inflight updated_at",
+    "rest_deferred_presentations": "run_id raw_generation plan_json media_inflight updated_at self_plan_status self_plan_json self_plan_hash",
 }
 
 REST_DEFAULT_POLICY = {
@@ -38,6 +42,8 @@ REST_DEFAULT_POLICY = {
     "max_job_attempts": 3, "max_cycle_calls": 8,
     "max_cycle_reserved_tokens": 24000, "ack_seconds": 30,
 }
+
+PLAN_CACHE_COLUMNS = {"self_plan_status", "self_plan_json", "self_plan_hash"}
 
 
 def _unique_rest_object(pairs):
@@ -59,7 +65,9 @@ def check_rest(db, tables, reader):
         raise RuntimeError("Rest schema is incomplete or unknown; refusing to ignore partial rest state")
     for table, expected in REST_COLUMNS.items():
         columns = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
-        if columns != set(expected.split()):
+        base = set(expected.split())
+        known_legacy_cache = table == "rest_deferred_presentations" and columns == base - PLAN_CACHE_COLUMNS
+        if columns != base and not known_legacy_cache:
             raise RuntimeError("Rest schema columns are incomplete or unknown; a compatible reader is required")
     used = {table for table in REST_COLUMNS
             if db.execute(f"SELECT EXISTS(SELECT 1 FROM {table})").fetchone()[0]}
@@ -109,6 +117,10 @@ def check(data_dir, release_source):
         return
     with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as db:
         tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "rest_deferred_presentations" in tables:
+            columns = {r[1] for r in db.execute("PRAGMA table_info(rest_deferred_presentations)")}
+            if "self_plan_status" in columns and db.execute("SELECT EXISTS(SELECT 1 FROM rest_deferred_presentations WHERE self_plan_status IS NOT NULL)").fetchone()[0] and int(capabilities.get("daily_life", 0)) < 2:
+                raise RuntimeError("Target release cannot read generic personal plan checkpoints")
         if "daily_life_events" in tables:
             used = db.execute("SELECT EXISTS(SELECT 1 FROM daily_life_events)").fetchone()[0]
             used = used or ("sleep_context_boundaries" in tables and db.execute("SELECT EXISTS(SELECT 1 FROM sleep_context_boundaries)").fetchone()[0])
@@ -285,9 +297,59 @@ def check(data_dir, release_source):
             raise RuntimeError("Target release lacks Skill snapshots or image generation configuration support")
 
 
+def check_previous(data_dir, release_source, previous_gate):
+    """Both gates must pass; strip only known additive columns in a private copy.
+
+    The canonical gate checks the untouched database first, including reader2
+    semantics. A legacy gate with exactly our base Rest column contract then
+    checks all its original policies against the projected copy. Unknown or
+    partial columns never enter this path, and production data is never edited.
+    """
+    check(data_dir, release_source)
+    previous_gate = pathlib.Path(previous_gate).resolve(strict=True)
+    declarations = {}
+    for node in ast.parse(previous_gate.read_text(encoding="utf-8")).body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "REST_COLUMNS" for t in node.targets):
+            declarations = ast.literal_eval(node.value)
+    database = pathlib.Path(data_dir) / "dsh.db"
+    project = False
+    legacy_contract = {**REST_COLUMNS, "rest_deferred_presentations": "run_id raw_generation plan_json media_inflight updated_at"}
+    if declarations == legacy_contract and database.is_file():
+        with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as db:
+            columns = {row[1] for row in db.execute("PRAGMA table_info(rest_deferred_presentations)")}
+        project = columns == set(REST_COLUMNS["rest_deferred_presentations"].split())
+
+    def invoke(directory):
+        result = subprocess.run([sys.executable, str(previous_gate), str(directory), str(release_source)], capture_output=True, text=True, timeout=30)
+        if result.returncode:
+            raise RuntimeError("Previous release compatibility check rejected the target")
+
+    if not project:
+        invoke(data_dir)
+        return
+    with tempfile.TemporaryDirectory(prefix="dsh-legacy-gate-") as folder:
+        projected = pathlib.Path(folder) / "dsh.db"
+        with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as original, closing(sqlite3.connect(projected)) as copy:
+            original.backup(copy)
+            projected.chmod(0o600)
+            for column in sorted(PLAN_CACHE_COLUMNS):
+                copy.execute(f"ALTER TABLE rest_deferred_presentations DROP COLUMN {column}")
+            copy.commit()
+        invoke(folder)
+    print("Previous gate passed against the known additive-column projection; production database unchanged")
+
+
 if __name__ == "__main__":
     try:
-        check(*sys.argv[1:])
-    except (RuntimeError, ValueError, sqlite3.Error, OSError) as error:
+        parser = argparse.ArgumentParser(description=__doc__)
+        parser.add_argument("data_dir")
+        parser.add_argument("release_source")
+        parser.add_argument("--previous-gate")
+        args = parser.parse_args()
+        if args.previous_gate:
+            check_previous(args.data_dir, args.release_source, args.previous_gate)
+        else:
+            check(args.data_dir, args.release_source)
+    except (RuntimeError, ValueError, sqlite3.Error, OSError, SyntaxError, subprocess.TimeoutExpired) as error:
         print(str(error), file=sys.stderr)
         raise SystemExit(2)
