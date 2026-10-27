@@ -232,22 +232,58 @@ struct Envelope {
 }
 pub fn split_reply(raw: &str) -> Result<(String, Option<Selection>), String> {
     let trimmed = raw.trim();
-    let candidate = trimmed
+    let mut candidate = trimmed
         .strip_prefix("```json\n")
         .or_else(|| trimmed.strip_prefix("```json\r\n"))
         .and_then(|s| s.strip_suffix("```"))
         .unwrap_or(trimmed)
         .trim();
+    let mut leading_reply = None;
+    if candidate.starts_with('[') {
+        let mut stream = serde_json::Deserializer::from_str(candidate).into_iter::<Value>();
+        if matches!(stream.next(), Some(Ok(Value::Array(_)))) {
+            let offset = stream.byte_offset();
+            let tail = candidate[offset..].trim();
+            if !tail.is_empty() {
+                let prefix = crate::trigger_rule::strict_value(candidate[..offset].as_bytes())
+                    .map_err(|_| "重复回复JSON无效".to_owned())?;
+                leading_reply = Some(
+                    serde_json::from_value::<Vec<crate::chat_reply::ReplyItem>>(prefix)
+                        .map_err(|_| "重复回复字段无效".to_owned())?,
+                );
+                candidate = tail
+                    .strip_prefix("```json\n")
+                    .or_else(|| tail.strip_prefix("```json\r\n"))
+                    .and_then(|s| s.strip_suffix("```"))
+                    .unwrap_or(tail)
+                    .trim();
+            }
+        }
+    }
     if !candidate.starts_with('{') {
+        if leading_reply.is_some() {
+            return Err("重复回复后须为单一日程对象".into());
+        }
         return Ok((raw.to_owned(), None));
     }
     let value = crate::trigger_rule::strict_value(candidate.as_bytes())
         .map_err(|_| "回复JSON无效".to_owned())?;
     if value.get("reply").is_none() {
+        if leading_reply.is_some() {
+            return Err("重复回复后缺少日程回复字段".into());
+        }
         return Ok((raw.to_owned(), None));
     }
     let envelope: Envelope =
         serde_json::from_value(value).map_err(|_| "日程回复字段无效".to_owned())?;
+    if let Some(leading) = leading_reply {
+        // Providers sometimes repeat the original array before the final
+        // envelope. Accept only an identical, strictly typed presentation;
+        // never select between competing replies or side-effect documents.
+        if serde_json::to_value(leading).ok() != serde_json::to_value(&envelope.reply).ok() {
+            return Err("重复回复与日程对象内容不一致".into());
+        }
+    }
     Ok((
         serde_json::to_string(&envelope.reply).map_err(|_| "回复无效".to_owned())?,
         envelope.self_activity,
@@ -399,7 +435,7 @@ pub fn completion_prompt(db: &Connection, run: &str) -> anyhow::Result<String> {
         .transpose()?
         .is_some_and(|v| v["slots"].as_array().is_some_and(|a| !a.is_empty()));
     Ok(if offered {
-        "\nDSH_DAILY_LIFE_COMPLETION_V2\n若本轮明确决定做一件当前可执行的事，最终输出使用{\"reply\":[上述逐句回复对象],\"self_activity\":{\"slot_id\":\"本轮时段ID\",\"title\":\"安排名称\",\"content\":\"完整文字成果\"}}。日程与回复同一事务受理，全部句数、间隔及媒体限制继续约束reply。没有安排就返回原数组，不为表现生活感而硬添安排；不能只说要做却不登记，不能虚构外出、物理动作、外发或已完成。".into()
+        "\nDSH_DAILY_LIFE_COMPLETION_V2\n本条替代前面的最外层数组格式，最终只输出一个JSON对象：{\"reply\":[上述逐句回复对象],\"self_activity\":null}；若本轮明确决定做一件当前可执行的事，将self_activity改为{\"slot_id\":\"本轮时段ID\",\"title\":\"安排名称\",\"content\":\"完整文字成果\"}。不要先输出数组再输出对象，不重复回复，不加解释或代码围栏。日程与回复同一事务受理，全部句数、间隔及媒体限制继续约束reply。没有安排时self_activity为null，不为表现生活感而硬添安排；不能只说要做却不登记，不能虚构外出、物理动作、外发或已完成。".into()
     } else {
         String::new()
     })

@@ -37,6 +37,80 @@ fn choice(decision: &str, delay: i64) -> life::Choice {
     }
 }
 
+#[test]
+fn repeated_presentation_accepts_only_one_identical_strict_envelope() {
+    let reply = json!([{"type":"text","text":"我先整理一段文字。","delay_ms":0}]);
+    let envelope = json!({"reply":reply,"self_activity":{"slot_id":"slot-a","title":"文字记录","content":"独立的文字成果。"}});
+    let raw = format!("{reply}\n\n```json\n{envelope}\n```");
+    let (spoken, selection) = life::split_reply(&raw).unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&spoken).unwrap(), reply);
+    assert_eq!(selection.unwrap().slot_id, "slot-a");
+    for malformed in [
+        format!("{reply}\n{}",json!({"reply":[{"type":"text","text":"另一句话。","delay_ms":0}],"self_activity":null})),
+        format!("{reply}\n{envelope}\n{envelope}"),
+        format!("{reply}\n解释文字\n{envelope}"),
+        format!("{reply}\n{}",json!({"reply":reply,"self_activity":null,"recipient":"arbitrary"})),
+        format!("[{{\"type\":\"text\",\"text\":\"我先整理一段文字。\",\"text\":\"另一句。\",\"delay_ms\":0}}]\n{envelope}"),
+    ] {
+        assert!(life::split_reply(&malformed).is_err());
+    }
+}
+
+#[tokio::test]
+async fn repeated_native_presentation_registers_once_and_publishes_only_one_reply() {
+    let f = fixture().await;
+    configure(&f, now());
+    let current = start(&f.state, "a", "决定一件自己的文字安排。");
+    let run = current.input.id.clone();
+    let slot = f
+        .state
+        .db(|db| {
+            let tx = db.transaction()?;
+            life::prompt_in(&tx, &run, now())?;
+            let raw: String = tx.query_row(
+                "SELECT offer_json FROM daily_life_offers WHERE run_id=?1",
+                [&run],
+                |r| r.get(0),
+            )?;
+            let offer: Value = serde_json::from_str(&raw)?;
+            let slot = offer["slots"][0]["slot_id"].as_str().unwrap().to_owned();
+            tx.commit()?;
+            Ok(slot)
+        })
+        .unwrap();
+    let reply = json!([{"type":"text","text":"我先整理一段文字。","delay_ms":0}]);
+    let envelope = json!({"reply":reply,"self_activity":{"slot_id":slot,"title":"整理文字","content":"一份可保存的文字成果。"}});
+    *f.model.response.lock().unwrap() = format!("{reply}\n\n```json\n{envelope}\n```");
+    process(&f.state, current, &CancellationToken::new()).await;
+    assert_eq!(f.model.calls.load(Ordering::SeqCst), 1);
+    f.state
+        .db(|db| {
+            assert_eq!(
+                db.query_row("SELECT status FROM runs WHERE id=?1", [&run], |r| r
+                    .get::<_, String>(0))?,
+                "completed"
+            );
+            assert_eq!(
+                db.query_row(
+                    "SELECT count(*) FROM daily_life_activities WHERE source_run_id=?1",
+                    [&run],
+                    |r| r.get::<_, i64>(0)
+                )?,
+                1
+            );
+            assert_eq!(
+                db.query_row(
+                    "SELECT count(*) FROM messages WHERE run_id=?1 AND role='assistant'",
+                    [&run],
+                    |r| r.get::<_, i64>(0)
+                )?,
+                1
+            );
+            Ok(())
+        })
+        .unwrap();
+}
+
 #[tokio::test]
 async fn plain_qq_statement_is_semantically_committed_before_publication() {
     let f = fixture().await;
