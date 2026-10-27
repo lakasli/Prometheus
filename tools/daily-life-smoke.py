@@ -115,6 +115,13 @@ def main():
                 result = wait(terminal)
                 check('ordinary native conversation completes with the schedule protocol', result['status'] == 'completed')
                 activities = h.request('GET', API + '/schedule/activities')[0]['items']
+                # All inputs here are synthetic; retain enough evidence to
+                # diagnose a protocol/model failure after the fixture closes.
+                report['synthetic_plan_answer'] = result.get('response', '')
+                with h.db() as db:
+                    offered = db.execute('SELECT offer_json FROM daily_life_offers WHERE run_id=?', (run,)).fetchone()
+                    report['offered_slot_count'] = len(json.loads(offered[0])['slots']) if offered else 0
+                    report['activity_count'] = len(activities)
                 check('spoken own plan is persisted as an enabled autonomous calendar activity',
                       len(activities) == 1 and activities[0]['creator'] == 'autonomous' and activities[0]['state'] == 'enabled')
                 aid = activities[0]['id']
