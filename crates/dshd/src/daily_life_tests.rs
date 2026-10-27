@@ -246,7 +246,18 @@ async fn worker_publishes_only_after_schedule_commit_and_rejects_forged_slot_wit
     configure(&f, now());
     let current = start(&f.state, "a", "我先去忙，你自己安排抄首诗吧。");
     let run = current.input.id.clone();
-    prepare_messages(&f.state, &current.input).unwrap();
+    let messages = prepare_messages(&f.state, &current.input).unwrap();
+    let final_contract = messages
+        .iter()
+        .rev()
+        .find(|m| m["role"] == "system")
+        .unwrap()["content"]
+        .as_str()
+        .unwrap();
+    assert!(
+        final_contract.contains("DSH_DAILY_LIFE_COMPLETION_V1")
+            && final_contract.contains("不能只输出安排承诺")
+    );
     let slot = f
         .state
         .db(|db| {

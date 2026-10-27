@@ -185,6 +185,27 @@ pub fn split_reply(raw: &str) -> Result<(String, Option<Selection>), String> {
         envelope.self_activity,
     ))
 }
+pub fn completion_prompt(db: &Connection, run: &str) -> anyhow::Result<String> {
+    if !exists(db)? {
+        return Ok(String::new());
+    }
+    let raw: Option<String> = db
+        .query_row(
+            "SELECT offer_json FROM daily_life_offers WHERE run_id=?1",
+            [run],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let offered = raw
+        .map(|s| serde_json::from_str::<Value>(&s))
+        .transpose()?
+        .is_some_and(|v| v["slots"].as_array().is_some_and(|a| !a.is_empty()));
+    Ok(if offered {
+        "\nDSH_DAILY_LIFE_COMPLETION_V1\n本轮创建小安排时，最终输出使用受限外层对象{\"reply\":[上述逐句回复对象],\"self_activity\":{\"poem_id\":\"本轮目录ID\",\"slot_id\":\"本轮时段ID\"}}，这是前述数组格式的日程扩展；全部句数、间隔与媒体限制继续约束reply数组。没有创建安排时仍只输出原数组。说要去抄诗时必须同时提供本轮可用的self_activity，宿主登记后才发布回复；不能只输出安排承诺。".into()
+    } else {
+        String::new()
+    })
+}
 pub fn prompt_in(db: &Connection, run: &str, at: i64) -> anyhow::Result<String> {
     if !exists(db)? {
         return Ok(String::new());
