@@ -710,6 +710,7 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
             if !plugin_command && trigger_context.is_none() && matches!(&selected, Ok(None)) =>
         {
             let prepared = async {
+                let (content, _) = crate::daily_life::split_reply(&content)?;
                 if !matches!(
                     crate::rest_runtime::stage_allowed(state, &item.id),
                     Ok(true)
@@ -850,6 +851,19 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
             tx.execute("UPDATE runs SET status='queued',error=NULL,updated_at=?1 WHERE id=?2 AND status='running'",params![now(),item.id])?;
             tx.commit()?;return Ok(());
         }
+        let result=match result {
+            Ok(value) if publish && trigger_context.is_none()=>{
+                tx.execute_batch("SAVEPOINT personal_schedule_commit")?;
+                let scheduling=(||->anyhow::Result<()>{
+                    if let Some(raw)=crate::rest_runtime::cached_generation_in(&tx,&item.id)? {
+                        let (_,selection)=crate::daily_life::split_reply(&raw).map_err(anyhow::Error::msg)?;
+                        if let Some(selection)=selection {crate::daily_life::commit_selection(&tx,&item.id,&selection,now())?;}
+                    } Ok(())
+                })();
+                match scheduling {Ok(())=>{tx.execute_batch("RELEASE personal_schedule_commit")?;Ok(value)},Err(_)=>{tx.execute_batch("ROLLBACK TO personal_schedule_commit; RELEASE personal_schedule_commit")?;Err("日程未获受理，本轮安排承诺未发送".to_owned())}}
+            },
+            other=>other,
+        };
         match result {
             Ok((content,plan))=> {
                 tx.execute("INSERT INTO messages(id,conversation_id,run_id,role,content,created_at) VALUES(?1,?2,?3,'assistant',?4,?5)",params![uuid::Uuid::new_v4().to_string(),item.conversation,item.id,content,now()])?;
@@ -899,7 +913,8 @@ fn prepare_messages(state: &AppState, item: &RunInput) -> ApiResult<Vec<Value>> 
             return Ok(Some(messages));
         }
         let observed_at = now();
-        let memory_floor = memory_context::history_floor(&tx, &item.conversation).map_err(|_|crate::conversation_context::SourceUnavailable)?;
+        crate::daily_life::freeze_run_in(&tx,&item.id,&item.conversation)?;
+        let memory_floor = crate::daily_life::history_floor(&tx, &item.conversation).map_err(|_|crate::conversation_context::SourceUnavailable)?;
         let selected=crate::skills::for_run(&tx,&item.id)?;
         let (owner,input):(String,String)=tx.query_row("SELECT owner_id,input FROM runs WHERE id=?1",[&item.id],|r|Ok((r.get(0)?,r.get(1)?)))?;
         let time_prompt=conversation_time::prompt_in(&tx,&item.id,&item.conversation,&owner,observed_at)?;
@@ -923,11 +938,12 @@ fn prepare_messages(state: &AppState, item: &RunInput) -> ApiResult<Vec<Value>> 
         let summary=if isolated_test {None}else{crate::conversation_summary::context(&tx,&item.conversation,&owner).map_err(|_|crate::conversation_context::SourceUnavailable)?};
         let floor=summary.as_ref().map(|s|s.through_run_rowid).unwrap_or(0).max(memory_floor);
         let mut memory_unavailable=false;
-        let mut memories=if isolated_test {Vec::new()} else {match memory::retrieve(&tx,&owner,&query,6,8000){Ok(items)=>items,Err(_)=>{memory_unavailable=true;Vec::new()}}};
+        let diary_only=crate::rest_store::policy_in(&tx)?.1.reset_context_on_sleep;
+        let mut memories=if isolated_test || diary_only {Vec::new()} else {match memory::retrieve(&tx,&owner,&query,6,8000){Ok(items)=>items,Err(_)=>{memory_unavailable=true;Vec::new()}}};
         let memory_lexical=!memories.is_empty();
         // FTS is lexical. When a question has no literal overlap, retain a small
         // recent context rather than pretending to have semantic search.
-        if memories.is_empty() && !isolated_test && !memory_unavailable {
+        if memories.is_empty() && !isolated_test && !diary_only && !memory_unavailable {
             let recent=match memory::visible_list(&tx,&owner,&memory::ListOptions{limit:6,..Default::default()}){Ok(page)=>page.items,Err(_)=>{memory_unavailable=true;Vec::new()}};
             let mut bytes=0;
             for entry in recent {
@@ -1042,6 +1058,7 @@ fn prepare_messages(state: &AppState, item: &RunInput) -> ApiResult<Vec<Value>> 
             }
         if let Some(context)=&commitments {system.push_str(&crate::conversation_commitments::host_capabilities_prompt(context)?);}
         system.push_str(&crate::rest_runtime::prompt_state_in(&tx)?);
+        if selected.is_none() && !isolated_test {system.push_str(&crate::daily_life::prompt_in(&tx,&item.id,observed_at)?);}
         let mut blocks=vec![ContextBlock::new("host_policy",BlockKind::HostPolicy,true,1000,vec![json!({"role":"system","content":system})])];
         if let Some(layers)=layers {
             for i in 0..layers.style_groups.len().min(48) {

@@ -31,5 +31,6 @@
   "conversation_state": 1,
   "commitments": 1,
   "context_budget": 1,
-  "rest": 1
+  "rest": 2,
+  "daily_life": 1
 }

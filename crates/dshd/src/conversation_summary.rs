@@ -482,7 +482,7 @@ fn context_in(
     let assistant = crate::memory::identity(db)
         .map_err(|_| anyhow::anyhow!("Assistant identity unavailable"))?;
     let epoch = current_epoch(db, conversation, &assistant)?;
-    let floor = crate::memory_context::history_floor(db, conversation)?;
+    let floor = crate::daily_life::history_floor(db, conversation)?;
     let row = db.query_row(
         "SELECT content,revision,through_run_rowid,epoch,history_floor,assistant_id,conversation_id,source_owner_id,source_count,source_ids_json,source_digest,redacted_source_count,truncated_source_count
          FROM conversation_summaries WHERE conversation_id=?1 AND assistant_id=?2 AND source_owner_id=?3
@@ -647,7 +647,7 @@ fn plan(state: &AppState, run_id: &str, config: &RuntimeConfig) -> anyhow::Resul
     let assistant = crate::memory::identity(&tx)
         .map_err(|_| anyhow::anyhow!("Assistant identity unavailable"))?;
     let epoch = current_epoch(&tx, &conversation, &assistant)?;
-    let floor = crate::memory_context::history_floor(&tx, &conversation)?;
+    let floor = crate::daily_life::history_floor(&tx, &conversation)?;
     let previous = context(&tx, &conversation, &owner)?;
     let base_revision: i64 = tx.query_row("SELECT revision FROM conversation_summaries WHERE conversation_id=?1 AND assistant_id=?2", params![conversation,assistant], |r|r.get(0)).optional()?.unwrap_or(0);
     let start = previous
@@ -830,7 +830,7 @@ fn still_current(state: &AppState, plan: &Plan) -> anyhow::Result<bool> {
         })?;
     if status != "running"
         || current_epoch(&tx, &plan.conversation, &plan.assistant_id)? != plan.epoch
-        || crate::memory_context::history_floor(&tx, &plan.conversation)? != plan.floor
+        || crate::daily_life::history_floor(&tx, &plan.conversation)? != plan.floor
     {
         return Ok(false);
     }
@@ -885,7 +885,7 @@ fn commit(
         || !run_active
         || base != plan.base_revision
         || current_epoch(&tx, &plan.conversation, &plan.assistant_id)? != plan.epoch
-        || crate::memory_context::history_floor(&tx, &plan.conversation)? != plan.floor
+        || crate::daily_life::history_floor(&tx, &plan.conversation)? != plan.floor
         || is_draft(&tx, &plan.conversation)?
         || crate::memory::identity(&tx)
             .map_err(|_| anyhow::anyhow!("Assistant identity unavailable"))?

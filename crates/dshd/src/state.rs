@@ -153,6 +153,7 @@ impl AppState {
         crate::relationships_model::initialize(&db)?;
         crate::schedule::initialize(&db)?;
         crate::schedule_model::initialize(&db)?;
+        crate::daily_life::initialize(&db)?;
         crate::conversation_identity::initialize(&db)?;
         crate::turn_control::ensure_schema(&db)?;
         crate::delivery_context::ensure_schema(&db)?;

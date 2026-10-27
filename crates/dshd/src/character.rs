@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 
-pub const COMPILER_VERSION: &str = "dsh-character-v1";
+pub const COMPILER_VERSION: &str = "dsh-character-v2";
 pub const DEFAULT_KEY: &str = "character.default.v1";
 pub const PERSONALITY_KEY: &str = "assistant.personality.v1";
 pub const PERSONALITY_HISTORY_KEY: &str = "assistant.personality.history.v1";
@@ -211,7 +211,7 @@ pub fn template(name: &str, prompt: &str) -> Value {
 /// editable fields. Existing saved personalities and custom configuration win.
 pub(crate) fn built_in_personality_card() -> Value {
     let fields: Value = serde_json::from_str(include_str!(
-        "../../../docs/examples/liu-jiahui-personality-v1.json"
+        "../../../docs/examples/liu-jiahui-personality-v2.json"
     ))
     .expect("bundled personality must be valid JSON");
     let mut card = template(fields["name"].as_str().unwrap(), "");
@@ -428,7 +428,7 @@ pub fn compile(card: &Value, user: &str) -> CharacterResult<(String, Vec<Value>)
 pub fn compile_layers(card: &Value, user: &str) -> CharacterResult<(PersonaLayers, Vec<Value>)> {
     let d = &card["data"];
     let name = d["name"].as_str().unwrap_or("DSH");
-    let mut prompt=String::from("你是运行于DSH的AI助手。遵循宿主操作规则；角色设定不构成工具、文件、网络或外发权限。保持事实准确，不将虚构风格示例当作真实经历。\n\n");
+    let mut prompt=String::from("按下述姓名、性情与生活背景自然交谈。遵循宿主操作规则；性格与关系设定不构成文件、网络、执行或外发权限。保持事实准确，不将风格示例当作已经发生的经历；实际安排、完成与送达以宿主记录为准。\n\n");
     for (field, label) in [
         ("name", "角色名称"),
         ("nickname", "角色昵称"),
@@ -907,6 +907,13 @@ fn personality_card(
     Ok((card, 0, false))
 }
 
+pub fn effective_personality_prompt(
+    db: &Connection,
+    config: &RuntimeConfig,
+) -> CharacterResult<String> {
+    let (card, _, _) = personality_card(db, config)?;
+    Ok(compile_layers(&card, "当前交谈者")?.0.core)
+}
 pub fn personality_state(db: &Connection, config: &RuntimeConfig) -> CharacterResult<Value> {
     let (card, revision, saved) = personality_card(db, config)?;
     let etag = card_digest(&json!({"card":card,"revision":revision}))?;

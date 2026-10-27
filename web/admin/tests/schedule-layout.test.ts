@@ -29,6 +29,19 @@ function setup() {
       value = { items: [], legacy_events: [], total: 0 };
     else if (path === "/schedule/capabilities")
       value = { clock: { trusted: true } };
+    else if (path === "/rest/policy")
+      value = {
+        revision: 1,
+        policy: {
+          schedule_enabled: true,
+          sleep_local: "23:00",
+          wake_local: "07:00",
+          anticipation_enabled: true,
+          reset_context_on_sleep: true,
+        },
+      };
+    else if (path === "/schedule/personal-policy")
+      value = { revision: 0, enabled: false, daily_limit: 4 };
     else if (path === "/schedule/resources") {
       if (options?.method === "POST") {
         const body = JSON.parse(options.body as string);

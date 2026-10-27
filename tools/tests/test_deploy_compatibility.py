@@ -109,6 +109,14 @@ class CompatibilityTests(unittest.TestCase):
     def test_legacy_database_can_use_legacy_release(self):
         compatibility.check(self.data, self.release)
 
+    def test_sleep_context_boundary_requires_daily_life_reader_without_erasing_data(self):
+        with connect(self.data / "dsh.db") as db:
+            db.executescript("CREATE TABLE daily_life_events(id TEXT); CREATE TABLE sleep_context_boundaries(conversation_id TEXT); INSERT INTO sleep_context_boundaries VALUES('synthetic');")
+        before=(self.data / "dsh.db").read_bytes()
+        with self.assertRaisesRegex(RuntimeError,"daily routine"):
+            compatibility.check(self.data,self.release)
+        self.assertEqual(before,(self.data / "dsh.db").read_bytes())
+
     def test_rest_empty_complete_additive_schema_and_exact_default_seeds_allow_legacy(self):
         with connect(self.data / "dsh.db") as db:
             db.executescript(rest_schema_sql())
@@ -264,7 +272,7 @@ class CompatibilityTests(unittest.TestCase):
             compatibility.check(self.data, self.release)
         self.assertEqual(before, database.read_bytes())
         current_manifest = pathlib.Path(__file__).resolve().parents[2] / "deploy/release-capabilities.json"
-        self.assertEqual(json.loads(current_manifest.read_text())["rest"], 1)
+        self.assertEqual(json.loads(current_manifest.read_text())["rest"], 2)
 
     def test_rest_cli_returns_exit_two_for_unsafe_downgrade_without_printing_cache(self):
         with connect(self.data / "dsh.db") as db:

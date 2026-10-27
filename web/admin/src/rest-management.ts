@@ -1,6 +1,8 @@
 export type RestPhase =
   "awake" | "sleep_pending" | "consolidating" | "sleeping" | "waking";
 export interface RestPolicy {
+  anticipation_enabled?: boolean;
+  reset_context_on_sleep?: boolean;
   natural_enabled: boolean;
   schedule_enabled: boolean;
   time_zone: string;

@@ -41,6 +41,8 @@ const originalPolicy = ref(""),
   originalGrant = ref("");
 const originalGrantExpiry = ref("");
 const form = reactive<RestPolicy>({
+  anticipation_enabled: false,
+  reset_context_on_sleep: false,
   natural_enabled: false,
   schedule_enabled: false,
   time_zone: "Asia/Shanghai",
@@ -641,7 +643,7 @@ onUnmounted(() => {
     <form v-if="policy" aria-label="作息策略" @submit.prevent="savePolicy">
       <h4>作息策略 · v{{ policy.revision }}</h4>
       <p class="muted">
-        独立保存，不改性格或其他运行配置。正在进行的周期保留原策略、原唤醒时间和原整理截止；修改仅影响后续新周期。
+        每日固定时刻独立保存。提前一分钟可选择如期、取消本次或推迟；推迟每次最多30分钟、每期最多两次。通知失败时按原定时刻执行。
       </p>
       <fieldset :disabled="busy">
         <div class="rest-checks">
@@ -657,6 +659,20 @@ onUnmounted(() => {
               type="checkbox"
               aria-label="启用定时作息"
             />启用定时作息</label
+          >
+          <label
+            ><input
+              v-model="form.anticipation_enabled"
+              type="checkbox"
+              aria-label="提前一分钟选择日程"
+            />提前一分钟选择如期、取消或推迟</label
+          >
+          <label
+            ><input
+              v-model="form.reset_context_on_sleep"
+              type="checkbox"
+              aria-label="睡眠时重置聊天上下文"
+            />睡眠时重置聊天上下文，记忆从日记读取</label
           >
         </div>
         <div class="rest-fields">

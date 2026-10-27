@@ -53,10 +53,12 @@ struct Lease {
     id: String,
     reading: Option<ReadChunk>,
     planning_attempt: Option<String>,
+    decision: Option<crate::daily_life::Decision>,
 }
 impl Drop for Lease {
     fn drop(&mut self) {
         let _ = self.state.db(|db| {
+            if let Some(d)=&self.decision{crate::daily_life::fail_decision(db,d,"decision_cancelled",now())?;}
             if let Some(chunk) = &self.reading {
                 schedule::fail_read_chunk(db, chunk, "cancelled", now())?;
             }
@@ -78,6 +80,7 @@ pub struct Claimed {
     max_tokens: usize,
 }
 enum Work {
+    Decision(crate::daily_life::Decision),
     Reading(ReadChunk),
     Planning(Planning),
 }
@@ -160,8 +163,13 @@ fn reserve(
         .with_timezone(&zone)
         .date_naive()
         .to_string();
-    let maximum_calls = g.map(|g| g.max_daily_model_calls).unwrap_or(8);
-    let maximum_tokens = g.map(|g| g.max_daily_tokens).unwrap_or(24000);
+    let routine = owner == "system:daily-routine";
+    let maximum_calls = g
+        .map(|g| g.max_daily_model_calls)
+        .unwrap_or(if routine { 24 } else { 8 });
+    let maximum_tokens =
+        g.map(|g| g.max_daily_tokens)
+            .unwrap_or(if routine { 250000 } else { 24000 });
     // One token cannot encode fewer than one input byte. Include JSON framing
     // overhead conservatively rather than silently under-reserving CJK text.
     let tokens = reserved_tokens(messages, max_tokens)?;
@@ -197,7 +205,7 @@ pub fn claim_next(state: &AppState) -> ApiResult<Option<Claimed>> {
         return Ok(None);
     }
     state.db(|db|{
-        let tx=db.transaction()?;if !crate::rest_runtime::automatic_allowed_in(&tx)? {return Ok(None);}let (_,config)=character::current_config_in(&tx)?;
+        let tx=db.transaction()?;let automatic_allowed=crate::rest_runtime::automatic_allowed_in(&tx)?;let (_,config)=character::current_config_in(&tx)?;
         let host_ready:bool=tx.query_row("SELECT clock_trusted AND space_ok FROM trigger_runtime WHERE id=1",[],|r|r.get(0))?;
         if !host_ready{return Ok(None);}
         if config.model.credential_ref.is_none(){return Ok(None);}
@@ -206,8 +214,16 @@ pub fn claim_next(state: &AppState) -> ApiResult<Option<Claimed>> {
         let automatic:i64=tx.query_row("SELECT count(*) FROM runs r WHERE r.run_kind IN('trigger_model','trigger_image') AND (r.status='running' OR EXISTS(SELECT 1 FROM native_worker_leases l WHERE l.run_id=r.id))",[],|r|r.get(0))?;
         if automatic+running_count(&tx)?+crate::diary_model::running_count(&tx)?+crate::relationships_model::running_count(&tx)?>0{return Ok(None);}
         let queued:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM runs WHERE status IN('queued','running') AND run_kind NOT IN('trigger_model','trigger_image'))",[],|r|r.get(0))?;
-        if queued{return Ok(None);}
+        if queued && automatic_allowed{return Ok(None);}
         let at=now();
+        if let Some((decision,messages))=crate::daily_life::prepare_decision(&tx,at)? {
+            if !reserve(&tx,"system:daily-routine",None,&messages,256,at)? {crate::daily_life::fail_decision(&tx,&decision,"decision_budget_exhausted",at)?;tx.commit()?;return Ok(None);}
+            let id=uuid::Uuid::new_v4().to_string();
+            tx.execute("INSERT INTO schedule_model_leases VALUES(?1,'decision',?2,?3,?4)",params![id,decision.id,at,config.model.credential_ref])?;
+            tx.commit()?;
+            return Ok(Some(Claimed{lease:Lease{state:state.clone(),id,reading:None,planning_attempt:None,decision:Some(decision.clone())},config,work:Work::Decision(decision),messages,max_tokens:256}));
+        }
+        if !automatic_allowed{return Ok(None);}
         if let Some(chunk)=schedule::prepare_read_chunk(&tx,at)? {
             let grant_id:Option<String>=tx.query_row("SELECT grant_id FROM schedule_activities WHERE id=(SELECT activity_id FROM schedule_occurrences WHERE id=?1)",[&chunk.occurrence_id],|r|r.get(0))?;
             let g=match owner_grant(&tx,&chunk.owner_id,grant_id.as_deref()){
@@ -220,14 +236,14 @@ pub fn claim_next(state: &AppState) -> ApiResult<Option<Claimed>> {
                 tx.execute("UPDATE schedule_occurrences SET status='blocked',block_reason='model_budget_exhausted',fence=NULL WHERE id=?1",[&chunk.occurrence_id])?;tx.commit()?;return Ok(None);
             }
             let id=uuid::Uuid::new_v4().to_string();tx.execute("INSERT INTO schedule_model_leases VALUES(?1,'reading',?2,?3,?4)",params![id,chunk.occurrence_id,at,config.model.credential_ref])?;tx.commit()?;
-            return Ok(Some(Claimed{lease:Lease{state:state.clone(),id,reading:Some(chunk.clone()),planning_attempt:None},config,work:Work::Reading(chunk),messages,max_tokens:output}));
+            return Ok(Some(Claimed{lease:Lease{state:state.clone(),id,reading:Some(chunk.clone()),planning_attempt:None,decision:None},config,work:Work::Reading(chunk),messages,max_tokens:output}));
         }
         if let Some((plan,messages,g))=prepare_planning(&tx,at)? {
             let output=2000usize.min(g.max_output_tokens as usize);
             if !reserve(&tx,&plan.owner,Some(&g),&messages,output,at)?{finish_attempt(&tx,&plan,"blocked",Some("planning_model_budget_exhausted"),None,at)?;tx.commit()?;return Ok(None);}
             tx.execute("UPDATE schedule_planning_attempts SET status='running',reserved_tokens=?1,max_output_tokens=?2 WHERE id=?3",params![reserved_tokens(&messages,output)?,output,plan.attempt_id])?;
             let id=uuid::Uuid::new_v4().to_string();tx.execute("INSERT INTO schedule_model_leases VALUES(?1,'planning',?2,?3,?4)",params![id,plan.plan_id,at,config.model.credential_ref])?;tx.commit()?;
-            return Ok(Some(Claimed{lease:Lease{state:state.clone(),id,reading:None,planning_attempt:Some(plan.attempt_id.clone())},config,work:Work::Planning(plan),messages,max_tokens:output}));
+            return Ok(Some(Claimed{lease:Lease{state:state.clone(),id,reading:None,planning_attempt:Some(plan.attempt_id.clone()),decision:None},config,work:Work::Planning(plan),messages,max_tokens:output}));
         }
         tx.commit()?;Ok(None)
     })
@@ -573,10 +589,37 @@ pub async fn run_claimed(state: &AppState, claimed: Claimed, cancel: &Cancellati
     } = claimed;
     let provider = config.model.model.clone();
     let future = async {
+        if let Work::Decision(d) = &work {
+            let request = async {
+                let raw = crate::worker::model_request(state, &config, messages, max_tokens)
+                    .await
+                    .map_err(anyhow::Error::msg)?;
+                let choice = crate::daily_life::run_script(&raw).await?;
+                state
+                    .db(|db| {
+                        let tx = db.transaction()?;
+                        crate::daily_life::commit_decision(&tx, d, &choice, &raw, now())?;
+                        tx.commit()?;
+                        Ok(())
+                    })
+                    .map_err(|_| anyhow::anyhow!("schedule_decision_rejected"))?;
+                Ok::<_, anyhow::Error>(())
+            };
+            if !matches!(
+                tokio::time::timeout(std::time::Duration::from_secs(45), request).await,
+                Ok(Ok(()))
+            ) {
+                let _ = state.db(|db| {
+                    crate::daily_life::fail_decision(db, d, "decision_failed_or_timed_out", now())
+                });
+            }
+            return;
+        }
         let result = crate::worker::model_request(state, &config, messages, max_tokens).await;
         match result {
             Ok(text) => {
                 let commit = state.db(|db| match &work {
+                    Work::Decision(_) => unreachable!(),
                     Work::Reading(chunk) => {
                         let tx = db.transaction()?;
                         schedule::commit_read_note(&tx, chunk, &text, &provider, now())?;
@@ -617,6 +660,7 @@ pub async fn run_claimed(state: &AppState, claimed: Claimed, cancel: &Cancellati
             _=cancel.cancelled()=>break,
             _=tokio::time::sleep(std::time::Duration::from_millis(200))=>{
                 let active=state.db(|db|match &work{
+                    Work::Decision(d)=>Ok(now()<d.due_at && crate::rest_store::policy_in(db)?.0==d.policy_revision),
                     Work::Reading(chunk)=>{
                         let valid:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM schedule_occurrences o JOIN schedule_activities a ON a.id=o.activity_id JOIN schedule_resources r ON r.id=json_extract(o.definition_json,'$.resource_id') AND r.owner_id=o.owner_id WHERE o.id=?1 AND o.owner_id=?2 AND o.fence=?3 AND o.status='running' AND a.state='enabled' AND a.revision=?4 AND r.revoked_at IS NULL)",params![chunk.occurrence_id,chunk.owner_id,chunk.fence,chunk.activity_revision],|r|r.get(0))?;
                         if !valid{return Ok(false);}

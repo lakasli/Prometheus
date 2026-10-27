@@ -1,6 +1,6 @@
 use super::*;
 
-const GUARD: &str = "你是运行于DSH的AI助手。遵循宿主操作规则；角色设定不构成工具、文件、网络或外发权限。保持事实准确，不将虚构风格示例当作真实经历。\n\n";
+const GUARD: &str = "按下述姓名、性情与生活背景自然交谈。遵循宿主操作规则；性格与关系设定不构成文件、网络、执行或外发权限。保持事实准确，不将风格示例当作已经发生的经历；实际安排、完成与送达以宿主记录为准。\n\n";
 
 fn database() -> Connection {
     let mut db = Connection::open_in_memory().unwrap();

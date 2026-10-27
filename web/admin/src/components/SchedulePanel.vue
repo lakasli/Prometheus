@@ -145,6 +145,70 @@ const capabilities = ref<{
   clock?: { trusted: boolean };
   model_planning?: boolean;
 }>({});
+const personalPolicy = ref({ revision: 0, enabled: false, daily_limit: 4 });
+const personalDraft = reactive({ enabled: false, daily_limit: 4 });
+const routine = ref<{
+  revision: number;
+  policy: {
+    schedule_enabled: boolean;
+    sleep_local: string | null;
+    wake_local: string | null;
+    anticipation_enabled?: boolean;
+    reset_context_on_sleep?: boolean;
+  };
+} | null>(null);
+const routineDraft = reactive({
+  enabled: false,
+  sleep: "23:00",
+  wake: "07:00",
+  anticipation: true,
+  reset: true,
+});
+const decisions = ref<
+  {
+    id: string;
+    kind: string;
+    due_at: number;
+    status: string;
+    decision: string;
+    decision_status: string;
+    error_code: string | null;
+  }[]
+>([]);
+async function saveRoutine() {
+  await task(async () => {
+    if (!routine.value) return;
+    const saved = await api<NonNullable<typeof routine.value>>("/rest/policy", {
+      method: "PUT",
+      revision: routine.value.revision,
+      idempotencyKey: crypto.randomUUID(),
+      body: {
+        ...routine.value.policy,
+        schedule_enabled: routineDraft.enabled,
+        sleep_local: routineDraft.sleep,
+        wake_local: routineDraft.wake,
+        anticipation_enabled: routineDraft.anticipation,
+        reset_context_on_sleep: routineDraft.reset,
+      },
+    });
+    routine.value = saved;
+    notice.value = "每日作息已保存，对后续日程生效。";
+    await load();
+  });
+}
+async function savePersonal() {
+  await task(async () => {
+    personalPolicy.value = await api<typeof personalPolicy.value>(
+      "/schedule/personal-policy",
+      {
+        method: "PUT",
+        revision: personalPolicy.value.revision,
+        body: { ...personalDraft },
+      },
+    );
+    notice.value = "小安排授权已保存，对后续对话生效。";
+  });
+}
 const filters = reactive({ type: "", creator: "", state: "" });
 const editor = ref(false),
   selected = ref<Detail | null>(null),
@@ -284,7 +348,7 @@ async function load() {
   }
 }
 async function loadSettings() {
-  const [r, g, p, c, calendar] = await Promise.all([
+  const [r, g, p, c, calendar, personal, rest, history] = await Promise.all([
     api<{ items: Resource[] }>("/schedule/resources", {
       signal: controller.signal,
     }),
@@ -298,6 +362,15 @@ async function loadSettings() {
     api<{ items: CalendarRevision[] }>("/task-triggers/calendars", {
       signal: controller.signal,
     }),
+    api<typeof personalPolicy.value>("/schedule/personal-policy", {
+      signal: controller.signal,
+    }),
+    api<NonNullable<typeof routine.value>>("/rest/policy", {
+      signal: controller.signal,
+    }),
+    api<{ items: typeof decisions.value }>("/schedule/decisions", {
+      signal: controller.signal,
+    }),
   ]);
   if (!disposed) {
     resources.value = r.items;
@@ -305,6 +378,20 @@ async function loadSettings() {
     plans.value = p.items;
     capabilities.value = c;
     calendars.value = calendar.items;
+    personalPolicy.value = personal;
+    Object.assign(personalDraft, {
+      enabled: personal.enabled,
+      daily_limit: personal.daily_limit,
+    });
+    routine.value = rest;
+    decisions.value = history.items;
+    Object.assign(routineDraft, {
+      enabled: rest.policy.schedule_enabled,
+      sleep: rest.policy.sleep_local || "23:00",
+      wake: rest.policy.wake_local || "07:00",
+      anticipation: rest.policy.anticipation_enabled || false,
+      reset: rest.policy.reset_context_on_sleep || false,
+    });
   }
 }
 async function refresh() {
@@ -403,6 +490,11 @@ function definition(): Activity {
   };
 }
 async function inspect(item: CalendarItem) {
+  if (item.origin === "routine") {
+    notice.value =
+      "这是每日固定作息；在本页上方修改。提前一分钟的选择记录见“日程选择记录”。";
+    return;
+  }
   if (item.origin === "diary_system") {
     emit("openDiary");
     return;
@@ -657,6 +749,11 @@ function armRefresh() {
     ) {
       try {
         await load();
+        decisions.value = (
+          await api<{ items: typeof decisions.value }>("/schedule/decisions", {
+            signal: controller.signal,
+          })
+        ).items;
       } catch {
         /* keep last sample; explicit refresh reports errors */
       }
@@ -686,6 +783,105 @@ onUnmounted(() => {
         <p>安排日常活动与工作目标。计划、真实进度与投递状态分别记录。</p>
       </div>
       <button :disabled="busy" @click="task(refresh)">刷新</button>
+    </section>
+    <section class="panel" aria-label="每日作息与小安排">
+      <h3>每日作息与小安排</h3>
+      <p v-if="routine?.policy?.schedule_enabled">
+        每天 {{ routine.policy.wake_local || "未设定" }} 起床，{{
+          routine.policy.sleep_local || "未设定"
+        }}
+        睡觉。{{
+          routine.policy.anticipation_enabled
+            ? "提前一分钟选择如期、取消或推迟。"
+            : "按固定时刻执行。"
+        }}{{
+          routine.policy.reset_context_on_sleep
+            ? "睡眠时重置聊天上下文，记忆从日记读取。"
+            : ""
+        }}
+      </p>
+      <p v-else>尚未启用每日作息；可在运行总览的作息策略中设置。</p>
+      <details class="daily-settings">
+        <summary>作息与小安排设置</summary>
+        <form
+          class="life-form"
+          aria-label="每日固定作息"
+          @submit.prevent="saveRoutine"
+        >
+          <label class="life-check"
+            ><input
+              v-model="routineDraft.enabled"
+              type="checkbox"
+            />启用每天起床和睡觉</label
+          >
+          <label
+            >每天起床<input
+              v-model="routineDraft.wake"
+              aria-label="每天起床"
+              type="time"
+              required
+          /></label>
+          <label
+            >每天睡觉<input
+              v-model="routineDraft.sleep"
+              aria-label="每天睡觉"
+              type="time"
+              required
+          /></label>
+          <label class="life-check"
+            ><input
+              v-model="routineDraft.anticipation"
+              type="checkbox"
+            />提前一分钟选择日程</label
+          >
+          <label class="life-check"
+            ><input
+              v-model="routineDraft.reset"
+              type="checkbox"
+            />睡眠时重置上下文，记忆从日记读取</label
+          >
+          <button :disabled="busy">保存每日作息</button>
+        </form>
+        <form class="life-form" @submit.prevent="savePersonal">
+          <label class="life-check"
+            ><input
+              v-model="personalDraft.enabled"
+              type="checkbox"
+            />允许嘉卉自动安排抄诗</label
+          >
+          <label
+            >每日最多次数<input
+              v-model.number="personalDraft.daily_limit"
+              type="number"
+              min="1"
+              max="8"
+          /></label>
+          <p class="muted">
+            从四首古诗中选择，在07:00–23:00的空闲时段安排10分钟电子抄录，执行后保存完整诗文。授权一年有效，可随时关闭。
+          </p>
+          <button :disabled="busy">保存小安排授权</button>
+        </form>
+      </details>
+      <details>
+        <summary>日程选择记录</summary>
+        <p v-if="!decisions.length" class="muted">尚无提前通知记录。</p>
+        <article v-for="d in decisions" :key="d.id" class="life-evidence">
+          <strong
+            >{{ label(d.kind) }} · {{ displayTime(d.due_at, safeZone) }}</strong
+          >
+          <p>
+            {{
+              d.decision === "postpone"
+                ? "推迟"
+                : d.decision === "cancel"
+                  ? "取消本次"
+                  : "如期执行"
+            }}
+            · {{ label(d.status) }} · 通知{{ label(d.decision_status) }}
+          </p>
+          <p v-if="d.error_code">{{ d.error_code }}</p>
+        </article>
+      </details>
     </section>
     <p
       v-if="capabilities.clock && !capabilities.clock.trusted"

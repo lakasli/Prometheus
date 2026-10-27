@@ -10,6 +10,8 @@ export function restPolicy(): RestPolicyView {
     independent_of_runtime_config_and_personality: true,
     policy: {
       natural_enabled: false,
+      anticipation_enabled: false,
+      reset_context_on_sleep: false,
       schedule_enabled: false,
       time_zone: "Asia/Shanghai",
       sleep_local: null,

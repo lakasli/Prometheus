@@ -114,7 +114,7 @@ pub fn context_in(
         params![run_id, conversation_id, owner_id],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
-    let floor = crate::memory_context::history_floor(db, conversation_id)?;
+    let floor = crate::daily_life::history_floor(db, conversation_id)?;
     let previous_user_at: Option<i64> = db
         .query_row(
             "SELECT m.created_at FROM runs r

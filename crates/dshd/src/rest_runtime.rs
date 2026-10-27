@@ -402,7 +402,10 @@ fn controls_in(db: &Connection, clock: &rest::ClockSample) -> anyhow::Result<()>
 
 fn schedule_in(db: &Connection, clock: &rest::ClockSample) -> anyhow::Result<()> {
     let (revision, policy) = rest::policy_in(db)?;
-    if !policy.schedule_enabled || rest::state_in(db)?.phase != rest::RestPhase::Awake {
+    if !policy.schedule_enabled
+        || policy.anticipation_enabled
+        || rest::state_in(db)?.phase != rest::RestPhase::Awake
+    {
         return Ok(());
     }
     let nominal = now().div_euclid(60) * 60;
@@ -456,6 +459,7 @@ pub fn tick(state: &AppState) -> crate::error::ApiResult<()> {
     state.db(|db| {
         let tx = db.transaction()?;
         let clock = crate::rest_clock::sample_in(&tx)?;
+        crate::daily_life::routine_tick(&tx, &clock, now())?;
         rest::advance_in(&tx, &clock)?;
         if rest::state_in(&tx)?.phase == rest::RestPhase::Waking {
             rest::advance_in(&tx, &clock)?;

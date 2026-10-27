@@ -177,7 +177,16 @@ fn validate(a: &Activity) -> anyhow::Result<()> {
     if !text_ok(&a.title, 240) || !text_ok(&a.purpose, 4000) {
         return Err(fail("invalid_activity", "标题和目的不能为空或过长"));
     }
-    if !["reading", "video", "consolidation", "chat", "action"].contains(&a.kind.as_str()) {
+    if ![
+        "reading",
+        "writing",
+        "video",
+        "consolidation",
+        "chat",
+        "action",
+    ]
+    .contains(&a.kind.as_str())
+    {
         return Err(fail("invalid_activity_type", "活动类型无效"));
     }
     if a.end_at
@@ -294,9 +303,17 @@ fn parse_grant(db: &Connection, owner: &str, v: &Value, now: i64) -> anyhow::Res
     if !text_ok(&g.title, 240)
         || g.allowed_types.is_empty()
         || g.allowed_types.len() > 5
-        || g.allowed_types
-            .iter()
-            .any(|s| !["reading", "video", "consolidation", "chat", "action"].contains(&s.as_str()))
+        || g.allowed_types.iter().any(|s| {
+            ![
+                "reading",
+                "writing",
+                "video",
+                "consolidation",
+                "chat",
+                "action",
+            ]
+            .contains(&s.as_str())
+        })
         || g.resource_ids.len() > 100
         || g.valid_until <= now
         || g.valid_until <= g.valid_from
@@ -637,6 +654,17 @@ pub fn planning_slots(
     grant_revision: i64,
     now: i64,
 ) -> anyhow::Result<Vec<PlanningSlot>> {
+    planning_slots_for_kind(db, owner, p, g, grant_revision, now, "reading")
+}
+pub fn planning_slots_for_kind(
+    db: &Connection,
+    owner: &str,
+    p: &Plan,
+    g: &Grant,
+    grant_revision: i64,
+    now: i64,
+    kind: &str,
+) -> anyhow::Result<Vec<PlanningSlot>> {
     let zone = tz(&g.time_zone)?;
     let horizon = (now + g.horizon_days.min(3) * 86400).min(g.valid_until);
     let rows=db.prepare("SELECT id,definition_json FROM schedule_activities WHERE state='enabled' ORDER BY id LIMIT 2001")?.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?.collect::<Result<Vec<_>,_>>()?;
@@ -666,9 +694,10 @@ pub fn planning_slots(
         }
         merged.push((start, end));
     }
-    let Some(resource) = p.resource_ids.iter().find(|id| g.resource_ids.contains(id)) else {
+    let resource = p.resource_ids.iter().find(|id| g.resource_ids.contains(id));
+    if kind == "reading" && resource.is_none() {
         return Ok(Vec::new());
-    };
+    }
     let mut day = instant(now)?.with_timezone(&zone).date_naive();
     let mut slots = Vec::new();
     let duration = p.duration_minutes * 60;
@@ -701,12 +730,12 @@ pub fn planning_slots(
             }
             let a = Activity {
                 title: "授权阅读候选时段".into(),
-                kind: "reading".into(),
+                kind: kind.into(),
                 purpose: p.goal.clone(),
                 start_at: cursor,
                 end_at: cursor + duration,
                 time_zone: g.time_zone.clone(),
-                resource_id: Some(resource.clone()),
+                resource_id: resource.cloned(),
                 target_ref: None,
                 repeat: None,
                 movable: true,
@@ -1234,6 +1263,29 @@ fn capability_block(a: &Activity) -> Option<&'static str> {
         _ => None,
     }
 }
+/// Only movable, granted activities can be changed by a model. System jobs,
+/// manually locked series and external contact are not mutable by this notice.
+pub fn notice_candidates(
+    db: &Connection,
+    at: i64,
+) -> anyhow::Result<Vec<(String, i64, i64, Activity)>> {
+    let rows=db.prepare("SELECT id,revision,definition_json FROM schedule_activities WHERE state='enabled' AND creator='autonomous' AND kind IN('reading','writing') ORDER BY created_at DESC LIMIT 200")?.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?)))?.collect::<Result<Vec<_>,_>>()?;
+    let mut items = vec![];
+    for (id, revision, raw) in rows {
+        let a: Activity = serde_json::from_str(&raw)?;
+        if !a.movable {
+            continue;
+        }
+        for (nominal, x, state) in
+            expanded_with_exceptions(db, &id, &a, at + 1, at + 61, "enabled")?
+        {
+            if state == "enabled" && x.start_at > at && x.start_at <= at + 60 {
+                items.push((id.clone(), revision, nominal, x));
+            }
+        }
+    }
+    Ok(items)
+}
 
 pub fn calendar(
     db: &Connection,
@@ -1288,6 +1340,14 @@ pub fn calendar(
         }
         if items.len() > 10000 {
             return Err(fail("calendar_expansion_limit", "活动过多，请缩短查询范围"));
+        }
+    }
+    for item in crate::daily_life::calendar(db, start, end)? {
+        if kind.is_none_or(|k| item["type"] == k)
+            && creator_filter.is_none_or(|c| item["creator"] == c)
+            && state_filter.is_none_or(|s| item["state"] == s)
+        {
+            items.push(item);
         }
     }
     let mut legacy_events = Vec::new();
@@ -1590,7 +1650,7 @@ pub fn tick_in(db: &Connection, now: i64, interactive_busy: bool) -> anyhow::Res
                 continue;
             }
             let oid = format!("{}:{}", id, nominal);
-            let block = capability_block(&x);
+            let block = if x.kind=="writing" && !db.query_row("SELECT EXISTS(SELECT 1 FROM daily_life_activities WHERE activity_id=?1 AND activity_revision=?2)",params![id,revision],|r|r.get::<_,bool>(0)).unwrap_or(false) {Some("registered_text_activity_required")} else {capability_block(&x)};
             let status = if x.end_at <= now {
                 "skipped"
             } else if block.is_some() {
@@ -1628,8 +1688,9 @@ pub fn tick_in(db: &Connection, now: i64, interactive_busy: bool) -> anyhow::Res
     if interactive_busy {
         return Ok(json!({"processed":0,"planned":planned,"waiting":"interactive_priority"}));
     }
+    crate::daily_life::execute_writing(db, now)?;
     // Fair single-slot admission: one chunk per tick, including all owners.
-    let ready:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM schedule_occurrences o JOIN schedule_activities a ON a.id=o.activity_id WHERE a.state='enabled' AND o.status IN('pending','partial') AND o.start_at<=?1 AND o.end_at>?1)",[now],|r|r.get(0))?;
+    let ready:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM schedule_occurrences o JOIN schedule_activities a ON a.id=o.activity_id WHERE a.state='enabled' AND a.kind='reading' AND o.status IN('pending','partial') AND o.start_at<=?1 AND o.end_at>?1)",[now],|r|r.get(0))?;
     Ok(json!({"processed":0,"planned":planned,"reading_ready":ready}))
 }
 
@@ -1662,7 +1723,7 @@ pub fn prepare_read_chunk(db: &Connection, now: i64) -> anyhow::Result<Option<Re
     if running {
         return Ok(None);
     }
-    let row=db.query_row("SELECT o.id,o.owner_id,o.definition_json,o.checkpoint,o.resource_hash,a.revision,o.reading_generation FROM schedule_occurrences o JOIN schedule_activities a ON a.id=o.activity_id WHERE a.state='enabled' AND o.status IN('pending','partial') AND o.start_at<=?1 AND o.end_at>?1 AND o.attempts<3 ORDER BY o.updated_at,o.start_at,o.id LIMIT 1",[now],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,usize>(3)?,r.get::<_,Option<String>>(4)?,r.get::<_,i64>(5)?,r.get::<_,i64>(6)?))).optional()?;
+    let row=db.query_row("SELECT o.id,o.owner_id,o.definition_json,o.checkpoint,o.resource_hash,a.revision,o.reading_generation FROM schedule_occurrences o JOIN schedule_activities a ON a.id=o.activity_id WHERE a.state='enabled' AND a.kind='reading' AND o.status IN('pending','partial') AND o.start_at<=?1 AND o.end_at>?1 AND o.attempts<3 ORDER BY o.updated_at,o.start_at,o.id LIMIT 1",[now],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,usize>(3)?,r.get::<_,Option<String>>(4)?,r.get::<_,i64>(5)?,r.get::<_,i64>(6)?))).optional()?;
     let Some((oid, owner, d, _checkpoint, prior_hash, activity_revision, previous_generation)) =
         row
     else {

@@ -153,6 +153,11 @@ fn versions_in(db: &Connection, owner: &str, conversation: &str) -> anyhow::Resu
     } else {
         None
     };
+    let floor = Some(
+        floor
+            .unwrap_or(0)
+            .max(crate::daily_life::context_floor(db, conversation)?),
+    );
     let identity = if table_exists(db, "relationship_identities")? {
         db.query_row("SELECT i.id,i.person_id,p.revision,i.confirmed_at FROM relationship_identities i JOIN relationship_people p ON p.id=i.person_id WHERE i.conversation_id=?1 AND i.source_owner_id=?2 AND i.deleted_at IS NULL AND p.deleted_at IS NULL AND p.merged_into IS NULL AND (p.visibility='shared' OR p.source_owner_id=?2)",params![conversation,owner],|r|Ok(json!({"id":r.get::<_,String>(0)?,"person_id":r.get::<_,String>(1)?,"person_revision":r.get::<_,i64>(2)?,"confirmed_at":r.get::<_,i64>(3)?}))).optional()?
     } else {

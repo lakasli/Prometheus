@@ -79,13 +79,17 @@ def check_rest(db, tables, reader):
         policy = json.loads(policies[0][2], object_pairs_hook=_unique_rest_object)
     except (ValueError, TypeError) as error:
         raise RuntimeError("Rest policy is invalid; refusing semantic downgrade") from error
-    if (not isinstance(policy, dict) or set(policy) != set(REST_DEFAULT_POLICY)
+    routine_fields = {"anticipation_enabled", "reset_context_on_sleep"}
+    if (not isinstance(policy, dict) or set(policy) - routine_fields != set(REST_DEFAULT_POLICY)
+            or any(type(policy[key]) is not bool for key in routine_fields if key in policy)
             or any(type(policy[key]) is not type(value) for key, value in REST_DEFAULT_POLICY.items()
                    if value is not None)
             or any(policy[key] is not None and type(policy[key]) is not expected_type
                    for key, expected_type in (("sleep_local", str), ("wake_local", str),
                                               ("default_sleep_seconds", int)))):
         raise RuntimeError("Rest policy schema is incomplete or invalid")
+    if set(policy) & routine_fields and reader < 2:
+        raise RuntimeError("Target release lacks Rest routine policy reader")
     # Clock samples and logical timestamps alone do not turn a default-off
     # instance into used Rest. Every semantic auxiliary row does, even erased,
     # revoked, unknown, completed, or an unclaimed raw presentation cache.
@@ -105,6 +109,17 @@ def check(data_dir, release_source):
         return
     with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as db:
         tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "daily_life_events" in tables:
+            used = db.execute("SELECT EXISTS(SELECT 1 FROM daily_life_events)").fetchone()[0]
+            used = used or ("sleep_context_boundaries" in tables and db.execute("SELECT EXISTS(SELECT 1 FROM sleep_context_boundaries)").fetchone()[0])
+            policy_row = db.execute("SELECT value FROM settings WHERE key='schedule.personal.v1'").fetchone()
+            used = used or bool(policy_row)
+            if "rest_policies" in tables:
+                row = db.execute("SELECT policy_json FROM rest_policies LIMIT 1").fetchone()
+                policy = json.loads(row[0]) if row else {}
+                used = used or policy.get("anticipation_enabled") or policy.get("reset_context_on_sleep")
+            if used and int(capabilities.get("daily_life", 0)) < 1:
+                raise RuntimeError("Target release lacks daily routine decisions and sleep context boundaries")
         check_rest(db, tables, int(capabilities.get("rest", 0)))
         version = db.execute("SELECT coalesce(max(version),0) FROM dsh_schema_migrations").fetchone()[0] if "dsh_schema_migrations" in tables else 0
         # Version 1 is additive for legacy work. A future schema requires its reader.

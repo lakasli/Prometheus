@@ -73,6 +73,10 @@ impl RestPhase {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct RestPolicy {
+    #[serde(default)]
+    pub anticipation_enabled: bool,
+    #[serde(default)]
+    pub reset_context_on_sleep: bool,
     pub natural_enabled: bool,
     pub schedule_enabled: bool,
     pub time_zone: String,
@@ -91,6 +95,8 @@ pub struct RestPolicy {
 impl Default for RestPolicy {
     fn default() -> Self {
         Self {
+            anticipation_enabled: false,
+            reset_context_on_sleep: false,
             natural_enabled: false,
             schedule_enabled: false,
             time_zone: "Asia/Shanghai".into(),
@@ -137,6 +143,13 @@ impl RestPolicy {
         ensure!(
             !self.schedule_enabled || self.sleep_local.is_some(),
             "rest_schedule_time_required"
+        );
+        ensure!(
+            !self.anticipation_enabled
+                || (self.schedule_enabled
+                    && self.wake_local.is_some()
+                    && self.sleep_local != self.wake_local),
+            "rest_routine_times_required"
         );
         if self.natural_enabled {
             ensure!(self.drain_seconds > 0, "rest_control_ack_window_required");
@@ -718,6 +731,63 @@ pub fn requester_for_schedule_in(
         actor_ref: hash(format!("schedule:{revision}:{nominal_at}")),
     })
 }
+/// Only a persisted, current routine occurrence may authorize a delayed sleep.
+pub(crate) fn requester_for_decided_schedule_in(
+    db: &Connection,
+    id: &str,
+    clock: &ClockSample,
+) -> anyhow::Result<VerifiedRequester> {
+    tx(db)?;
+    let (revision, policy) = policy_in(db)?;
+    let (rev,due):(i64,i64)=db.query_row("SELECT policy_revision,due_at FROM daily_life_events WHERE id=?1 AND kind='sleep' AND status='planned' AND decision!='cancel'",[id],|r|Ok((r.get(0)?,r.get(1)?)))?;
+    ensure!(
+        revision == rev
+            && policy.schedule_enabled
+            && policy.anticipation_enabled
+            && clock.trusted_for_new_sleep
+            && clock.wall_at.abs_diff(due) <= 60,
+        "rest_routine_stale"
+    );
+    Ok(VerifiedRequester {
+        assistant: assistant(db)?,
+        actor: Actor::Schedule {
+            policy_revision: rev,
+            nominal_at: due,
+        },
+        actor_ref: hash(format!("routine:{id}")),
+    })
+}
+/// Cancelled wakes retain the cycle's absolute maximum, never indefinite sleep.
+pub(crate) fn change_routine_wake_in(
+    db: &Connection,
+    requested: Option<i64>,
+    at: i64,
+) -> anyhow::Result<()> {
+    tx(db)?;
+    let state = state_in(db)?;
+    if state.phase == RestPhase::Awake {
+        return Ok(());
+    }
+    let cycle = state.cycle_id.context("rest_cycle_missing")?;
+    let (created, raw): (i64, String) = db.query_row(
+        "SELECT created_at,policy_json FROM rest_cycles WHERE id=?1",
+        [&cycle],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    let policy: RestPolicy = serde_json::from_str(&raw)?;
+    let maximum = created + policy.max_sleep_seconds;
+    let wake = requested.unwrap_or(maximum);
+    ensure!(wake > at && wake <= maximum, "rest_wake_outside_maximum");
+    db.execute(
+        "UPDATE assistant_rest_states SET wake_at=?1,revision=revision+1 WHERE assistant_id=?2",
+        params![wake, state.assistant_id],
+    )?;
+    db.execute(
+        "UPDATE rest_cycles SET wake_at=?1 WHERE id=?2",
+        params![wake, cycle],
+    )?;
+    Ok(())
+}
 fn cutoff(db: &Connection, table: &str) -> anyhow::Result<i64> {
     if exists(db, table)? {
         Ok(db.query_row(
@@ -848,6 +918,11 @@ pub fn sleep_in(
         "rest_source_duration_requires_explicit_host_parser"
     );
     let (policy_revision, policy) = policy_in(db)?;
+    if policy.reset_context_on_sleep && exists(db, "diary_capture_dirty")? {
+        // Persist the bounded, authorized delivery capture before freezing the
+        // cycle's diary cutoff. Originals remain available for later batches.
+        crate::diary::tick_in(db, at).map_err(|_| anyhow::anyhow!("rest_diary_capture_failed"))?;
+    }
     let wake = next_wake(&policy, request.wake_at, at)?;
     let drain = at.saturating_add(policy.drain_seconds).min(wake);
     let consolidate = drain.saturating_add(policy.consolidation_seconds).min(wake);
@@ -905,6 +980,7 @@ pub fn sleep_in(
         )?;
     }
     db.execute("UPDATE assistant_rest_states SET generation=?1,revision=revision+1,phase='sleep_pending',cycle_id=?2,wake_at=?3,drain_at=?4,consolidate_at=?5,reason=NULL WHERE assistant_id=?6",params![generation,cycle,wake,drain,consolidate,state.assistant_id])?;
+    crate::daily_life::freeze_context_in(db, &cycle, at)?;
     let permit = ack_permit(
         db,
         requester,

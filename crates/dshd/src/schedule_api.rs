@@ -19,6 +19,11 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/admin/v1/schedule/calendar", get(calendar))
         .route("/api/admin/v1/schedule/capabilities", get(capabilities))
+        .route(
+            "/api/admin/v1/schedule/personal-policy",
+            get(personal_policy).put(save_personal_policy),
+        )
+        .route("/api/admin/v1/schedule/decisions", get(decisions))
         .route("/api/admin/v1/schedule/activities", get(list).post(create))
         .route("/api/admin/v1/schedule/proposals", post(proposal))
         .route(
@@ -172,6 +177,63 @@ async fn capabilities(State(s): State<AppState>, _: Admin) -> ApiResult<Json<Val
     Ok(Json(
         json!({"text_reading":true,"video":false,"proactive_chat":false,"model_planning":true,"max_range_days":93,"max_page_items":500,"reading_chunk_characters":4096,"legacy_trigger_compatibility":true,"clock":crate::trigger_scheduler::clock_status(&s)}),
     ))
+}
+async fn personal_policy(State(s): State<AppState>, _: Admin) -> ApiResult<Json<Value>> {
+    Ok(Json(s.db(|db| crate::daily_life::personal_policy(db))?))
+}
+async fn save_personal_policy(
+    State(s): State<AppState>,
+    a: Admin,
+    h: HeaderMap,
+    b: Bytes,
+) -> ApiResult<Json<Value>> {
+    if a.role != "admin" {
+        return Err(ApiError::forbidden("需要实例管理权限"));
+    }
+    writable_clock(&s)?;
+    let v = body(&b, &["enabled", "daily_limit"])?;
+    let rev = h
+        .get("if-match")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.trim_matches('"').parse::<i64>().ok())
+        .filter(|v| *v >= 0)
+        .ok_or_else(|| ApiError::bad("expected_revision_required", "需要当前If-Match"))?;
+    let enabled = v["enabled"]
+        .as_bool()
+        .ok_or_else(|| ApiError::bad("invalid_personal_policy", "需要enabled"))?;
+    let limit = v["daily_limit"]
+        .as_i64()
+        .ok_or_else(|| ApiError::bad("invalid_personal_policy", "需要daily_limit"))?;
+    if !(1..=8).contains(&limit) {
+        return Err(ApiError::bad("invalid_personal_policy", "每日次数须为1到8"));
+    }
+    let result = s.db(|db| {
+        let tx = db.transaction()?;
+        if crate::daily_life::personal_policy(&tx)?["revision"] != rev {
+            return Ok(None);
+        }
+        let result =
+            crate::daily_life::save_personal_policy(&tx, &a.id, rev, enabled, limit, now())?;
+        tx.commit()?;
+        Ok(Some(result))
+    })?;
+    result.map(Json).ok_or_else(|| {
+        ApiError::new(
+            axum::http::StatusCode::CONFLICT,
+            "daily_life_policy_conflict",
+            "小安排授权已更新，请重新载入",
+        )
+    })
+}
+async fn decisions(State(s): State<AppState>, a: Admin) -> ApiResult<Json<Value>> {
+    Ok(Json(s.db(|db|{
+        let mut items=db.prepare("SELECT id,kind,nominal_at,due_at,status,decision,decision_status,postponements,error_code,notified_at,decided_at,finished_at FROM daily_life_events WHERE kind IN('sleep','wake') OR activity_id IN(SELECT id FROM schedule_activities WHERE owner_id=?1) ORDER BY nominal_at DESC LIMIT 50")?.query_map([&a.id],|r|Ok(json!({"id":r.get::<_,String>(0)?,"kind":r.get::<_,String>(1)?,"nominal_at":r.get::<_,i64>(2)?,"due_at":r.get::<_,i64>(3)?,"status":r.get::<_,String>(4)?,"decision":r.get::<_,String>(5)?,"decision_status":r.get::<_,String>(6)?,"postponements":r.get::<_,i64>(7)?,"error_code":r.get::<_,Option<String>>(8)?,"notified_at":r.get::<_,Option<i64>>(9)?,"decided_at":r.get::<_,Option<i64>>(10)?,"finished_at":r.get::<_,Option<i64>>(11)?})))?.collect::<Result<Vec<_>,_>>()?;
+        for item in &mut items {
+            let history=db.prepare("SELECT due_at,notified_at,finished_at,status,decision,delay_minutes,error_code FROM daily_life_decision_attempts WHERE event_id=?1 ORDER BY notified_at LIMIT 4")?.query_map([item["id"].as_str().unwrap_or("")],|r|Ok(json!({"due_at":r.get::<_,i64>(0)?,"notified_at":r.get::<_,i64>(1)?,"finished_at":r.get::<_,Option<i64>>(2)?,"status":r.get::<_,String>(3)?,"decision":r.get::<_,Option<String>>(4)?,"delay_minutes":r.get::<_,Option<i64>>(5)?,"error_code":r.get::<_,Option<String>>(6)?})))?.collect::<Result<Vec<_>,_>>()?;
+            item["history"]=json!(history);
+        }
+        Ok(json!({"items":items}))
+    })?))
 }
 async fn list(State(s): State<AppState>, a: Admin) -> ApiResult<Json<Value>> {
     Ok(Json(s.db(|db| schedule::list(db, &a.id))?))

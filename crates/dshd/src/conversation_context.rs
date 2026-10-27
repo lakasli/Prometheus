@@ -170,6 +170,9 @@ pub fn recently_presented_in(
 /// Validate only snapshots that actually existed for this run. Legacy prompts
 /// cannot receive invented state or budget proof during a retry.
 pub fn validate_derived_in(db: &Connection, run: &str) -> anyhow::Result<bool> {
+    if !crate::daily_life::context_valid(db, run)? {
+        return Ok(false);
+    }
     if !crate::conversation_invalidation::initialized_schema(db)? {
         // A release predating the entire feature has no new evidence to check.
         // This read must never retrofit a snapshot onto historical results.

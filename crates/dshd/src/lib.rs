@@ -18,6 +18,7 @@ pub mod conversation_images_api;
 pub mod conversation_invalidation;
 pub mod conversation_state;
 pub mod conversation_summary;
+pub mod daily_life;
 pub mod delivery_context;
 pub mod diary;
 pub mod diary_api;

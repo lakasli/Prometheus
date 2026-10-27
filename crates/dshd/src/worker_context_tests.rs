@@ -1,6 +1,8 @@
 //! Integration checks at the actual worker boundary, using only disposable
 //! data and an in-process loopback provider. No channel sender is started.
 use super::*;
+#[path = "daily_life_tests.rs"]
+mod daily_life_tests;
 use crate::{context_budget, conversation_commitments as commitments, conversation_state};
 use axum::{extract::State, routing::post, Json, Router};
 use std::sync::{
