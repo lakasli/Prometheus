@@ -111,6 +111,7 @@ def main():
 
                 def proof(payload):
                     if (payload.get('model') != model['model']
+                            or set(payload) != {'model', 'messages', 'stream', 'max_tokens'}
                             or len(payload.get('messages', [])) != 2
                             or not payload['messages'][0]['content'].startswith('DSH_REST_EVIDENCE_SELECTOR_V1')):
                         raise AssertionError('only_the_authorized_rest_request_may_reach_provider')
@@ -118,15 +119,18 @@ def main():
                     if body['sources'] != [{'source_id': note['id'], 'text': note_text}]:
                         raise AssertionError('only_the_single_synthetic_source_may_leave_host')
                     found = batch.rows(h,
-                        'SELECT j.id,j.cycle_id,t.input_digest FROM consolidation_jobs j '
+                        'SELECT j.id,j.cycle_id,t.input_digest,a.reserved_tokens FROM consolidation_jobs j '
                         'JOIN rest_job_attempts a ON a.job_id=j.id AND a.fence=j.fence '
                         'JOIN rest_consolidation_targets t ON t.job_id=j.id '
                         "WHERE j.status='running' AND a.finished_at IS NULL")
                     digest = live.sha(live.canonical(payload['messages']))
-                    if len(found) != 1 or found[0]['input_digest'] != digest:
+                    if (len(found) != 1 or found[0]['input_digest'] != digest
+                            or found[0]['reserved_tokens'] < len(live.canonical(payload)) + 1600):
                         raise AssertionError('actual_request_requires_one_frozen_leased_rest_job')
                     return dict(job_id=found[0]['id'], cycle_id=found[0]['cycle_id'],
-                                input_digest=digest, synthetic_source_count=1)
+                                input_digest=digest, synthetic_source_count=1,
+                                canonical_full_request_sha256=live.sha(live.canonical(payload)),
+                                reserved_tokens=found[0]['reserved_tokens'])
 
                 forward.proof_lookup = proof
                 caps = h.request('GET', API + '/task-triggers/capabilities')[0]
@@ -161,6 +165,10 @@ def main():
                 check('exactly one bounded real HTTPS request has a frozen leased input proof',
                       forward.reserved == forward.forwarded == len(forward.records) == 1
                       and not forward.failures and forward.records[0]['http_status'] == 200)
+                lease_deadline = time.monotonic() + 5
+                while (batch.rows(h, 'SELECT 1 FROM rest_job_attempts WHERE finished_at IS NULL')
+                       and time.monotonic() < lease_deadline):
+                    time.sleep(.05)
                 check('successful request releases its physical rest lease',
                       not batch.rows(h, 'SELECT 1 FROM rest_job_attempts WHERE finished_at IS NULL'))
                 state = h.request('GET', API + '/rest')[0]['state']
