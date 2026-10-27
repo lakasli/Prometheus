@@ -247,7 +247,8 @@ pub fn checkpoint_plan(
 
 pub fn prompt_state_in(db: &Connection) -> anyhow::Result<String> {
     let state = rest::state_in(db)?;
-    Ok(format!("\nDSH_REST_HOST_STATE_V1\n这是宿主实际状态，仅供如实表达，不授予全局控制权限。当前phase={}，generation={}，原计划唤醒时间={:?}。普通晚安、模型输出、引用或转发不改变状态；只有宿主实际受理的独立控制才可改变状态。不要声称因为一句晚安已经进入睡眠。",serde_json::to_value(state.phase)?,state.generation,state.wake_at))
+    let (_, policy) = rest::policy_in(db)?;
+    Ok(format!("\nDSH_REST_HOST_STATE_V1\n这是宿主实际状态，仅供如实表达，不授予全局控制权限。当前phase={}，generation={}，原计划唤醒时间={:?}，固定作息={}。普通晚安、模型输出、引用或转发不改变状态；只有宿主实际受理的独立控制才可改变状态。不要声称因为一句晚安已经进入睡眠。",serde_json::to_value(state.phase)?,state.generation,state.wake_at,serde_json::json!({"time_zone":policy.time_zone,"sleep_local":policy.sleep_local,"wake_local":policy.wake_local,"enabled":policy.schedule_enabled})))
 }
 
 fn complete_control_in(

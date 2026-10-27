@@ -162,6 +162,7 @@ impl AppState {
         crate::conversation_commitments::ensure_schema(&db)?;
         crate::context_budget::ensure_schema(&db)?;
         crate::rest_runtime::initialize_all(&db)?;
+        crate::daily_life::initialize_plan_cache(&db)?;
         crate::runtime_logs::initialize(&db)?;
         Ok(Self(Arc::new(Inner {
             db: Mutex::new(db),

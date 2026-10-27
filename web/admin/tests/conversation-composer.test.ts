@@ -59,11 +59,11 @@ function caps(available = true) {
     provider: "deepseek",
     model: "deepseek-flash",
     basis: "vision_description",
-    max_image_bytes: 1048576,
-    max_width: 2048,
-    max_height: 2048,
-    max_pixels: 2097152,
-    formats: ["png"],
+    max_image_bytes: 8*1048576,
+    max_width: 12000,
+    max_height: 12000,
+    max_pixels: 24000000,
+    formats: ["png","jpeg","webp","gif","bmp"],
     max_images: 1,
   };
 }
@@ -252,13 +252,13 @@ describe("normal conversation PNG composer", () => {
     const fetch = setup();
     await flushPromises();
     for (const [chosen, text] of [
-      [png(20, 12, 33, "image/jpeg"), "只能附一张 PNG"],
-      [png(20, 12, 1048577), "不能超过 1 MiB"],
-      [png(2049, 12), "宽高各不超过"],
-      [png(2048, 2048), "总像素"],
+      [new File(["<svg/>"],"image.svg",{type:"image/svg+xml"}),"请选择一张"],
+      [png(20, 12, 8*1048576+1), "不能超过 8 MiB"],
+      [png(12001, 12), "尺寸太大"],
+      [png(6000, 6000), "尺寸太大"],
       [
         new File([new Uint8Array(33)], "not-png.png", { type: "image/png" }),
-        "有效 PNG",
+        "图片内容没有识别出来",
       ],
     ] as const) {
       await choose(chosen);
@@ -267,11 +267,11 @@ describe("normal conversation PNG composer", () => {
     }
     decodeFails = true;
     await choose();
-    expect(wrapper!.get('[role="alert"]').text()).toContain("无法解码");
+    expect(wrapper!.get('[role="alert"]').text()).toContain("没有完整打开");
     decodeFails = false;
     decodeWidth = 21;
     await choose();
-    expect(wrapper!.text()).toContain("解码尺寸");
+    expect(wrapper!.text()).toContain("图片尺寸与文件内容不一致");
     await write("界".repeat(5334));
     expect(button("发送").attributes("disabled")).toBeDefined();
     expect(writes(fetch)).toEqual([]);

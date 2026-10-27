@@ -22,7 +22,7 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/api/admin/v1/conversations/{id}/image-messages",
-            post(send).layer(DefaultBodyLimit::max(1_500_000)),
+            post(send).layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
         )
 }
 async fn capabilities(

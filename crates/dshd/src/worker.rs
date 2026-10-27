@@ -475,6 +475,28 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
         {
             let _ = state.db(|db| {
                 let tx = db.transaction()?;
+                let friendly_image_failure=matches!(code,"vision_provider_unavailable"|"vision_http_error"|"vision_invalid_output"|"vision_network_failed"|"vision_timeout"|"vision_response_failed"|"vision_response_too_large")
+                    && !cancel.is_cancelled()
+                    && crate::rest_runtime::automatic_allowed_in(&tx)?
+                    && crate::turn_control::publication_allowed_in(&tx,&item.id)?
+                    && item.reply.as_ref().is_none_or(|r|r.deadline>now())
+                    && tx.query_row("SELECT EXISTS(SELECT 1 FROM runs WHERE id=?1 AND status='running')",[&item.id],|r|r.get::<_,bool>(0))?;
+                if friendly_image_failure {
+                    let text="这张图我这边没打开，能再发一次给我吗？";
+                    let plan=crate::chat_reply::parse(text,&item.config.reply).map_err(anyhow::Error::msg)?;
+                    tx.execute("INSERT INTO messages(id,conversation_id,run_id,role,content,created_at) VALUES(?1,?2,?3,'assistant',?4,?5)",params![uuid::Uuid::new_v4().to_string(),item.conversation,item.id,text,now()])?;
+                    tx.execute("UPDATE runs SET status='completed',run_kind='media_notice',response=?1,error=?2,updated_at=?3 WHERE id=?4",params![text,code,now(),item.id])?;
+                    crate::chat_reply::store_in(&tx,&item.id,&plan)?;
+                    if let Some(target)=&item.reply {
+                        let outbox=uuid::Uuid::new_v4().to_string();
+                        tx.execute("INSERT INTO outbox(id,run_id,account_id,credential_ref,target_json,content,status,deadline,created_at) VALUES(?1,?2,?3,?4,?5,?6,'queued',?7,?8)",params![outbox,item.id,target.account_id,target.credential_ref,serde_json::to_string(target)?,text,target.deadline,now()])?;
+                        crate::chat_reply::queue_parts_in(&tx,&outbox,&plan)?;
+                    }
+                    crate::conversation_images::finish_run_in(&tx,&item.id,"completed")?;
+                    crate::trigger_store::observe_interactive_run_in(&tx,&item.id,"completed")?;
+                    tx.commit()?;
+                    return Ok(());
+                }
                 tx.execute(
                 "UPDATE runs SET status=?1,error=?2,updated_at=?3 WHERE id=?4 AND status='running'",
                 params![
@@ -699,6 +721,26 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
             }
         }
     }
+    let result = if !plugin_command && trigger_context.is_none() && matches!(&selected, Ok(None)) {
+        match result {
+            Ok(raw) => {
+                let check =
+                    crate::daily_life::complete_reply_plan(state, &item.id, &item.config, raw);
+                tokio::pin!(check);
+                let mut poll = tokio::time::interval(std::time::Duration::from_millis(100));
+                loop {
+                    tokio::select! {
+                        result=&mut check=>break result,
+                        _=cancel.cancelled()=>break Err("服务停止，日程核对未确认".into()),
+                        _=poll.tick()=>if !matches!(state.db(|db|Ok(db.query_row("SELECT status='running' FROM runs WHERE id=?1",[&item.id],|r|r.get::<_,bool>(0))?)),Ok(true)){break Err("任务已取消".into());}
+                    }
+                }
+            }
+            Err(error) => Err(error),
+        }
+    } else {
+        result
+    };
     let generation_for_audit =
         if !plugin_command && trigger_context.is_none() && matches!(&selected, Ok(None)) {
             result.as_ref().ok().cloned()

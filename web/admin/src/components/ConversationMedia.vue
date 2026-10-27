@@ -82,7 +82,7 @@ async function upload(event: Event) {
   const file = field.files?.[0];
   if (!file) return;
   error.value = notice.value = "";
-  const kind = file.name.toLowerCase().endsWith(".png")
+  const kind = /\.(png|jpe?g|webp|gif|bmp)$/i.test(file.name)
     ? "image"
     : file.name.toLowerCase().endsWith(".mp4")
       ? "video"
@@ -90,9 +90,9 @@ async function upload(event: Event) {
   if (
     !kind ||
     !file.size ||
-    file.size > (kind === "image" ? 1048576 : 20 * 1048576)
+    file.size > (kind === "image" ? 8*1048576 : 20 * 1048576)
   ) {
-    error.value = "请选择1MiB以内的PNG或20MiB以内、最长60秒的H.264 MP4。";
+    error.value = "请选择8MiB以内的常用格式图片，或20MiB以内、最长60秒的视频。";
     field.value = "";
     return;
   }
@@ -146,12 +146,12 @@ onUnmounted(reset);
       附件最多保留一天，仅当前身份与会话可用。此处上传不进行图片或视频理解；图片提问请使用上方消息附件入口。视频仅支持保存和回发。
     </p>
     <div class="media-actions">
-      <label :for="fieldId">添加 PNG / MP4</label>
+      <label :for="fieldId">添加图片 / 视频</label>
       <input
         :id="fieldId"
         ref="input"
         type="file"
-        accept="image/png,video/mp4,.png,.mp4"
+        accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,video/mp4,.png,.jpg,.jpeg,.webp,.gif,.bmp,.mp4"
         :disabled="busy || disabled"
         @change="upload"
       />

@@ -211,7 +211,7 @@ pub fn template(name: &str, prompt: &str) -> Value {
 /// editable fields. Existing saved personalities and custom configuration win.
 pub(crate) fn built_in_personality_card() -> Value {
     let fields: Value = serde_json::from_str(include_str!(
-        "../../../docs/examples/liu-jiahui-personality-v2.json"
+        "../../../docs/examples/liu-jiahui-personality-v3.json"
     ))
     .expect("bundled personality must be valid JSON");
     let mut card = template(fields["name"].as_str().unwrap(), "");

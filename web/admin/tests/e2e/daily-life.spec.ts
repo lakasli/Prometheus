@@ -58,7 +58,7 @@ test("daily routine and personal activities save through the real authenticated 
     .getByRole("navigation", { name: "主导航" })
     .getByRole("button", { name: "日程", exact: true })
     .click();
-  await page.getByText("作息与小安排设置", { exact: true }).click();
+  await page.getByText("作息设置", { exact: true }).click();
   const form = page.getByRole("form", { name: "每日固定作息" });
   await form.getByLabel("每天起床", { exact: true }).fill("07:00");
   await form.getByLabel("每天睡觉", { exact: true }).fill("23:00");
@@ -77,21 +77,12 @@ test("daily routine and personal activities save through the real authenticated 
     reset_context_on_sleep: true,
     schedule_enabled: true,
   });
-  await page.getByLabel("允许嘉卉自动安排抄诗").check();
-  await page.getByRole("button", { name: "保存小安排授权" }).click();
-  await expect(page.getByRole("status")).toContainText("小安排授权已保存");
-  expect(
-    (
-      await (
-        await page.request.get("/api/admin/v1/schedule/personal-policy")
-      ).json()
-    ).enabled,
-  ).toBe(true);
+  await expect(page.getByLabel("允许嘉卉自动安排抄诗")).toHaveCount(0);
   await page.reload();
   await expect(page.getByLabel("每天起床", { exact: true })).toHaveValue(
     "07:00",
   );
-  await expect(page.getByLabel("允许嘉卉自动安排抄诗")).toBeChecked();
+  await expect(page.getByText("保存小安排授权",{exact:true})).toHaveCount(0);
   await expect(
     page.getByText("每天 07:00 起床，23:00 睡觉。", { exact: false }),
   ).toBeVisible();

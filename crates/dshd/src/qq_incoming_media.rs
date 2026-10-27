@@ -37,8 +37,18 @@ impl Prepared {
         !matches!(self, Self::Text)
     }
     pub fn notice(&self) -> Option<&'static str> {
-        if let Self::Unavailable { message, .. } = self {
-            Some(*message)
+        if let Self::Unavailable { code, .. } = self {
+            Some(match *code {
+                "media_size_limit" => "这张图有点大，我这边没打开。换张小一点的发我吧。",
+                "media_count_unsupported" => "先一张一张发我吧，我好仔细看。",
+                "media_channel_unsupported" => "这张图我这边没打开，可以单独发给我吗？",
+                "media_control_command" => "图片和要做的事分开发我吧，我好接着看。",
+                "media_mp4_invalid" => "这个视频我这边没打开。你可以截张图给我，或者直接说说内容。",
+                "media_format_unsupported" => {
+                    "这条内容我这边没打开。换张图发我，或者直接跟我说说吧。"
+                }
+                _ => "这张图我这边没打开，你再发一次给我吧。",
+            })
         } else {
             None
         }
@@ -213,7 +223,7 @@ async fn process(state: &AppState, receipt: &Receipt) -> ApiResult<()> {
     let declared_image = receipt.payload["d"]["attachments"]
         .as_array()
         .filter(|items| items.len() == 1)
-        .is_some_and(|items| items[0]["content_type"] == "image/png");
+        .is_some_and(|items| items[0]["content_type"].as_str().is_some_and(image_mime));
     let prepared = if declared_image && !available {
         Prepared::Unavailable {
             code: "vision_provider_unavailable",
@@ -327,13 +337,15 @@ pub async fn prepare(payload: &Value) -> Prepared {
     }
     let attachment = &attachments[0];
     let declared = attachment["content_type"].as_str();
-    if declared.is_some_and(|s| !matches!(s, "image/png" | "video/mp4")) {
+    if declared
+        .is_some_and(|s| !image_mime(s) && s != "video/mp4" && s != "application/octet-stream")
+    {
         return unavailable(
             "media_format_unsupported",
             "仅接收PNG图片或20MiB/60秒以内的标准H.264 MP4；视频只保存用于回发，不读取帧或音轨，语音输入尚不支持。",
         );
     }
-    let limit = if declared == Some("image/png") {
+    let limit = if declared.is_some_and(image_mime) {
         image_analysis::MAX_IMAGE_BYTES
     } else {
         crate::media_assets::MAX_VIDEO
@@ -359,9 +371,41 @@ pub async fn prepare(payload: &Value) -> Prepared {
             return unavailable(code, "媒体下载未完成，尚未读取内容，请重新发送或改用文字。")
         }
     };
-    let is_png = bytes.starts_with(b"\x89PNG\r\n\x1a\n");
-    if declared == Some("video/mp4") || !is_png {
-        if declared == Some("image/png") {
+    prepare_bytes(declared, bytes).await
+}
+fn image_mime(value: &str) -> bool {
+    matches!(
+        value
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "image/png"
+            | "image/jpeg"
+            | "image/jpg"
+            | "image/pjpeg"
+            | "image/webp"
+            | "image/gif"
+            | "image/bmp"
+            | "image/x-ms-bmp"
+    )
+}
+pub(crate) async fn prepare_bytes(declared: Option<&str>, bytes: Vec<u8>) -> Prepared {
+    let unavailable = |code, message| Prepared::Unavailable { code, message };
+    let is_image = image::guess_format(&bytes).is_ok_and(|f| {
+        matches!(
+            f,
+            image::ImageFormat::Png
+                | image::ImageFormat::Jpeg
+                | image::ImageFormat::WebP
+                | image::ImageFormat::Gif
+                | image::ImageFormat::Bmp
+        )
+    });
+    if declared == Some("video/mp4") || !is_image {
+        if declared.is_some_and(image_mime) {
             return unavailable(
                 "media_type_mismatch",
                 "QQ媒体类型与实际文件不一致，请发送有效PNG或MP4。",
@@ -374,6 +418,9 @@ pub async fn prepare(payload: &Value) -> Prepared {
                 "视频须为20MiB以内、最长60秒、自包含H.264轨道的标准MP4；未读取帧或音轨。",
             ),
         };
+    }
+    if bytes.len() > image_analysis::MAX_IMAGE_BYTES {
+        return unavailable("media_size_limit", "image byte budget exceeded");
     }
     let permit = match crate::image_analysis_api::DECODE_SLOTS.acquire().await {
         Ok(p) => p,
@@ -392,7 +439,7 @@ pub async fn prepare(payload: &Value) -> Prepared {
     match result {
         Ok(Ok(image)) => Prepared::Image(image),
         _ => unavailable(
-            "media_png_invalid",
+            "media_image_invalid",
             "图片格式或尺寸未通过校验，尚未查看图片，请发送1MiB以内的PNG。",
         ),
     }

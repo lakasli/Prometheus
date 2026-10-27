@@ -20,14 +20,16 @@ use std::{
 };
 use tokio_util::sync::CancellationToken;
 
-pub const MAX_IMAGE_BYTES: usize = 1_048_576;
+pub const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_WIDTH: u32 = 2048;
 pub const MAX_HEIGHT: u32 = 2048;
 pub const MAX_PIXELS: u64 = 2_097_152;
+pub const MAX_SOURCE_EDGE: u32 = 12000;
+pub const MAX_SOURCE_PIXELS: u64 = 24_000_000;
 pub const MAX_QUESTION_BYTES: usize = 2000;
 pub const RESULT_TTL_SECONDS: i64 = 86400;
 const MAX_CANONICAL_BYTES: usize = 2_097_152;
-const MAX_DECODE_BYTES: usize = 32 * 1024 * 1024;
+const MAX_DECODE_BYTES: usize = 128 * 1024 * 1024;
 const MAX_RESULT_BYTES: usize = 8000;
 const MODEL: &str = "deepseek-flash";
 const COLUMNS: &str =
@@ -46,10 +48,7 @@ fn internal(_: impl std::fmt::Debug) -> ApiError {
     ApiError::internal()
 }
 fn bad_image() -> ApiError {
-    ApiError::bad(
-        "invalid_analysis_png",
-        "只接受通过校验的单张PNG；请检查格式、尺寸及文件大小",
-    )
+    ApiError::bad("invalid_analysis_png", "图片没有完整打开，请换一张图片重试")
 }
 pub fn conflict() -> ApiError {
     ApiError::new(
@@ -244,9 +243,9 @@ fn strict_chunks(bytes: &[u8]) -> ApiResult<(u32, u32, Vec<u8>)> {
                 );
                 if width == 0
                     || height == 0
-                    || width > MAX_WIDTH
-                    || height > MAX_HEIGHT
-                    || u64::from(width) * u64::from(height) > MAX_PIXELS
+                    || width > MAX_SOURCE_EDGE
+                    || height > MAX_SOURCE_EDGE
+                    || u64::from(width) * u64::from(height) > MAX_SOURCE_PIXELS
                 {
                     return Err(bad_image());
                 }
@@ -354,6 +353,12 @@ pub fn canonicalize(encoded: &str) -> ApiResult<CanonicalImage> {
         return Err(bad_image());
     }
     let bytes = STANDARD.decode(encoded).map_err(|_| bad_image())?;
+    if bytes.len() > MAX_IMAGE_BYTES {
+        return Err(bad_image());
+    }
+    if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return canonicalize_common(bytes);
+    }
     let (width, height, pixels_only) = strict_chunks(&bytes)?;
     let mut decoder = png::Decoder::new_with_limits(
         Cursor::new(pixels_only),
@@ -401,23 +406,80 @@ pub fn canonicalize(encoded: &str) -> ApiResult<CanonicalImage> {
     {
         return Err(bad_image());
     }
-    let mut output = BoundedPng(Vec::new());
-    {
-        let mut encoder = png::Encoder::new(&mut output, width, height);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        encoder.set_compression(png::Compression::Fast);
-        let mut writer = encoder.write_header().map_err(|_| bad_image())?;
-        writer.write_image_data(&rgba).map_err(|_| bad_image())?;
-        writer.finish().map_err(|_| bad_image())?;
+    let rgba = image::RgbaImage::from_raw(width, height, rgba).ok_or_else(bad_image)?;
+    encode_normalized(image::DynamicImage::ImageRgba8(rgba))
+}
+
+fn canonicalize_common(bytes: Vec<u8>) -> ApiResult<CanonicalImage> {
+    use image::ImageDecoder;
+    let format = image::guess_format(&bytes).map_err(|_| bad_image())?;
+    if !matches!(
+        format,
+        image::ImageFormat::Jpeg
+            | image::ImageFormat::WebP
+            | image::ImageFormat::Gif
+            | image::ImageFormat::Bmp
+    ) {
+        return Err(bad_image());
     }
-    let sha256 = hex::encode(Sha256::digest(&output.0));
-    Ok(CanonicalImage {
-        bytes: output.0,
-        width,
-        height,
-        sha256,
-    })
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_SOURCE_EDGE);
+    limits.max_image_height = Some(MAX_SOURCE_EDGE);
+    limits.max_alloc = Some(MAX_DECODE_BYTES as u64);
+    let mut reader = image::ImageReader::with_format(Cursor::new(bytes), format);
+    reader.limits(limits);
+    let mut decoder = reader.into_decoder().map_err(|_| bad_image())?;
+    let (width, height) = decoder.dimensions();
+    if width == 0 || height == 0 || u64::from(width) * u64::from(height) > MAX_SOURCE_PIXELS {
+        return Err(bad_image());
+    }
+    let orientation = decoder.orientation().map_err(|_| bad_image())?;
+    let mut image = image::DynamicImage::from_decoder(decoder).map_err(|_| bad_image())?;
+    image.apply_orientation(orientation);
+    encode_normalized(image)
+}
+
+fn encode_normalized(mut image: image::DynamicImage) -> ApiResult<CanonicalImage> {
+    if image.width() > MAX_WIDTH || image.height() > MAX_HEIGHT {
+        image = image.thumbnail(MAX_WIDTH, MAX_HEIGHT);
+    }
+    let pixels = u64::from(image.width()) * u64::from(image.height());
+    if pixels > MAX_PIXELS {
+        let scale = (MAX_PIXELS as f64 / pixels as f64).sqrt();
+        image = image.thumbnail(
+            (image.width() as f64 * scale) as u32,
+            (image.height() as f64 * scale) as u32,
+        );
+    }
+    // Metadata is discarded. Animated inputs are represented by their first
+    // static frame, never by an invented sequence or motion description.
+    for _ in 0..8 {
+        let width = image.width();
+        let height = image.height();
+        let rgba = image.to_rgba8();
+        let mut output = BoundedPng(Vec::new());
+        let encoded = (|| -> Result<(), png::EncodingError> {
+            let mut encoder = png::Encoder::new(&mut output, width, height);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder.set_compression(png::Compression::Fast);
+            let mut writer = encoder.write_header()?;
+            writer.write_image_data(&rgba)?;
+            writer.finish()?;
+            Ok(())
+        })();
+        if encoded.is_ok() {
+            let sha256 = hex::encode(Sha256::digest(&output.0));
+            return Ok(CanonicalImage {
+                bytes: output.0,
+                width,
+                height,
+                sha256,
+            });
+        }
+        image = image.thumbnail((width * 3 / 4).max(1), (height * 3 / 4).max(1));
+    }
+    Err(bad_image())
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -796,6 +858,82 @@ mod tests {
     }
     fn image() -> CanonicalImage {
         canonicalize(&STANDARD.encode(png(1, 1, png::ColorType::Rgba, &[5, 70, 220, 128]))).unwrap()
+    }
+    #[test]
+    fn common_formats_are_bounded_metadata_free_png_and_jpeg_orientation_is_applied() {
+        let picture = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+            16,
+            8,
+            image::Rgb([24, 95, 180]),
+        ));
+        for format in [
+            image::ImageFormat::Jpeg,
+            image::ImageFormat::WebP,
+            image::ImageFormat::Gif,
+            image::ImageFormat::Bmp,
+        ] {
+            let mut output = Cursor::new(Vec::new());
+            picture.write_to(&mut output, format).unwrap();
+            let bytes = output.into_inner();
+            let normalized = canonicalize(&STANDARD.encode(&bytes)).unwrap();
+            assert_eq!((normalized.width, normalized.height), (16, 8));
+            assert!(normalized.bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
+            if format == image::ImageFormat::Jpeg {
+                let exif =
+                    b"Exif\0\0II*\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0\x06\0\0\0\0\0\0\0";
+                let mut oriented = bytes[..2].to_vec();
+                oriented.extend_from_slice(b"\xff\xe1");
+                oriented.extend_from_slice(&((exif.len() + 2) as u16).to_be_bytes());
+                oriented.extend_from_slice(exif);
+                oriented.extend_from_slice(&bytes[2..]);
+                let normalized = canonicalize(&STANDARD.encode(oriented)).unwrap();
+                assert_eq!((normalized.width, normalized.height), (8, 16));
+                assert!(!normalized.bytes.windows(4).any(|w| w == b"Exif"));
+            }
+        }
+        assert!(canonicalize(&STANDARD.encode(b"<svg><script>bad</script></svg>")).is_err());
+    }
+    #[test]
+    fn animated_gif_is_only_first_frame_and_large_photo_is_resized_before_storage() {
+        let mut gif = Vec::new();
+        {
+            let mut encoder = image::codecs::gif::GifEncoder::new(&mut gif);
+            encoder
+                .encode_frame(image::Frame::new(image::RgbaImage::from_pixel(
+                    8,
+                    8,
+                    image::Rgba([220, 20, 20, 255]),
+                )))
+                .unwrap();
+            encoder
+                .encode_frame(image::Frame::new(image::RgbaImage::from_pixel(
+                    8,
+                    8,
+                    image::Rgba([20, 20, 220, 255]),
+                )))
+                .unwrap();
+        }
+        let first = canonicalize(&STANDARD.encode(gif)).unwrap();
+        let mut reader = png::Decoder::new(Cursor::new(first.bytes))
+            .read_info()
+            .unwrap();
+        let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
+        reader.next_frame(&mut pixels).unwrap();
+        assert!(pixels[0] > pixels[2]);
+        let photo = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+            4000,
+            3000,
+            image::Rgb([55, 66, 77]),
+        ));
+        let mut jpeg = Cursor::new(Vec::new());
+        photo.write_to(&mut jpeg, image::ImageFormat::Jpeg).unwrap();
+        let normalized = canonicalize(&STANDARD.encode(jpeg.into_inner())).unwrap();
+        assert!(
+            normalized.width <= MAX_WIDTH
+                && normalized.height <= MAX_HEIGHT
+                && u64::from(normalized.width) * u64::from(normalized.height) <= MAX_PIXELS
+        );
+        assert!(normalized.bytes.len() <= MAX_CANONICAL_BYTES);
     }
     fn chunk(kind: &[u8; 4], data: &[u8]) -> Vec<u8> {
         let mut bytes = (data.len() as u32).to_be_bytes().to_vec();

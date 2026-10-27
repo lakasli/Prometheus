@@ -58,6 +58,69 @@ pub fn initialize(db: &Connection) -> anyhow::Result<()> {
       CREATE TABLE IF NOT EXISTS sleep_context_uses(run_id TEXT PRIMARY KEY,through_run_rowid INTEGER NOT NULL);
       UPDATE daily_life_events SET decision_status='failed',error_code='decision_process_restarted',fence=NULL WHERE decision_status='running';
       UPDATE daily_life_decision_attempts SET status='interrupted',error_code='decision_process_restarted' WHERE status='running';")?;
+    db.execute_batch("CREATE TABLE IF NOT EXISTS daily_life_texts(activity_id TEXT PRIMARY KEY,source_owner_id TEXT NOT NULL,source_conversation_id TEXT NOT NULL,title TEXT NOT NULL,content TEXT NOT NULL,content_sha256 TEXT NOT NULL,prepared_at INTEGER NOT NULL);")?;
+    let p = personal_policy(db)?;
+    if p.get("format").is_none() && p.get("grant_id").and_then(Value::as_str).is_some() {
+        db.execute_batch("SAVEPOINT generalize_daily_life")?;
+        let result = (|| -> anyhow::Result<()> {
+            let owner = p["owner_id"].as_str().context("daily_life_owner_missing")?;
+            let id = p["grant_id"].as_str().unwrap();
+            let g = schedule::grant_detail(db, owner, id)?;
+            if g["revoked_at"].is_null() && g["policy"]["title"] == "嘉卉的抄诗小安排" {
+                let mut policy = g["policy"].clone();
+                policy["title"] = json!("日常自主安排");
+                schedule::change_grant(
+                    db,
+                    owner,
+                    id,
+                    g["revision"].as_i64().unwrap(),
+                    Some(&policy),
+                    crate::state::now(),
+                )?;
+            }
+            let mut p = p.clone();
+            p["format"] = json!("text_v1");
+            p["revision"] = json!(p["revision"].as_i64().unwrap_or(0) + 1);
+            db.execute(
+                "UPDATE settings SET value=?1 WHERE key=?2",
+                params![p.to_string(), POLICY],
+            )?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            db.execute_batch("ROLLBACK TO generalize_daily_life; RELEASE generalize_daily_life")?;
+            return Err(error);
+        }
+        db.execute_batch("RELEASE generalize_daily_life")?;
+    }
+    Ok(())
+}
+pub fn initialize_plan_cache(db: &Connection) -> anyhow::Result<()> {
+    let columns = db
+        .prepare("PRAGMA table_info(rest_deferred_presentations)")?
+        .query_map([], |r| r.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    db.execute_batch("SAVEPOINT self_plan_cache")?;
+    for (name, sql) in [
+        (
+            "self_plan_status",
+            "ALTER TABLE rest_deferred_presentations ADD COLUMN self_plan_status TEXT",
+        ),
+        (
+            "self_plan_json",
+            "ALTER TABLE rest_deferred_presentations ADD COLUMN self_plan_json TEXT",
+        ),
+        (
+            "self_plan_hash",
+            "ALTER TABLE rest_deferred_presentations ADD COLUMN self_plan_hash TEXT",
+        ),
+    ] {
+        if !columns.iter().any(|c| c == name) {
+            db.execute_batch(sql)?;
+        }
+    }
+    db.execute("UPDATE rest_deferred_presentations SET self_plan_status='interrupted',self_plan_json=NULL WHERE self_plan_status='checking'",[])?;
+    db.execute_batch("RELEASE self_plan_cache")?;
     Ok(())
 }
 pub fn personal_policy(db: &Connection) -> anyhow::Result<Value> {
@@ -93,11 +156,11 @@ pub fn save_personal_policy(
         }
     }
     let grant = if enabled {
-        Some(schedule::create_grant(db,actor,&json!({"title":"嘉卉的抄诗小安排","allowed_types":["writing"],"resource_ids":[],"time_zone":"Asia/Shanghai","valid_from":at,"valid_until":at+365*86400,"horizon_days":1,"window_start":"07:00","window_end":"23:00","max_daily_activities":limit,"max_daily_minutes":limit*10,"max_daily_changes":limit*3}),at)?["id"].clone())
+        Some(schedule::create_grant(db,actor,&json!({"title":"日常自主安排","allowed_types":["writing"],"resource_ids":[],"time_zone":"Asia/Shanghai","valid_from":at,"valid_until":at+365*86400,"horizon_days":1,"window_start":"07:00","window_end":"23:00","max_daily_activities":limit,"max_daily_minutes":limit*10,"max_daily_changes":limit*3}),at)?["id"].clone())
     } else {
         None
     };
-    let value = json!({"revision":revision+1,"enabled":enabled,"owner_id":actor,"grant_id":grant,"daily_limit":limit,"valid_until":if enabled{Some(at+365*86400)}else{None}});
+    let value = json!({"revision":revision+1,"enabled":enabled,"owner_id":actor,"grant_id":grant,"daily_limit":limit,"format":"text_v1","valid_until":if enabled{Some(at+365*86400)}else{None}});
     db.execute(
         "INSERT INTO settings VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         params![POLICY, value.to_string()],
@@ -150,11 +213,16 @@ pub fn context_valid(db: &Connection, run: &str) -> anyhow::Result<bool> {
         None => true,
     })
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Selection {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub poem_id: String,
     pub slot_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -186,142 +254,133 @@ pub fn split_reply(raw: &str) -> Result<(String, Option<Selection>), String> {
     ))
 }
 
-/// Recover only a closed, affirmative first-person catalogue-copy commitment.
-/// This cannot create a new grant, time, recipient, resource or executable.
-/// Quoted, conditional, negative, historical and question text is not consent.
 pub fn selection_for_reply(
     db: &Connection,
     run: &str,
     raw: &str,
-    spoken: &str,
+    _spoken: &str,
 ) -> anyhow::Result<Option<Selection>> {
-    let (_, explicit) = split_reply(raw).map_err(anyhow::Error::msg)?;
-    if explicit.is_some() {
-        return Ok(explicit);
+    let (_, selection) = split_reply(raw).map_err(anyhow::Error::msg)?;
+    if selection.is_some() {
+        return Ok(selection);
     }
-    if ["算了", "不去了", "不抄了", "取消", "先不"]
+    let cached:Option<String>=db.query_row("SELECT self_plan_json FROM rest_deferred_presentations WHERE run_id=?1 AND self_plan_status='checked' AND self_plan_hash=?2",params![run,character::digest(raw.as_bytes())],|r|r.get(0)).optional()?.flatten();
+    cached
+        .map(|s| serde_json::from_str::<Value>(&s).map(|v| v["self_activity"].clone()))
+        .transpose()?
+        .filter(|v| !v.is_null())
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(Into::into)
+}
+
+/// One optional, bounded semantic check on a newly generated self-intention.
+/// It sees the generated reply and public slot metadata, never another source.
+pub async fn complete_reply_plan(
+    state: &crate::state::AppState,
+    run: &str,
+    config: &crate::config::RuntimeConfig,
+    raw: String,
+) -> Result<String, String> {
+    let (reply, selection) = split_reply(&raw)?;
+    if selection.is_some() {
+        return Ok(raw);
+    }
+    let plan = crate::chat_reply::parse(&reply, &config.reply)?;
+    let spoken = plan
+        .items
         .iter()
-        .any(|s| spoken.contains(s))
+        .map(|i| i.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    if !spoken.contains('我')
+        || ![
+            "去",
+            "趁",
+            "准备",
+            "打算",
+            "先",
+            "现在",
+            "这会",
+            "待会",
+            "接下来",
+            "安排",
+            "写",
+            "读",
+            "整理",
+        ]
+        .iter()
+        .any(|p| spoken.contains(p))
     {
-        return Ok(None);
+        return Ok(raw);
     }
-    let claims: Vec<&str> = spoken
-        .split_inclusive(['。', '！', '？', '!', '?', '\n', '；', ';'])
-        .filter(|line| {
-            ([
-                "我去抄",
-                "我也去抄",
-                "我这边去抄",
-                "我这边也去抄",
-                "我准备",
-                "我打算",
-                "我就去",
-                "我就抄",
-                "我现在",
-                "我先",
-                "我来",
-                "我接下来",
-            ]
-            .iter()
-            .any(|p| line.contains(p))
-                || (line.contains("我会")
-                    && [
-                        "接下来",
-                        "现在",
-                        "随后",
-                        "稍后",
-                        "这就",
-                        "记到日程",
-                        "安排",
-                        "《",
-                    ]
-                    .iter()
-                    .any(|p| line.contains(p))))
-                && (["抄诗", "抄首", "抄一首"].iter().any(|p| line.contains(p))
-                    || (line.contains('《') && line.contains(['抄', '誊'])))
-                && !line.contains(['？', '?', '“', '”', '「', '」', '『', '』', '\"', '\'', '`'])
-                && ![
-                    "如果",
-                    "要是",
-                    "假如",
-                    "比如",
-                    "例如",
-                    "等你",
-                    "或者",
-                    "也许",
-                    "可能",
-                    "考虑",
-                    "想去",
-                    "想抄",
-                    "要不要",
-                    "你说",
-                    "你刚",
-                    "你想",
-                    "你要",
-                    "说过",
-                    "昨天",
-                    "刚才",
-                    "以前",
-                    "去年",
-                    "上次",
-                    "过去",
-                    "曾经",
-                    "本来",
-                    "原本",
-                    "准备过",
-                    "打算过",
-                    "喜欢",
-                    "擅长",
-                    "希望",
-                    "愿意",
-                    "已经",
-                    "完成",
-                    "不会",
-                    "不能",
-                    "不去",
-                    "不抄",
-                    "没去",
-                    "没抄",
-                    "没有",
-                    "暂不",
-                ]
-                .iter()
-                .any(|p| line.contains(p))
+    let offer = state
+        .db(|db| {
+            let raw: Option<String> = db
+                .query_row(
+                    "SELECT offer_json FROM daily_life_offers WHERE run_id=?1",
+                    [run],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            Ok(raw.map(|s| serde_json::from_str::<Value>(&s)).transpose()?)
         })
-        .collect();
-    if claims.is_empty() {
-        return Ok(None);
+        .map_err(|_| "日程状态暂不可用".to_owned())?;
+    let offer = offer.unwrap_or_else(|| json!({"slots":[]}));
+    let input =
+        json!({"reply":spoken,"slots":offer["slots"],"capabilities":["save_text_artifact"]});
+    let hash = character::digest(raw.as_bytes());
+    let checked=state.db(|db| {
+        let cached:(Option<String>,Option<String>,Option<String>)=db.query_row("SELECT self_plan_status,self_plan_json,self_plan_hash FROM rest_deferred_presentations WHERE run_id=?1",[run],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
+        if let Some(status)=cached.0 {
+            anyhow::ensure!(status=="checked" && cached.2.as_deref()==Some(&hash),"self_plan_prior_attempt_unconfirmed");
+            return Ok(cached.1);
+        }
+        db.execute("UPDATE rest_deferred_presentations SET self_plan_status='checking',self_plan_hash=?1 WHERE run_id=?2 AND self_plan_status IS NULL",params![hash,run])?;
+        Ok(None)
+    }).map_err(|_|"此前日程核对尚未确认，未重复请求".to_owned())?;
+    let messages = vec![
+        json!({"role":"system","content":"DSH_SELF_PLAN_COMMIT_V2\n核对下面回复是否明确决定了自己接下来要做的一件事。引用、问题、否定、过去经历、一般愿望、只是答应以后登记、以及对用户的建议都不是新安排；没有明确安排就返回{\"self_activity\":null}。当前可执行能力是保存一份文字成果；能以文字落实的安排可以使用这项能力，不要求回复使用技术术语。没有外出、物理动作、外发或任意代码能力；没有所给时段时也不能登记。若回复明确承诺了当前做不到的新活动，返回{\"self_activity\":null,\"unfulfilled\":true}，不能把未落实的承诺当成没有安排。若是可执行的新安排，返回{\"self_activity\":{\"slot_id\":\"所给时段ID\",\"title\":\"简短安排名称\",\"content\":\"要保存的完整文字成果\"}}；只选择一个现有时段，不编造权限、时间或完成状态。成果最多3000字，不需要为了使用能力而创造安排。只返回此JSON，不添加解释或其他字段。"}),
+        json!({"role":"user","content":input.to_string()}),
+    ];
+    let output = if let Some(cached) = checked {
+        cached
+    } else {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            crate::worker::model_request(state, config, messages, 4096),
+        )
+        .await
+        .map_err(|_| "日程核对超时，未发布未落实的安排".to_owned())??
+    };
+    let output = output
+        .trim()
+        .strip_prefix("```json\n")
+        .and_then(|s| s.strip_suffix("```"))
+        .unwrap_or(output.trim())
+        .trim();
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Decision {
+        self_activity: Option<Selection>,
+        #[serde(default)]
+        unfulfilled: bool,
     }
-    let named: Vec<_> = POEMS
-        .iter()
-        .filter(|(_, title, _, _)| claims.iter().any(|s| s.contains(&format!("《{title}》"))))
-        .collect();
-    ensure!(named.len() <= 1, "daily_life_ambiguous_spoken_poem");
-    ensure!(
-        !named.is_empty() || !claims.iter().any(|s| s.contains('《')),
-        "daily_life_unsupported_spoken_poem"
-    );
-    let poem_id = named.first().map(|p| p.0).unwrap_or(POEMS[0].0);
-    let offered: String = db.query_row(
-        "SELECT offer_json FROM daily_life_offers WHERE run_id=?1",
-        [run],
-        |r| r.get(0),
-    )?;
-    let offered: Value = serde_json::from_str(&offered)?;
-    ensure!(
-        offered["catalog"]
-            .as_array()
-            .is_some_and(|a| a.iter().any(|p| p["poem_id"] == poem_id)),
-        "daily_life_spoken_catalog_unavailable"
-    );
-    let slot_id = offered["slots"][0]["slot_id"]
-        .as_str()
-        .context("daily_life_spoken_slot_unavailable")?;
-    db.execute("INSERT INTO audit_events(actor,action,resource,created_at) VALUES('system','schedule.personal.reply_recovered',?1,?2)",params![run,crate::state::now()])?;
-    Ok(Some(Selection {
-        poem_id: poem_id.into(),
-        slot_id: slot_id.into(),
-    }))
+    let value = crate::trigger_rule::strict_value(output.as_bytes())
+        .map_err(|_| "日程核对返回无效".to_owned())?;
+    if value.get("self_activity").is_none() {
+        return Err("日程核对没有明确返回决定".into());
+    }
+    let decision: Decision =
+        serde_json::from_value(value.clone()).map_err(|_| "日程核对字段无效".to_owned())?;
+    state.db(|db| {anyhow::ensure!(db.execute("UPDATE rest_deferred_presentations SET self_plan_status='checked',self_plan_json=?1 WHERE run_id=?2 AND self_plan_hash=?3 AND self_plan_status IN('checking','checked')",params![value.to_string(),run,hash])?==1,"self_plan_cache_invalidated");Ok(())}).map_err(|_|"日程核对结果未获保存".to_owned())?;
+    if decision.unfulfilled {
+        return Err("未落实的安排承诺未发布".into());
+    }
+    match decision.self_activity {
+        Some(selection)=>Ok(json!({"reply":serde_json::from_str::<Value>(&reply).unwrap_or_else(|_|json!(plan.items)),"self_activity":selection}).to_string()),
+        None=>Ok(raw),
+    }
 }
 
 pub fn completion_prompt(db: &Connection, run: &str) -> anyhow::Result<String> {
@@ -340,61 +399,67 @@ pub fn completion_prompt(db: &Connection, run: &str) -> anyhow::Result<String> {
         .transpose()?
         .is_some_and(|v| v["slots"].as_array().is_some_and(|a| !a.is_empty()));
     Ok(if offered {
-        "\nDSH_DAILY_LIFE_COMPLETION_V1\n本轮创建小安排时，最终输出使用受限外层对象{\"reply\":[上述逐句回复对象],\"self_activity\":{\"poem_id\":\"本轮目录ID\",\"slot_id\":\"本轮时段ID\"}}，这是前述数组格式的日程扩展；全部句数、间隔与媒体限制继续约束reply数组。没有创建安排时仍只输出原数组。说要去抄诗时必须同时提供本轮可用的self_activity，宿主登记后才发布回复；不能只输出安排承诺。".into()
+        "\nDSH_DAILY_LIFE_COMPLETION_V2\n若本轮明确决定做一件当前可执行的事，最终输出使用{\"reply\":[上述逐句回复对象],\"self_activity\":{\"slot_id\":\"本轮时段ID\",\"title\":\"安排名称\",\"content\":\"完整文字成果\"}}。日程与回复同一事务受理，全部句数、间隔及媒体限制继续约束reply。没有安排就返回原数组，不为表现生活感而硬添安排；不能只说要做却不登记，不能虚构外出、物理动作、外发或已完成。".into()
     } else {
         String::new()
     })
 }
+
 pub fn prompt_in(db: &Connection, run: &str, at: i64) -> anyhow::Result<String> {
     if !exists(db)? {
         return Ok(String::new());
     }
     let p = personal_policy(db)?;
-    let mut offer = json!({"slots":[],"catalog":[]});
-    if p["enabled"] == true {
-        let owner = p["owner_id"].as_str().context("daily_life_owner_missing")?;
-        let gid = p["grant_id"].as_str().context("daily_life_grant_missing")?;
-        let gv = schedule::grant_detail(db, owner, gid)?;
+    let (source_owner, conversation): (String, String) = db.query_row(
+        "SELECT owner_id,conversation_id FROM runs WHERE id=?1",
+        [run],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    let floor = history_floor(db, &conversation)?;
+    let mut offer = json!({"slots":[]});
+    let grants=db.prepare("SELECT owner_id,id FROM schedule_autonomy_grants WHERE revoked_at IS NULL ORDER BY created_at DESC LIMIT 100")?.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?.collect::<Result<Vec<_>,_>>()?;
+    for (owner, gid) in grants {
+        let gv = schedule::grant_detail(db, &owner, &gid)?;
         let grant: schedule::Grant = serde_json::from_value(gv["policy"].clone())?;
-        if gv["revoked_at"].is_null() && at >= grant.valid_from && at < grant.valid_until {
-            // Reuse the authoritative busy/free, grant and daily budget checks.
-            let plan = schedule::Plan {
-                goal: "抄诗".into(),
-                grant_id: gid.into(),
-                resource_ids: vec![],
-                duration_minutes: 10,
-                state: "enabled".into(),
-                planning_mode: "bounded_rule".into(),
-            };
-            // planning_slots constructs reading activities; use the same
-            // generic slot allocator with the granted writing type below.
-            let slots = schedule::planning_slots_for_kind(
-                db,
-                owner,
-                &plan,
-                &grant,
-                gv["revision"].as_i64().unwrap(),
-                at,
-                "writing",
-            )?;
-            offer = json!({"slots":slots.into_iter().take(3).collect::<Vec<_>>(),"catalog":POEMS.iter().map(|(id,title,author,_)|json!({"poem_id":id,"title":title,"author":author})).collect::<Vec<_>>(),"owner_id":owner,"grant_id":gid,"grant_revision":gv["revision"]});
+        if !grant.allowed_types.iter().any(|t| t == "writing")
+            || at < grant.valid_from
+            || at >= grant.valid_until
+        {
+            continue;
         }
+        let plan = schedule::Plan {
+            goal: "自主安排".into(),
+            grant_id: gid.clone(),
+            resource_ids: vec![],
+            duration_minutes: 10,
+            state: "enabled".into(),
+            planning_mode: "bounded_rule".into(),
+        };
+        let slots = schedule::planning_slots_for_kind(
+            db,
+            &owner,
+            &plan,
+            &grant,
+            gv["revision"].as_i64().unwrap(),
+            at,
+            "writing",
+        )?;
+        if slots.is_empty() {
+            continue;
+        }
+        offer = json!({"slots":slots.into_iter().take(3).collect::<Vec<_>>(),"owner_id":owner,"grant_id":gid,"grant_revision":gv["revision"]});
+        break;
     }
     db.execute(
         "INSERT OR IGNORE INTO daily_life_offers VALUES(?1,?2,?3)",
         params![run, p["revision"].as_i64().unwrap_or(0), offer.to_string()],
     )?;
-    let recent=db.prepare("SELECT l.poem_id,json_extract(a.definition_json,'$.start_at'),json_extract(a.definition_json,'$.end_at'),a.state,o.status,o.completed_at FROM daily_life_activities l JOIN schedule_activities a ON a.id=l.activity_id LEFT JOIN schedule_occurrences o ON o.activity_id=a.id ORDER BY a.created_at DESC LIMIT 4")?.query_map([],|r|{
-        let poem:String=r.get(0)?;
-        let known=POEMS.iter().find(|p|p.0==poem);
-        Ok(json!({"poem_id":poem,"title":known.map(|p|p.1),"start_at":r.get::<_,i64>(1)?,"end_at":r.get::<_,i64>(2)?,"state":r.get::<_,String>(3)?,"status":r.get::<_,Option<String>>(4)?,"completed_at":r.get::<_,Option<i64>>(5)?}))
-    })?.collect::<Result<Vec<_>,_>>()?;
-    // These records contain only host-owned public-domain catalog text. No
-    // source run IDs, user inputs or private resource titles enter this view.
+    let recent=db.prepare("SELECT a.title,json_extract(a.definition_json,'$.start_at'),json_extract(a.definition_json,'$.end_at'),a.state,o.status FROM daily_life_activities l JOIN schedule_activities a ON a.id=l.activity_id JOIN runs r ON r.id=l.source_run_id LEFT JOIN schedule_occurrences o ON o.activity_id=a.id WHERE r.owner_id=?1 AND r.rowid>?2 ORDER BY a.created_at DESC LIMIT 4")?.query_map(params![source_owner,floor],|r|Ok(json!({"title":r.get::<_,String>(0)?,"start_at":r.get::<_,i64>(1)?,"end_at":r.get::<_,i64>(2)?,"state":r.get::<_,String>(3)?,"status":r.get::<_,Option<String>>(4)?})))?.collect::<Result<Vec<_>,_>>()?;
     offer.as_object_mut().unwrap().remove("owner_id");
     offer.as_object_mut().unwrap().remove("grant_id");
-    Ok(format!("\nDSH_DAILY_LIFE_V1\n下列是实际小安排与可选时段。若本轮想安排抄诗，最终JSON可用{{\"reply\":[原逐句回复对象],\"self_activity\":{{\"poem_id\":\"目录ID\",\"slot_id\":\"时段ID\"}}}}；不安排时仍用原数组。每轮至多一项，只能复制所提供ID，不能指定时间、标题、路径或收件人。宿主会在回复入队前原子登记，未获受理时不会发送承诺。没有可选时段就只表达想法，不说已经安排或正在做。抄诗是保存电子诗文，不能说成手写、出门或完成了未有结果的活动。\n{}",json!({"available":offer,"actual_activities":recent})))
+    Ok(format!("\nDSH_DAILY_LIFE_V2\n以下是本次实际安排与可用时段，不是爱好设定，也不要求每轮制造活动。具体想做什么由眼前交流与自己的选择决定。当前可执行操作是在所选时段保存一份文字成果，正文通过self_activity提供；不要承诺当前没有能力执行的外部或物理动作。只根据实际记录回答是否已经安排、开始或完成，不重复登记已经存在的同一安排。没有可用时段就自然聊天或表达想法。\n{}",json!({"available":offer,"actual_activities":recent})))
 }
+
 pub fn commit_selection(
     db: &Connection,
     run: &str,
@@ -407,6 +472,15 @@ pub fn commit_selection(
         [run],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
+    if selection.poem_id.is_empty() {
+        return commit_text(
+            db,
+            run,
+            selection,
+            &serde_json::from_str::<Value>(&raw)?,
+            at,
+        );
+    }
     ensure!(
         p["enabled"] == true && p["revision"] == rev,
         "daily_life_policy_changed"
@@ -439,12 +513,126 @@ pub fn commit_selection(
     )?;
     Ok(result)
 }
+fn commit_text(
+    db: &Connection,
+    run: &str,
+    s: &Selection,
+    offer: &Value,
+    at: i64,
+) -> anyhow::Result<Value> {
+    let title = s.title.as_deref().unwrap_or("").trim();
+    let content = s.content.as_deref().unwrap_or("").trim();
+    ensure!(
+        !title.is_empty()
+            && title.chars().count() <= 80
+            && !content.is_empty()
+            && content.len() <= 12000
+            && content.chars().count() <= 3000
+            && !title.contains('\0')
+            && !content.contains('\0'),
+        "daily_life_invalid_text"
+    );
+    let (source, conversation): (String, String) = db.query_row(
+        "SELECT owner_id,conversation_id FROM runs WHERE id=?1",
+        [run],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    let hash = character::digest(content.as_bytes());
+    let slot = offer["slots"]
+        .as_array()
+        .and_then(|a| a.iter().find(|v| v["slot_id"] == s.slot_id))
+        .context("daily_life_unknown_slot")?;
+    let owner = offer["owner_id"]
+        .as_str()
+        .context("daily_life_owner_missing")?;
+    let gid = offer["grant_id"]
+        .as_str()
+        .context("daily_life_grant_missing")?;
+    let grant = schedule::grant_detail(db, owner, gid)?;
+    ensure!(
+        grant["revision"] == offer["grant_revision"] && grant["revoked_at"].is_null(),
+        "daily_life_grant_changed"
+    );
+    let duplicate:Option<(String,String)>=db.query_row("SELECT a.id,a.owner_id FROM daily_life_texts t JOIN schedule_activities a ON a.id=t.activity_id LEFT JOIN schedule_occurrences o ON o.activity_id=a.id WHERE t.source_owner_id=?1 AND t.content_sha256=?2 AND a.state='enabled' AND a.grant_id=?4 AND a.grant_revision=?5 AND (json_extract(a.definition_json,'$.start_at')>=?3 OR (o.status IN('pending','running') AND o.end_at>?3)) LIMIT 1",params![source,hash,at,gid,grant["revision"].as_i64().unwrap()],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
+    if let Some((id, owner)) = duplicate {
+        return schedule::detail(db, &owner, &id);
+    }
+    let activity = json!({"title":title,"type":"writing","purpose":"保存文字成果并记录实际执行状态","start_at":slot["start_at"],"end_at":slot["end_at"],"time_zone":slot["time_zone"],"resource_id":null,"target_ref":null,"repeat":null,"movable":true,"grant_id":gid});
+    let result = schedule::create(db, owner, &activity, &format!("personal:{run}"), true, at)?;
+    ensure!(
+        result["state"] == "enabled",
+        "daily_life_activity_not_authorized"
+    );
+    let id = result["id"]
+        .as_str()
+        .context("daily_life_missing_activity")?;
+    db.execute(
+        "INSERT OR IGNORE INTO daily_life_activities VALUES(?1,'text_v1',?2,1)",
+        params![id, run],
+    )?;
+    db.execute(
+        "INSERT OR IGNORE INTO daily_life_texts VALUES(?1,?2,?3,?4,?5,?6,?7)",
+        params![id, source, conversation, title, content, hash, at],
+    )?;
+    Ok(result)
+}
+fn execute_text(db: &Connection, id: &str, activity: &str, at: i64) -> anyhow::Result<()> {
+    let (owner,conversation,title,content,hash,prepared):(String,String,String,String,String,i64)=db.query_row("SELECT source_owner_id,source_conversation_id,title,content,content_sha256,prepared_at FROM daily_life_texts WHERE activity_id=?1",[activity],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?)))?;
+    let source_order:i64=db.query_row("SELECT r.rowid FROM runs r JOIN daily_life_activities l ON l.source_run_id=r.id WHERE l.activity_id=?1",[activity],|r|r.get(0))?;
+    if source_order <= crate::memory_context::history_floor(db, &conversation)? {
+        db.execute("UPDATE schedule_occurrences SET status='blocked',block_reason='source_forgotten',updated_at=?1 WHERE id=?2",params![at,id])?;
+        db.execute(
+            "UPDATE daily_life_texts SET content='',content_sha256='' WHERE activity_id=?1",
+            [activity],
+        )?;
+        return Ok(());
+    }
+    let result = json!({"method":"saved_text_artifact","title":title,"text":content,"sha256":hash,"prepared_at":prepared,"saved_at":at,"delivery_status":"not_applicable"});
+    db.execute("UPDATE schedule_occurrences SET status='completed',result_json=?1,started_at=?2,completed_at=?2,checkpoint=?3,total_chars=?3,block_reason=NULL,updated_at=?2 WHERE id=?4 AND status='pending'",params![result.to_string(),at,content.chars().count(),id])?;
+    // Never promote generated source-private content into shared diary facts.
+    let record: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM diary_source_policies WHERE source_owner_id=?1 AND enabled=1)",
+        [&owner],
+        |r| r.get(0),
+    )?;
+    if record {
+        let actor: String = db.query_row(
+            "SELECT owner_id FROM schedule_activities WHERE id=?1",
+            [activity],
+            |r| r.get(0),
+        )?;
+        let event = crate::diary::note_in(
+            db,
+            &actor,
+            &crate::diary::Note {
+                content: "完成了一项已登记的文字安排，成果保存在对应日程中。".into(),
+                source_conversation_id: Some(conversation),
+                visibility: "private".into(),
+                publish: false,
+                happened_at: Some(at),
+            },
+        )
+        .map_err(|_| anyhow::anyhow!("daily_life_diary_failed"))?;
+        db.execute(
+            "UPDATE diary_events SET origin_type='schedule_activity',origin_id=?1 WHERE id=?2",
+            params![id, event.id],
+        )?;
+    }
+    db.execute(
+        "UPDATE daily_life_events SET status='completed',finished_at=?1 WHERE activity_id=?2",
+        params![at, activity],
+    )?;
+    Ok(())
+}
 pub fn execute_writing(db: &Connection, at: i64) -> anyhow::Result<()> {
     if !exists(db)? {
         return Ok(());
     }
     let row:Option<(String,String,String,i64)>=db.query_row("SELECT o.id,o.activity_id,l.poem_id,l.activity_revision FROM schedule_occurrences o JOIN daily_life_activities l ON l.activity_id=o.activity_id JOIN schedule_activities a ON a.id=o.activity_id WHERE o.status='pending' AND a.state='enabled' AND a.revision=l.activity_revision AND o.activity_revision=l.activity_revision AND o.start_at<=?1 AND o.end_at>?1 ORDER BY o.start_at LIMIT 1",[at],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
     if let Some((id, activity, poem, _)) = row {
+        if poem == "text_v1" {
+            return execute_text(db, &id, &activity, at);
+        }
         let (_, title, author, text) = POEMS
             .iter()
             .find(|p| p.0 == poem)

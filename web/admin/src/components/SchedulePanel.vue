@@ -145,8 +145,6 @@ const capabilities = ref<{
   clock?: { trusted: boolean };
   model_planning?: boolean;
 }>({});
-const personalPolicy = ref({ revision: 0, enabled: false, daily_limit: 4 });
-const personalDraft = reactive({ enabled: false, daily_limit: 4 });
 const routine = ref<{
   revision: number;
   policy: {
@@ -194,19 +192,6 @@ async function saveRoutine() {
     routine.value = saved;
     notice.value = "每日作息已保存，对后续日程生效。";
     await load();
-  });
-}
-async function savePersonal() {
-  await task(async () => {
-    personalPolicy.value = await api<typeof personalPolicy.value>(
-      "/schedule/personal-policy",
-      {
-        method: "PUT",
-        revision: personalPolicy.value.revision,
-        body: { ...personalDraft },
-      },
-    );
-    notice.value = "小安排授权已保存，对后续对话生效。";
   });
 }
 const filters = reactive({ type: "", creator: "", state: "" });
@@ -348,7 +333,7 @@ async function load() {
   }
 }
 async function loadSettings() {
-  const [r, g, p, c, calendar, personal, rest, history] = await Promise.all([
+  const [r, g, p, c, calendar, rest, history] = await Promise.all([
     api<{ items: Resource[] }>("/schedule/resources", {
       signal: controller.signal,
     }),
@@ -360,9 +345,6 @@ async function loadSettings() {
       signal: controller.signal,
     }),
     api<{ items: CalendarRevision[] }>("/task-triggers/calendars", {
-      signal: controller.signal,
-    }),
-    api<typeof personalPolicy.value>("/schedule/personal-policy", {
       signal: controller.signal,
     }),
     api<NonNullable<typeof routine.value>>("/rest/policy", {
@@ -378,11 +360,6 @@ async function loadSettings() {
     plans.value = p.items;
     capabilities.value = c;
     calendars.value = calendar.items;
-    personalPolicy.value = personal;
-    Object.assign(personalDraft, {
-      enabled: personal.enabled,
-      daily_limit: personal.daily_limit,
-    });
     routine.value = rest;
     decisions.value = history.items;
     Object.assign(routineDraft, {
@@ -784,8 +761,8 @@ onUnmounted(() => {
       </div>
       <button :disabled="busy" @click="task(refresh)">刷新</button>
     </section>
-    <section class="panel" aria-label="每日作息与小安排">
-      <h3>每日作息与小安排</h3>
+    <section class="panel" aria-label="每日作息">
+      <h3>每日作息</h3>
       <p v-if="routine?.policy?.schedule_enabled">
         每天 {{ routine.policy.wake_local || "未设定" }} 起床，{{
           routine.policy.sleep_local || "未设定"
@@ -802,7 +779,7 @@ onUnmounted(() => {
       </p>
       <p v-else>尚未启用每日作息；可在运行总览的作息策略中设置。</p>
       <details class="daily-settings">
-        <summary>作息与小安排设置</summary>
+        <summary>作息设置</summary>
         <form
           class="life-form"
           aria-label="每日固定作息"
@@ -841,25 +818,6 @@ onUnmounted(() => {
             />睡眠时重置上下文，记忆从日记读取</label
           >
           <button :disabled="busy">保存每日作息</button>
-        </form>
-        <form class="life-form" @submit.prevent="savePersonal">
-          <label class="life-check"
-            ><input
-              v-model="personalDraft.enabled"
-              type="checkbox"
-            />允许嘉卉自动安排抄诗</label
-          >
-          <label
-            >每日最多次数<input
-              v-model.number="personalDraft.daily_limit"
-              type="number"
-              min="1"
-              max="8"
-          /></label>
-          <p class="muted">
-            从四首古诗中选择，在07:00–23:00的空闲时段安排10分钟电子抄录，执行后保存完整诗文。授权一年有效，可随时关闭。
-          </p>
-          <button :disabled="busy">保存小安排授权</button>
         </form>
       </details>
       <details>

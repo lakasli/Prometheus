@@ -152,6 +152,11 @@ pub fn store(
     bytes: Vec<u8>,
 ) -> ApiResult<Asset> {
     state.db(|db| Ok(upload_allowed_in(db, owner, conversation)))??;
+    let bytes = if kind == "image" {
+        crate::image_analysis::canonicalize(&STANDARD.encode(bytes))?.bytes
+    } else {
+        bytes
+    };
     store_inner(state, owner, conversation, kind, bytes, None)
 }
 pub fn store_for_run(
@@ -677,7 +682,25 @@ async fn upload(
     let bytes = STANDARD
         .decode(body.data_base64)
         .map_err(|_| ApiError::bad("invalid_base64", "媒体编码无效"))?;
-    let asset = store(&state, &admin.id, &conversation, &body.kind, bytes)?;
+    // Decode in the same bounded slot as inbound chat images, outside Tokio's
+    // async executor and outside a database transaction.
+    let permit = crate::image_analysis_api::DECODE_SLOTS
+        .try_acquire()
+        .map_err(|_| {
+            ApiError::new(
+                StatusCode::CONFLICT,
+                "image_analysis_busy",
+                "图片正在处理，请稍后再试",
+            )
+        })?;
+    let task_state = state.clone();
+    let task_owner = admin.id.clone();
+    let asset = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        store(&task_state, &task_owner, &conversation, &body.kind, bytes)
+    })
+    .await
+    .map_err(|_| ApiError::internal())??;
     state.audit(&admin.id, "media.upload", &asset.id)?;
     Ok((StatusCode::CREATED, Json(json!(asset))))
 }

@@ -117,6 +117,25 @@ class CompatibilityTests(unittest.TestCase):
             compatibility.check(self.data,self.release)
         self.assertEqual(before,(self.data / "dsh.db").read_bytes())
 
+    def test_general_activity_format_requires_reader2_and_preserves_policy(self):
+        with connect(self.data / 'dsh.db') as db:
+            db.executescript('CREATE TABLE daily_life_events(id TEXT);')
+            db.execute("INSERT INTO settings VALUES('schedule.personal.v1',?)",(json.dumps({'format':'text_v1','revision':2}),))
+        (self.release/'deploy/release-capabilities.json').write_text(json.dumps({'schema_reader':1,'daily_life':1}))
+        before=(self.data/'dsh.db').read_bytes()
+        with self.assertRaisesRegex(RuntimeError,'generic personal'):
+            compatibility.check(self.data,self.release)
+        self.assertEqual(before,(self.data/'dsh.db').read_bytes())
+        (self.release/'deploy/release-capabilities.json').write_text(json.dumps({'schema_reader':1,'daily_life':2}))
+        compatibility.check(self.data,self.release)
+
+    def test_general_artifact_without_legacy_switch_still_blocks_old_reader(self):
+        with connect(self.data / 'dsh.db') as db:
+            db.executescript("CREATE TABLE daily_life_events(id TEXT); CREATE TABLE daily_life_texts(activity_id TEXT); INSERT INTO daily_life_texts VALUES('synthetic');")
+        (self.release/'deploy/release-capabilities.json').write_text(json.dumps({'schema_reader':1,'daily_life':1}))
+        with self.assertRaisesRegex(RuntimeError,'generic personal'):
+            compatibility.check(self.data,self.release)
+
     def test_rest_empty_complete_additive_schema_and_exact_default_seeds_allow_legacy(self):
         with connect(self.data / "dsh.db") as db:
             db.executescript(rest_schema_sql())

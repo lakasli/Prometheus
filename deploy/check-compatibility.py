@@ -120,6 +120,13 @@ def check(data_dir, release_source):
                 used = used or policy.get("anticipation_enabled") or policy.get("reset_context_on_sleep")
             if used and int(capabilities.get("daily_life", 0)) < 1:
                 raise RuntimeError("Target release lacks daily routine decisions and sleep context boundaries")
+            generic = bool(policy_row and json.loads(policy_row[0]).get("format") == "text_v1")
+            generic = generic or ("daily_life_texts" in tables and db.execute("SELECT EXISTS(SELECT 1 FROM daily_life_texts)").fetchone()[0])
+            if "rest_deferred_presentations" in tables:
+                columns = {r[1] for r in db.execute("PRAGMA table_info(rest_deferred_presentations)")}
+                generic = generic or ("self_plan_status" in columns and db.execute("SELECT EXISTS(SELECT 1 FROM rest_deferred_presentations WHERE self_plan_status IS NOT NULL)").fetchone()[0])
+            if generic and int(capabilities.get("daily_life", 0)) < 2:
+                raise RuntimeError("Target release cannot execute generic personal text activities")
         check_rest(db, tables, int(capabilities.get("rest", 0)))
         version = db.execute("SELECT coalesce(max(version),0) FROM dsh_schema_migrations").fetchone()[0] if "dsh_schema_migrations" in tables else 0
         # Version 1 is additive for legacy work. A future schema requires its reader.

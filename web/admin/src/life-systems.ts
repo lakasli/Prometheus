@@ -26,7 +26,7 @@ export const stateLabels: Record<string, string> = {
   month: "月记",
 };
 export const activityLabels: Record<string, string> = {
-  writing: "抄诗",
+  writing: "写作",
   sleep: "睡觉",
   wake: "起床",
   reading: "阅读",

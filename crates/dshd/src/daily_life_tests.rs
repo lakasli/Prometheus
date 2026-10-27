@@ -38,19 +38,59 @@ fn choice(decision: &str, delay: i64) -> life::Choice {
 }
 
 #[tokio::test]
-async fn plain_spoken_catalogue_commitment_is_registered_before_publication() {
+async fn plain_qq_statement_is_semantically_committed_before_publication() {
     let f = fixture().await;
     configure(&f, now());
-    *f.model.response.lock().unwrap()=json!([{"type":"text","text":"我会在接下来这个十分钟的时段里抄录王维的《鹿柴》，并记到日程上。","delay_ms":0}]).to_string();
+    f.state
+        .db(|db| {
+            crate::diary::save_policy(
+                db,
+                &f.admin.id,
+                0,
+                &crate::diary::SourcePolicy {
+                    source_owner_id: "owner".into(),
+                    enabled: true,
+                    allow_model: false,
+                    timezone: "Asia/Shanghai".into(),
+                },
+            )
+            .map_err(|_| anyhow::anyhow!("synthetic diary policy failed"))?;
+            Ok(())
+        })
+        .unwrap();
+    *f.model.response.lock().unwrap() =
+        json!([{"type":"text","text":"我趁这会儿去把《鹿柴》抄一抄，抄完也歇。","delay_ms":0}])
+            .to_string();
+    *f.model.plan_response.lock().unwrap()=json!({"self_activity":{"slot_id":"$first_slot","title":"文字记录 SOURCE_A_TITLE","content":"私有文字成果标记 SOURCE_A_ONLY"}}).to_string();
     let current = start(&f.state, "a", "你自己安排十分钟抄诗。");
     let run = current.input.id.clone();
     process(&f.state, current, &CancellationToken::new()).await;
     f.state.db(|db| {
         assert_eq!(db.query_row("SELECT status FROM runs WHERE id=?1",[&run],|r|r.get::<_,String>(0))?,"completed");
-        assert_eq!(db.query_row("SELECT poem_id FROM daily_life_activities WHERE source_run_id=?1",[&run],|r|r.get::<_,String>(0))?,"luchai");
-        assert_eq!(db.query_row("SELECT count(*) FROM audit_events WHERE action='schedule.personal.reply_recovered' AND resource=?1",[&run],|r|r.get::<_,i64>(0))?,1);
+        assert_eq!(db.query_row("SELECT poem_id FROM daily_life_activities WHERE source_run_id=?1",[&run],|r|r.get::<_,String>(0))?,"text_v1");
+        assert_eq!(db.query_row("SELECT count(*) FROM audit_events WHERE action='schedule.personal.reply_recovered' AND resource=?1",[&run],|r|r.get::<_,i64>(0))?,0);
         Ok(())
     }).unwrap();
+    let other = enqueue(
+        &f.state,
+        "b",
+        "second-owner",
+        "privacy-other",
+        "普通对话",
+        None,
+    )
+    .unwrap();
+    f.state.db(|db| {let tx=db.transaction()?;
+        let start=now();
+        tx.execute("UPDATE schedule_activities SET definition_json=json_set(definition_json,'$.start_at',?1,'$.end_at',?2) WHERE id=(SELECT activity_id FROM daily_life_activities WHERE source_run_id=?3)",params![start,start+600,run])?;
+        schedule::tick_in(&tx,start,false).map_err(|e| {eprintln!("generic scheduled execution failed: {e:#}");e})?;
+        let saved:String=tx.query_row("SELECT o.result_json FROM schedule_occurrences o JOIN daily_life_activities l ON l.activity_id=o.activity_id WHERE l.source_run_id=?1",[&run],|r|r.get(0))?;
+        assert!(saved.contains("SOURCE_A_ONLY"));
+        assert_eq!(tx.query_row("SELECT count(*) FROM diary_events WHERE visibility='shared' OR content LIKE '%SOURCE_A_ONLY%'",[],|r|r.get::<_,i64>(0))?,0);
+        assert_eq!(tx.query_row("SELECT count(*) FROM diary_events WHERE origin_type='schedule_activity' AND source_owner_id='owner'",[],|r|r.get::<_,i64>(0))?,1);
+        assert!(!life::prompt_in(&tx,&other,start)?.contains("SOURCE_A_TITLE"));
+        tx.execute("UPDATE runs SET status='cancelled' WHERE id=?1",[&other])?;
+        tx.commit()?;Ok(())}).unwrap();
     // A new explicit promise after revocation must not become a message.
     f.state
         .db(|db| {
@@ -89,52 +129,167 @@ async fn plain_spoken_catalogue_commitment_is_registered_before_publication() {
 }
 
 #[tokio::test]
-async fn spoken_recovery_excludes_quotes_conditions_negation_history_and_unknown_poems() {
+async fn generic_offer_uses_standard_grants_without_hobby_prompts_or_source_leakage() {
     let f = fixture().await;
     configure(&f, now());
-    let run = start(&f.state, "a", "测试有界表达。");
+    let current = start(&f.state, "a", "给自己安排一件事。");
     f.state
         .db(|db| {
             let tx = db.transaction()?;
-            life::prompt_in(&tx, &run.input.id, now())?;
-            for text in [
-                "你说“我去抄诗了”。",
-                "如果有空，我也去抄诗。",
-                "我不会在接下来抄诗。",
-                "我昨天准备抄诗。",
-                "我去抄诗吗？",
-                "我会抄诗，也会画画。",
-                "我现在喜欢抄诗。",
-                "我去抄诗。算了，不去了。",
-                "我现在抄录会议文件。",
-            ] {
-                assert!(
-                    life::selection_for_reply(&tx, &run.input.id, "[]", text)?.is_none(),
-                    "{text}"
-                );
+            let prompt = life::prompt_in(&tx, &current.input.id, now())?;
+            for token in ["抄诗", "鹿柴", "春晓", "poem_id", "catalog"] {
+                assert!(!prompt.contains(token), "{token}");
             }
-            assert!(
-                life::selection_for_reply(&tx, &run.input.id, "[]", "我现在抄录《长恨歌》。")
-                    .is_err()
-            );
-            assert!(life::selection_for_reply(
-                &tx,
-                &run.input.id,
-                "[]",
-                "我现在抄录《春晓》和《鹿柴》。"
-            )
-            .is_err());
-            let selection =
-                life::selection_for_reply(&tx, &run.input.id, "[]", "我这边也去抄诗了。")?.unwrap();
-            assert_eq!(selection.poem_id, "chunxiao");
-            assert!(selection.slot_id.starts_with("slot-"));
+            assert!(prompt.contains("保存一份文字成果"));
+            tx.commit()?;
+            Ok(())
+        })
+        .unwrap();
+}
+
+#[tokio::test]
+async fn generic_plan_check_reuses_checkpoint_and_never_retries_an_unknown_attempt() {
+    let f = fixture().await;
+    configure(&f, now());
+    let current = start(&f.state, "a", "普通文字安排。");
+    let run = current.input.id.clone();
+    prepare_messages(&f.state, &current.input).unwrap();
+    let raw = json!([{"type":"text","text":"我趁这会儿先把想法整理成一段记录。","delay_ms":0}])
+        .to_string();
+    assert!(crate::rest_runtime::cache_generation(&f.state, &run, &raw).unwrap());
+    *f.model.plan_response.lock().unwrap()=json!({"self_activity":{"slot_id":"$first_slot","title":"整理想法","content":"一份独立文字成果。"}}).to_string();
+    let first = life::complete_reply_plan(&f.state, &run, &current.input.config, raw.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        life::complete_reply_plan(&f.state, &run, &current.input.config, raw.clone())
+            .await
+            .unwrap(),
+        first
+    );
+    assert_eq!(f.model.calls.load(Ordering::SeqCst), 1);
+    f.state.db(|db| {assert_eq!(crate::rest_runtime::cached_generation_in(db,&run)?.as_deref(),Some(raw.as_str()));
+        db.execute("UPDATE rest_deferred_presentations SET self_plan_status='checking',self_plan_json=NULL WHERE run_id=?1",[&run])?;
+        life::initialize_plan_cache(db)?;Ok(())}).unwrap();
+    assert!(
+        life::complete_reply_plan(&f.state, &run, &current.input.config, raw)
+            .await
+            .is_err()
+    );
+    assert_eq!(f.model.calls.load(Ordering::SeqCst), 1);
+    f.state.db(|db| {db.execute("DELETE FROM rest_deferred_presentations WHERE run_id=?1",[&run])?;assert_eq!(db.query_row("SELECT count(*) FROM rest_deferred_presentations WHERE self_plan_json IS NOT NULL",[],|r|r.get::<_,i64>(0))?,0);Ok(())}).unwrap();
+}
+
+#[tokio::test]
+async fn qq_jpeg_reaches_vision_native_and_generic_schedule_and_failure_notice_stays_human() {
+    let f = fixture().await;
+    configure(&f, now());
+    let config = f
+        .state
+        .db(|db| {
+            let (revision, mut c) = character::current_config_in(db)?;
+            c.qq.enabled = true;
+            c.qq.app_id = "synthetic-app".into();
+            c.qq.credential_ref = Some("synthetic-qq-ref".into());
+            db.execute(
+                "UPDATE config_revisions SET config_json=?1 WHERE revision=?2",
+                params![serde_json::to_string(&c)?, revision],
+            )?;
+            Ok(c)
+        })
+        .unwrap();
+    *f.model.response.lock().unwrap() =
+        json!([{"type":"text","text":"我趁这会儿去把《鹿柴》抄一抄，抄完也歇。","delay_ms":0}])
+            .to_string();
+    *f.model.plan_response.lock().unwrap()=json!({"self_activity":{"slot_id":"$first_slot","title":"整理一段文字","content":"SOURCE_QQ_PRIVATE_TEXT"}}).to_string();
+    let image = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+        16,
+        16,
+        image::Rgb([220, 30, 30]),
+    ));
+    let mut encoded = std::io::Cursor::new(Vec::new());
+    image
+        .write_to(&mut encoded, image::ImageFormat::Jpeg)
+        .unwrap();
+    let prepared =
+        crate::qq::incoming_media::prepare_bytes(Some("image/jpeg"), encoded.into_inner()).await;
+    assert!(matches!(
+        &prepared,
+        crate::qq::incoming_media::Prepared::Image(_)
+    ));
+    let payload = json!({"t":"C2C_MESSAGE_CREATE","id":"synthetic-jpeg-event","d":{"id":"synthetic-jpeg-msg","content":"看看这个杯子，接下来你自己安排点事吧。","author":{"user_openid":"synthetic_target"}}});
+    crate::qq::ingest_prepared(
+        &f.state,
+        &config,
+        &payload,
+        now(),
+        now() + 3600,
+        prepared,
+        None,
+    )
+    .unwrap();
+    let claimed = claim(&f.state).unwrap().unwrap();
+    let run = claimed.input.id.clone();
+    process(&f.state, claimed, &CancellationToken::new()).await;
+    f.state
+        .db(|db| {
             assert_eq!(
-                life::selection_for_reply(&tx, &run.input.id, "[]", "我准备抄《鹿柴》。")?
-                    .unwrap()
-                    .poem_id,
-                "luchai"
+                db.query_row("SELECT status FROM runs WHERE id=?1", [&run], |r| r
+                    .get::<_, String>(0))?,
+                "completed"
             );
-            tx.rollback()?;
+            assert_eq!(
+                db.query_row(
+                    "SELECT status FROM conversation_images WHERE run_id=?1",
+                    [&run],
+                    |r| r.get::<_, String>(0)
+                )?,
+                "described"
+            );
+            assert_eq!(
+                db.query_row(
+                    "SELECT count(*) FROM daily_life_activities WHERE source_run_id=?1",
+                    [&run],
+                    |r| r.get::<_, i64>(0)
+                )?,
+                1
+            );
+            assert_eq!(
+                db.query_row(
+                    "SELECT count(*) FROM outbox WHERE run_id=?1 AND status='queued'",
+                    [&run],
+                    |r| r.get::<_, i64>(0)
+                )?,
+                1
+            );
+            Ok(())
+        })
+        .unwrap();
+    let payload = json!({"t":"C2C_MESSAGE_CREATE","id":"synthetic-bad-event","d":{"id":"synthetic-bad-msg","content":"","author":{"user_openid":"synthetic_target"}}});
+    crate::qq::ingest_prepared(
+        &f.state,
+        &config,
+        &payload,
+        now(),
+        now() + 3600,
+        crate::qq::incoming_media::Prepared::Unavailable {
+            code: "media_image_invalid",
+            message: "仅PNG/H264 technical diagnostic",
+        },
+        None,
+    )
+    .unwrap();
+    f.state
+        .db(|db| {
+            let reply: String = db.query_row(
+                "SELECT response FROM runs WHERE client_message_id='synthetic-bad-msg'",
+                [],
+                |r| r.get(0),
+            )?;
+            assert!(reply.contains("没打开"));
+            for technical in ["PNG", "H264", "模型", "MiB"] {
+                assert!(!reply.contains(technical));
+            }
             Ok(())
         })
         .unwrap();
@@ -170,6 +325,7 @@ async fn chat_schedule_is_atomic_real_and_idempotent_without_private_projection(
             Ok(life::Selection {
                 poem_id: "chunxiao".into(),
                 slot_id: offer["slots"][0]["slot_id"].as_str().unwrap().into(),
+                ..Default::default()
             })
         })
         .unwrap();
@@ -185,6 +341,15 @@ async fn chat_schedule_is_atomic_real_and_idempotent_without_private_projection(
         .unwrap();
     let aid = saved["id"].as_str().unwrap();
     let start_at = saved["definition"]["start_at"].as_i64().unwrap();
+    let second = enqueue(
+        &f.state,
+        "b",
+        "second-owner",
+        "second-evidence",
+        "普通来源隔离检查",
+        None,
+    )
+    .unwrap();
     f.state.db(|db|{let tx=db.transaction()?;
         assert_eq!(schedule::detail(&tx,"owner",aid)?["occurrences"],json!([]));
         schedule::tick_in(&tx,start_at,false)?;
@@ -192,7 +357,7 @@ async fn chat_schedule_is_atomic_real_and_idempotent_without_private_projection(
         assert_eq!(detail["occurrences"][0]["status"],"completed");
         assert!(detail["occurrences"][0]["result"]["text"].as_str().unwrap().contains("春眠不觉晓"));
         tx.execute("UPDATE schedule_activities SET title='PRIVATE_TITLE',definition_json=json_set(definition_json,'$.purpose','PRIVATE_PURPOSE') WHERE id=?1",[aid])?;
-        let prompt=life::prompt_in(&tx,"second-run",at+1)?;
+        let prompt=life::prompt_in(&tx,&second,at+1)?;
         assert!(!prompt.contains("PRIVATE_TITLE") && !prompt.contains("PRIVATE_PURPOSE"));
         tx.commit()?;Ok(())}).unwrap();
     drop(claimed);
@@ -358,8 +523,8 @@ async fn worker_publishes_only_after_schedule_commit_and_rejects_forged_slot_wit
         .as_str()
         .unwrap();
     assert!(
-        final_contract.contains("DSH_DAILY_LIFE_COMPLETION_V1")
-            && final_contract.contains("不能只输出安排承诺")
+        final_contract.contains("DSH_DAILY_LIFE_COMPLETION_V2")
+            && final_contract.contains("不能只说要做却不登记")
     );
     let slot = f
         .state
@@ -435,22 +600,32 @@ async fn movable_activity_notice_postpones_one_occurrence_and_executes_at_new_ti
         .unwrap()
         .timestamp();
     configure(&f, at);
+    let poem_run = enqueue(
+        &f.state,
+        "a",
+        "owner",
+        "movable-source",
+        "安排一个可移动活动",
+        None,
+    )
+    .unwrap();
     f.state
         .db(|db| {
             let tx = db.transaction()?;
-            life::prompt_in(&tx, "poem-run", at)?;
+            life::prompt_in(&tx, &poem_run, at)?;
             let raw: String = tx.query_row(
-                "SELECT offer_json FROM daily_life_offers WHERE run_id='poem-run'",
-                [],
+                "SELECT offer_json FROM daily_life_offers WHERE run_id=?1",
+                [&poem_run],
                 |r| r.get(0),
             )?;
             let offer: Value = serde_json::from_str(&raw)?;
             let item = life::commit_selection(
                 &tx,
-                "poem-run",
+                &poem_run,
                 &life::Selection {
                     poem_id: "luchai".into(),
                     slot_id: offer["slots"][0]["slot_id"].as_str().unwrap().into(),
+                    ..Default::default()
                 },
                 at,
             )?;

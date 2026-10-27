@@ -174,7 +174,7 @@ function decode(url: string) {
     };
     const timer = setTimeout(() => {
       cleanup();
-      reject(new Error("本地图片解码超时，请重新选择 PNG。"));
+      reject(new Error("图片没有打开，请重新选择一次。"));
     }, 10000);
     cancelDecode = () => {
       cleanup();
@@ -187,7 +187,7 @@ function decode(url: string) {
     };
     image.onerror = () => {
       cleanup();
-      reject(new Error("图片无法解码，请选择完整的 PNG 文件。"));
+      reject(new Error("这张图片没有完整打开，请换一张重试。"));
     };
     image.decoding = "async";
     image.src = url;
@@ -205,39 +205,28 @@ async function chooseImage(event: Event) {
   checking.value = true;
   try {
     const caps = capabilities.value!;
-    if (selected!.length !== 1 || (chosen.type && chosen.type !== "image/png"))
-      throw new Error("每条消息只能附一张 PNG 图片。");
-    if (!chosen.size || chosen.size > Math.min(1048576, caps.max_image_bytes))
-      throw new Error("PNG 不能为空，且不能超过 1 MiB。");
-    const header = await chosen.slice(0, 33).arrayBuffer();
-    const values = new Uint8Array(header);
-    if (
-      values.length < 33 ||
-      ![137, 80, 78, 71, 13, 10, 26, 10].every(
-        (value, index) => values[index] === value,
-      )
-    )
-      throw new Error("请选择有效 PNG 图片。");
-    const data = new DataView(header);
-    if (data.getUint32(8) !== 13 || data.getUint32(12) !== 0x49484452)
-      throw new Error("PNG 文件头无效。");
-    const width = data.getUint32(16);
-    const height = data.getUint32(20);
-    if (
-      !width ||
-      !height ||
-      width > Math.min(2048, caps.max_width) ||
-      height > Math.min(2048, caps.max_height) ||
-      width * height > Math.min(2097152, caps.max_pixels)
-    )
-      throw new Error("图片宽高各不超过 2,048，总像素不超过 2,097,152。");
+    if (selected!.length !== 1 || !/\.(png|jpe?g|webp|gif|bmp)$/i.test(chosen.name))
+      throw new Error("请选择一张 PNG、JPG、WebP、GIF 或 BMP 图片。");
+    if (!chosen.size || chosen.size > Math.min(8*1048576, caps.max_image_bytes))
+      throw new Error("图片不能为空，且不能超过 8 MiB。");
+    const header=new Uint8Array(await chosen.slice(0,33).arrayBuffer());
+    const png=[137,80,78,71,13,10,26,10].every((n,i)=>header[i]===n);
+    const ascii=(start:number,length:number)=>String.fromCharCode(...header.slice(start,start+length));
+    if (!(png || (header[0]===255 && header[1]===216 && header[2]===255) || ascii(0,3)==="GIF" || ascii(0,2)==="BM" || (ascii(0,4)==="RIFF" && ascii(8,4)==="WEBP")))
+      throw new Error("图片内容没有识别出来，请重新选择图片。");
+    const declared=png && header.length>=33 ? {width:new DataView(header.buffer).getUint32(16),height:new DataView(header.buffer).getUint32(20)}:null;
+    if (declared && (!declared.width || !declared.height || declared.width>caps.max_width || declared.height>caps.max_height || declared.width*declared.height>caps.max_pixels))
+      throw new Error("图片尺寸太大，请换一张小一点的图片。");
     if (disposed || token !== fileEpoch) return;
     const url = URL.createObjectURL(chosen);
     previewUrl.value = url;
     const actual = await decode(url);
     if (disposed || token !== fileEpoch) return;
-    if (actual.width !== width || actual.height !== height)
-      throw new Error("图片解码尺寸与 PNG 文件头不一致。");
+    const {width,height}=actual;
+    if (declared && (width!==declared.width || height!==declared.height))
+      throw new Error("图片尺寸与文件内容不一致，请重新选择图片。");
+    if (!width || !height || width>caps.max_width || height>caps.max_height || width*height>caps.max_pixels)
+      throw new Error("图片尺寸太大，请换一张小一点的图片。");
     imageFile.value = chosen;
     imageSize.value = { width, height };
   } catch (caught) {
@@ -417,7 +406,7 @@ defineExpose({ hasUnconfirmed });
     <figure v-if="previewUrl" class="conversation-preview">
       <img :src="previewUrl" alt="本次对话图片的本地预览" />
       <figcaption v-if="imageSize">
-        PNG · {{ imageSize.width }} × {{ imageSize.height }} ·
+        图片 · {{ imageSize.width }} × {{ imageSize.height }} ·
         {{ uncertain ? "提交结果未确认，仅供核对" : "本地预览，尚未发送" }}
       </figcaption>
       <button
@@ -496,12 +485,12 @@ defineExpose({ hasUnconfirmed });
     </section>
     <div class="conversation-composer-actions">
       <label class="conversation-file-choice"
-        ><span>{{ imageFile ? "更换 PNG" : "附加 PNG" }}</span
+        ><span>{{ imageFile ? "更换图片" : "附加图片" }}</span
         ><input
           ref="fileInput"
           type="file"
-          accept="image/png"
-          aria-label="附加一张对话 PNG 图片"
+          accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,.jpg,.jpeg,.bmp"
+          aria-label="附加一张对话图片"
           :disabled="
             locked ||
             checking ||
@@ -525,7 +514,7 @@ defineExpose({ hasUnconfirmed });
             (capabilitiesLoading
               ? "正在确认图片能力…"
               : capabilities?.available
-                ? "可附一张 PNG，最多 1 MiB，宽高各 2,048、总像素 2,097,152。"
+                ? "可附一张常用格式图片，最多 8 MiB、2,400 万像素；动图按首帧查看。"
                 : "当前图片理解不可用，仍可发送文字。")
       }}
       本地预览不上传；原始上传文件不留存，处理中使用的规范化图片在视觉处理结束后清理。

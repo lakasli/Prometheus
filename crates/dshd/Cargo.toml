@@ -18,6 +18,7 @@ ed25519-dalek = "2.1"
 futures-util = "0.3"
 fs2 = "0.4"
 hex = "0.4"
+image = { version = "=0.25.8", default-features = false, features = ["jpeg", "webp", "gif", "bmp"] }
 md-5 = "=0.10.6"
 rand = "0.8"
 png = "=0.18.1"

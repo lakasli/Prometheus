@@ -18,7 +18,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/admin/v1/image-analysis", get(page))
         .route(
             "/api/admin/v1/image-analysis/jobs",
-            post(create).layer(DefaultBodyLimit::max(1_500_000)),
+            post(create).layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
         )
         .route(
             "/api/admin/v1/image-analysis/jobs/{id}",

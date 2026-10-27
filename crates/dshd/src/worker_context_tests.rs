@@ -17,16 +17,29 @@ struct Model {
     hold: AtomicBool,
     bodies: Mutex<Vec<Value>>,
     response: Mutex<String>,
+    plan_response: Mutex<String>,
+    vision_response: Mutex<String>,
     release: Notify,
 }
 async fn model(State(model): State<Arc<Model>>, Json(body): Json<Value>) -> Json<Value> {
+    let plan = body["messages"][0]["content"]
+        .as_str()
+        .is_some_and(|s| s.starts_with("DSH_SELF_PLAN_COMMIT_V2"));
+    let vision = body["messages"][0]["content"]
+        .as_str()
+        .is_some_and(|s| s.starts_with("DSH_CONVERSATION_IMAGE_DESCRIPTION_V1"));
+    let slot = body["messages"][1]["content"]
+        .as_str()
+        .and_then(|s| serde_json::from_str::<Value>(s).ok())
+        .and_then(|v| v["slots"][0]["slot_id"].as_str().map(str::to_owned))
+        .unwrap_or_default();
     model.calls.fetch_add(1, Ordering::SeqCst);
     model.bodies.lock().unwrap().push(body);
     if model.hold.load(Ordering::SeqCst) {
         model.release.notified().await;
     }
     Json(
-        json!({"choices":[{"message":{"content":model.response.lock().unwrap().clone()},"finish_reason":"stop"}]}),
+        json!({"choices":[{"message":{"content":if plan {model.plan_response.lock().unwrap().replace("$first_slot",&slot)} else if vision {model.vision_response.lock().unwrap().clone()} else {model.response.lock().unwrap().clone()}},"finish_reason":"stop"}]}),
     )
 }
 
@@ -57,6 +70,8 @@ async fn fixture() -> Fixture {
         hold: AtomicBool::new(false),
         bodies: Mutex::new(Vec::new()),
         response: Mutex::new("合成回答。".into()),
+        plan_response: Mutex::new("{\"self_activity\":null}".into()),
+        vision_response: Mutex::new("桌上有一只红色杯子，其他细节没有看清。".into()),
         release: Notify::new(),
     });
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
