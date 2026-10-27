@@ -197,7 +197,7 @@ pub fn claim_next(state: &AppState) -> ApiResult<Option<Claimed>> {
         return Ok(None);
     }
     state.db(|db|{
-        let tx=db.transaction()?;let (_,config)=character::current_config_in(&tx)?;
+        let tx=db.transaction()?;if !crate::rest_runtime::automatic_allowed_in(&tx)? {return Ok(None);}let (_,config)=character::current_config_in(&tx)?;
         let host_ready:bool=tx.query_row("SELECT clock_trusted AND space_ok FROM trigger_runtime WHERE id=1",[],|r|r.get(0))?;
         if !host_ready{return Ok(None);}
         if config.model.credential_ref.is_none(){return Ok(None);}

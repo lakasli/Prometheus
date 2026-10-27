@@ -14,6 +14,7 @@ struct Model {
     calls: AtomicUsize,
     hold: AtomicBool,
     bodies: Mutex<Vec<Value>>,
+    response: Mutex<String>,
     release: Notify,
 }
 async fn model(State(model): State<Arc<Model>>, Json(body): Json<Value>) -> Json<Value> {
@@ -22,7 +23,9 @@ async fn model(State(model): State<Arc<Model>>, Json(body): Json<Value>) -> Json
     if model.hold.load(Ordering::SeqCst) {
         model.release.notified().await;
     }
-    Json(json!({"choices":[{"message":{"content":"合成回答。"},"finish_reason":"stop"}]}))
+    Json(
+        json!({"choices":[{"message":{"content":model.response.lock().unwrap().clone()},"finish_reason":"stop"}]}),
+    )
 }
 
 struct Fixture {
@@ -51,6 +54,7 @@ async fn fixture() -> Fixture {
         calls: AtomicUsize::new(0),
         hold: AtomicBool::new(false),
         bodies: Mutex::new(Vec::new()),
+        response: Mutex::new("合成回答。".into()),
         release: Notify::new(),
     });
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -752,6 +756,545 @@ async fn revoked_original_source_fences_inflight_response_without_releasing_tran
         ),
         0
     );
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM rest_deferred_presentations WHERE run_id=?1",
+            &run
+        ),
+        0
+    );
+}
+
+#[tokio::test]
+async fn forgotten_memory_cannot_be_refilled_by_an_inflight_http_generation_checkpoint() {
+    let fixture = fixture().await;
+    let canary = "FORGET_INFLIGHT_CACHE_SECRET_984";
+    let memory = memory_fixture(
+        &fixture.state,
+        "a",
+        &format!("合成私有资料，唯一代号{canary}，遗忘后不能回填。"),
+    );
+    *fixture.model.response.lock().unwrap() = format!("旧请求包含已遗忘代号{canary}。");
+    fixture.model.hold.store(true, Ordering::SeqCst);
+    let claimed = start(
+        &fixture.state,
+        "a",
+        &format!("请复述合成私有资料的代号{canary}"),
+    );
+    let run = claimed.input.id.clone();
+    let state = fixture.state.clone();
+    let task =
+        tokio::spawn(async move { process(&state, claimed, &CancellationToken::new()).await });
+    received(&fixture.model).await;
+    assert_eq!(fixture.model.calls.load(Ordering::SeqCst), 1);
+    assert!(
+        serde_json::to_string(&*fixture.model.bodies.lock().unwrap())
+            .unwrap()
+            .contains(canary)
+    );
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM memory_run_uses WHERE run_id=?1",
+            &run
+        ),
+        1
+    );
+    fixture
+        .state
+        .db(|db| {
+            memory::forget(db, "owner", &memory.id, memory.revision)
+                .map_err(|error| anyhow::anyhow!("synthetic explicit forget: {}", error.message))?;
+            Ok(())
+        })
+        .unwrap();
+    // The provider is still at its actual HTTP barrier. This source mutation
+    // cannot make another request fit before the owned transport is reclaimed.
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM native_worker_leases WHERE run_id=?1",
+            &run
+        ),
+        1
+    );
+    enqueue(
+        &fixture.state,
+        "b",
+        "second-owner",
+        "after-real-memory-forget",
+        "另一个合成请求",
+        None,
+    )
+    .unwrap();
+    assert!(claim(&fixture.state).unwrap().is_none());
+    fixture.model.release.notify_one();
+    tokio::time::timeout(Duration::from_secs(3), task)
+        .await
+        .unwrap()
+        .unwrap();
+    for table in ["rest_deferred_presentations", "outbox", "weixin_outbox"] {
+        assert_eq!(
+            scalar(
+                &fixture.state,
+                &format!("SELECT count(*) FROM {table} WHERE run_id=?1"),
+                &run
+            ),
+            0
+        );
+    }
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM messages WHERE run_id=?1 AND role='assistant'",
+            &run
+        ),
+        0
+    );
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM native_worker_leases WHERE run_id=?1",
+            &run
+        ),
+        0
+    );
+    assert_eq!(fixture.model.calls.load(Ordering::SeqCst), 1);
+    fixture
+        .state
+        .db(|db| {
+            let value: Option<String> = db.query_row(
+                "SELECT content FROM memory_records WHERE id=?1",
+                [&memory.id],
+                |r| r.get(0),
+            )?;
+            anyhow::ensure!(value.is_none(), "explicit forget retained source body");
+            Ok(())
+        })
+        .unwrap();
+}
+
+#[tokio::test]
+async fn actual_inflight_http_is_deferred_by_sleep_then_wake_reuses_one_frozen_generation() {
+    let fixture = fixture().await;
+    fixture.model.hold.store(true, Ordering::SeqCst);
+    let claimed = start(&fixture.state, "a", "合成睡眠恢复问题：返回完整答案即可。");
+    let run = claimed.input.id.clone();
+    let state = fixture.state.clone();
+    let task =
+        tokio::spawn(async move { process(&state, claimed, &CancellationToken::new()).await });
+    received(&fixture.model).await;
+    let prompt = fixture
+        .state
+        .db(|db| {
+            Ok(db.query_row(
+                "SELECT messages_json FROM run_prompt_snapshots WHERE run_id=?1",
+                [&run],
+                |r| r.get::<_, String>(0),
+            )?)
+        })
+        .unwrap();
+    let (generation, wake_at) = fixture
+        .state
+        .db(|db| {
+            let tx = db.transaction()?;
+            tx.execute("UPDATE trigger_runtime SET clock_trusted=1 WHERE id=1", [])?;
+            let admin = crate::rest_store::requester_for_admin_in(&tx, &fixture.admin)?;
+            let (revision, _) = crate::rest_store::policy_in(&tx)?;
+            crate::rest_store::save_policy_in(
+                &tx,
+                &admin,
+                revision,
+                &crate::rest_store::RestPolicy {
+                    default_sleep_seconds: Some(30),
+                    max_sleep_seconds: 60,
+                    drain_seconds: 1,
+                    consolidation_seconds: 1,
+                    ..Default::default()
+                },
+                now(),
+            )?;
+            let clock = crate::rest_clock::sample_in(&tx)?;
+            let operation = crate::rest_store::sleep_in(
+                &tx,
+                &admin,
+                0,
+                "loopback-barrier-sleep",
+                &Default::default(),
+                &clock,
+            )?;
+            tx.commit()?;
+            Ok((operation.generation, operation.wake_at))
+        })
+        .unwrap();
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM native_worker_leases WHERE run_id=?1",
+            &run
+        ),
+        1
+    );
+    assert!(claim(&fixture.state).unwrap().is_none());
+    fixture.model.release.notify_one();
+    tokio::time::timeout(Duration::from_secs(3), task)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM runs WHERE id=?1 AND status='queued'",
+            &run
+        ),
+        1
+    );
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM rest_deferred_presentations WHERE run_id=?1 AND media_inflight=0",
+            &run
+        ),
+        1
+    );
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM messages WHERE run_id=?1 AND role='assistant'",
+            &run
+        ),
+        0
+    );
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM outbox WHERE run_id=?1",
+            &run
+        ),
+        0
+    );
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM native_worker_leases WHERE run_id=?1",
+            &run
+        ),
+        0
+    );
+    assert_eq!(fixture.model.calls.load(Ordering::SeqCst), 1);
+    fixture
+        .state
+        .db(|db| {
+            let tx = db.transaction()?;
+            tx.execute(
+                "UPDATE trigger_runtime SET clock_trusted=0,space_ok=0 WHERE id=1",
+                [],
+            )?;
+            let admin = crate::rest_store::requester_for_admin_in(&tx, &fixture.admin)?;
+            let clock = crate::rest_clock::sample_in(&tx)?;
+            crate::rest_store::wake_in(&tx, &admin, generation, "loopback-barrier-wake", &clock)?;
+            let state = crate::rest_store::advance_in(&tx, &clock)?;
+            anyhow::ensure!(
+                state.phase == crate::rest_store::RestPhase::Awake,
+                "real wake did not complete"
+            );
+            anyhow::ensure!(
+                state.wake_at == wake_at,
+                "wake changed the original deadline"
+            );
+            tx.commit()?;
+            Ok(())
+        })
+        .unwrap();
+    let resumed = claim(&fixture.state)
+        .unwrap()
+        .expect("the cached ordinary run becomes claimable after real wake");
+    assert_eq!(resumed.input.id, run);
+    // Keep the loopback barrier armed. A second model call would block and make
+    // this timeout fail, rather than counting a fabricated cached result.
+    tokio::time::timeout(
+        Duration::from_secs(3),
+        process(&fixture.state, resumed, &CancellationToken::new()),
+    )
+    .await
+    .expect("resume must not dispatch another provider request");
+    assert_eq!(fixture.model.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM runs WHERE id=?1 AND status='completed'",
+            &run
+        ),
+        1
+    );
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM rest_deferred_presentations WHERE run_id=?1",
+            &run
+        ),
+        0
+    );
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM native_worker_leases WHERE run_id=?1",
+            &run
+        ),
+        0
+    );
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM messages WHERE run_id=?1 AND role='assistant'",
+            &run
+        ),
+        1
+    );
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM outbox WHERE run_id=?1",
+            &run
+        ),
+        0
+    );
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM weixin_outbox WHERE run_id=?1",
+            &run
+        ),
+        0
+    );
+    assert_eq!(
+        fixture
+            .state
+            .db(|db| Ok(db.query_row(
+                "SELECT messages_json FROM run_prompt_snapshots WHERE run_id=?1",
+                [&run],
+                |r| r.get::<_, String>(0)
+            )?))
+            .unwrap(),
+        prompt
+    );
+}
+
+#[tokio::test]
+async fn forgetting_a_pure_memory_consumer_immediately_erases_its_already_queued_generation() {
+    let fixture = fixture().await;
+    let canary = "PURE_MEMORY_DEFERRED_FORGET_527";
+    let memory = memory_fixture(
+        &fixture.state,
+        "a",
+        &format!("合成私有偏好：青色灯罩，独有代号{canary}。"),
+    );
+    *fixture.model.response.lock().unwrap() = format!("旧请求复述私有偏好代号{canary}。");
+    fixture.model.hold.store(true, Ordering::SeqCst);
+    // A brief acknowledgement in a new conversation has no focus or commitment
+    // to inherit. The real compiler can still select the authorized memory.
+    let claimed = start(&fixture.state, "a", "嗯");
+    let run = claimed.input.id.clone();
+    let state = fixture.state.clone();
+    let task =
+        tokio::spawn(async move { process(&state, claimed, &CancellationToken::new()).await });
+    received(&fixture.model).await;
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM memory_run_uses WHERE run_id=?1",
+            &run
+        ),
+        1
+    );
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM conversation_state_uses WHERE run_id=?1",
+            &run
+        ),
+        0
+    );
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM conversation_commitment_usage WHERE run_id=?1",
+            &run
+        ),
+        0
+    );
+    assert!(
+        serde_json::to_string(&*fixture.model.bodies.lock().unwrap())
+            .unwrap()
+            .contains(canary)
+    );
+    fixture
+        .state
+        .db(|db| {
+            let tx = db.transaction()?;
+            tx.execute("UPDATE trigger_runtime SET clock_trusted=1 WHERE id=1", [])?;
+            let admin = crate::rest_store::requester_for_admin_in(&tx, &fixture.admin)?;
+            let (revision, _) = crate::rest_store::policy_in(&tx)?;
+            crate::rest_store::save_policy_in(
+                &tx,
+                &admin,
+                revision,
+                &crate::rest_store::RestPolicy {
+                    default_sleep_seconds: Some(30),
+                    max_sleep_seconds: 60,
+                    drain_seconds: 1,
+                    consolidation_seconds: 1,
+                    ..Default::default()
+                },
+                now(),
+            )?;
+            crate::rest_store::sleep_in(
+                &tx,
+                &admin,
+                0,
+                "pure-memory-deferred-sleep",
+                &Default::default(),
+                &crate::rest_clock::sample_in(&tx)?,
+            )?;
+            tx.commit()?;
+            Ok(())
+        })
+        .unwrap();
+    fixture.model.release.notify_one();
+    tokio::time::timeout(Duration::from_secs(3), task)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM runs WHERE id=?1 AND status='queued'",
+            &run
+        ),
+        1
+    );
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM rest_deferred_presentations WHERE run_id=?1",
+            &run
+        ),
+        1
+    );
+    fixture
+        .state
+        .db(|db| {
+            let raw: String = db.query_row(
+                "SELECT raw_generation FROM rest_deferred_presentations WHERE run_id=?1",
+                [&run],
+                |r| r.get(0),
+            )?;
+            anyhow::ensure!(
+                raw.contains(canary),
+                "actual provider response was not checkpointed"
+            );
+            Ok(())
+        })
+        .unwrap();
+    let same_scope_unstarted = enqueue(
+        &fixture.state,
+        "a",
+        "owner",
+        "same-scope-no-cache",
+        "同会话尚未处理的新问题",
+        None,
+    )
+    .unwrap();
+    let other_scope_unstarted = enqueue(
+        &fixture.state,
+        "b",
+        "second-owner",
+        "other-scope-no-cache",
+        "另一会话尚未处理的问题",
+        None,
+    )
+    .unwrap();
+    fixture
+        .state
+        .db(|db| {
+            memory::forget(db, "owner", &memory.id, memory.revision).map_err(|error| {
+                anyhow::anyhow!("synthetic queued-cache forget: {}", error.message)
+            })?;
+            Ok(())
+        })
+        .unwrap();
+    // Assert immediately, before a wake/pump/claim can clean up the old result.
+    // No entity/usage rows were deleted or invented to force this path.
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM rest_deferred_presentations WHERE run_id=?1",
+            &run
+        ),
+        0
+    );
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM runs WHERE id=?1 AND status='cancelled'",
+            &run
+        ),
+        1
+    );
+    for untouched in [&same_scope_unstarted, &other_scope_unstarted] {
+        assert_eq!(
+            scalar(
+                &fixture.state,
+                "SELECT count(*) FROM runs WHERE id=?1 AND status='queued'",
+                untouched
+            ),
+            1
+        );
+    }
+    for table in ["outbox", "weixin_outbox", "native_worker_leases"] {
+        assert_eq!(
+            scalar(
+                &fixture.state,
+                &format!("SELECT count(*) FROM {table} WHERE run_id=?1"),
+                &run
+            ),
+            0
+        );
+    }
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM messages WHERE run_id=?1 AND role='assistant'",
+            &run
+        ),
+        0
+    );
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM messages WHERE run_id=?1 AND role='user' AND content='嗯'",
+            &run
+        ),
+        1
+    );
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM conversation_state_uses WHERE run_id=?1",
+            &run
+        ),
+        0
+    );
+    assert_eq!(
+        scalar(
+            &fixture.state,
+            "SELECT count(*) FROM conversation_commitment_usage WHERE run_id=?1",
+            &run
+        ),
+        0
+    );
+    assert_eq!(fixture.model.calls.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]

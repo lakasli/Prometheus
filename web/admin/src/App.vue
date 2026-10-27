@@ -16,6 +16,7 @@ import DiaryPanel from "./components/DiaryPanel.vue";
 import RelationshipsPanel from "./components/RelationshipsPanel.vue";
 import AffinitySettings from "./components/AffinitySettings.vue";
 import ContextPolicyPanel from "./components/ContextPolicyPanel.vue";
+import RestPanel from "./components/RestPanel.vue";
 import WeixinChannel from "./components/WeixinChannel.vue";
 import SkillsPanel from "./components/SkillsPanel.vue";
 import SchedulePanel from "./components/SchedulePanel.vue";
@@ -249,6 +250,7 @@ const affinityPanel = ref<InstanceType<typeof AffinitySettings> | null>(null);
 const contextPolicyPanel = ref<InstanceType<typeof ContextPolicyPanel> | null>(
   null,
 );
+const restPanel = ref<InstanceType<typeof RestPanel> | null>(null);
 const contextPolicyLoaded = ref(false);
 const affinityLoaded = ref(false);
 const historyLoaded = ref(false);
@@ -407,6 +409,11 @@ function refreshStatus(quiet = false): Promise<void> {
 
 function mayLeavePage() {
   if (
+    restPanel.value?.hasUnsaved &&
+    !window.confirm("作息有未保存的填写或结果未确认的操作，确定离开？")
+  )
+    return false;
+  if (
     contextPolicyPanel.value?.hasUnsaved &&
     !window.confirm("上下文预算有未保存的修改，确定离开？")
   )
@@ -557,6 +564,11 @@ async function authenticate() {
   });
 }
 async function logout() {
+  if (
+    restPanel.value?.hasUnsaved &&
+    !window.confirm("作息有未保存的填写或结果未确认的操作，确定退出登录？")
+  )
+    return;
   if (
     contextPolicyPanel.value?.hasUnsaved &&
     !window.confirm("上下文预算有未保存的修改，确定退出登录？")
@@ -1376,6 +1388,11 @@ onUnmounted(() => {
                   <ContextPolicyPanel
                     v-if="contextPolicyLoaded"
                     ref="contextPolicyPanel"
+                    @unauthorized="expireSession"
+                  />
+                  <RestPanel
+                    v-if="contextPolicyLoaded"
+                    ref="restPanel"
                     @unauthorized="expireSession"
                   />
                 </div>

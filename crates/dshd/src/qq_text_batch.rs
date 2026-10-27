@@ -71,6 +71,7 @@ pub fn is_eligible(kind: &str, content: &str, has_media: bool, run_kind: &str) -
         && !has_media
         && !content.trim().is_empty()
         && !content.trim_start().starts_with('/')
+        && crate::rest_store::natural_control(content).is_none()
         && content.len() <= 1_024
         && content.chars().count() <= 256
 }

@@ -200,7 +200,11 @@ fn enqueue_in_with_skill(
         [conversation],
         |r| r.get(0),
     )?;
-    if pending >= 500 || per_conversation >= 10 {
+    let direct_control = eligible_plain_text
+        && skill_id.is_none()
+        && crate::rest_store::natural_control(input).is_some();
+    let rest_waiting = !crate::rest_runtime::automatic_allowed_in(db)?;
+    if (pending >= 500 || per_conversation >= 10) && !direct_control && !rest_waiting {
         return Ok(None);
     }
     let id = uuid::Uuid::new_v4().to_string();
@@ -257,6 +261,15 @@ fn enqueue_in_with_skill(
         eligible_plain_text && run_kind == "model",
         crate::reply_delivery::now_ms(),
     )?;
+    crate::rest_runtime::register_input_in(
+        db,
+        &id,
+        input,
+        eligible_plain_text && run_kind == "model",
+    )?;
+    if !direct_control {
+        crate::rest_runtime::ordinary_allowed_in(db, &id)?;
+    }
     Ok(Some(id))
 }
 
@@ -289,7 +302,8 @@ pub fn running_count(db: &Connection) -> anyhow::Result<i64> {
     Ok(native
         + crate::diary_model::running_count(db)?
         + crate::schedule_model::running_count(db)?
-        + crate::relationships_model::running_count(db)?)
+        + crate::relationships_model::running_count(db)?
+        + crate::rest_store::running_count(db)?)
 }
 struct NativeLease {
     state: AppState,
@@ -339,12 +353,15 @@ impl<F> Drop for LeasedProcess<F> {
 fn claim(state: &AppState) -> ApiResult<Option<Claimed>> {
     state.db(|db| {
         let tx=db.transaction()?;
+        if !crate::rest_runtime::automatic_allowed_in(&tx)? {return Ok(None);}
+
         let (_,config)=character::current_config_in(&tx)?;
         let running=running_count(&tx)? + crate::memory_candidates::running_count(&tx)? + crate::image_analysis::running_count(&tx)? + crate::wasm_workbench::running_count(&tx)? + crate::plugin_factory::running_count(&tx)?;
         if running>=config.assistant.max_concurrent_runs.min(2) as i64{return Ok(None);}
-        let automatic_busy=crate::diary_model::running_count(&tx)?+crate::schedule_model::running_count(&tx)?+crate::relationships_model::running_count(&tx)?>0;
-        let item=tx.query_row("SELECT r.id,r.conversation_id,r.config_json,r.reply_json,r.character_snapshot_json FROM runs r WHERE r.status='queued' AND (?2=0 OR r.run_kind NOT IN ('trigger_model','trigger_image')) AND NOT EXISTS(SELECT 1 FROM qq_text_batches batch WHERE batch.run_id=r.id AND batch.closed=0 AND batch.due_ms>?1 AND batch.first_ms<=?1) AND NOT EXISTS(SELECT 1 FROM runs earlier WHERE earlier.conversation_id=r.conversation_id AND earlier.status='queued' AND earlier.rowid<r.rowid) AND NOT EXISTS(SELECT 1 FROM runs other WHERE other.conversation_id=r.conversation_id AND (other.status='running' OR EXISTS(SELECT 1 FROM native_worker_leases l WHERE l.run_id=other.id))) AND (r.run_kind NOT IN ('trigger_model','trigger_image') OR ((SELECT clock_trusted AND space_ok FROM trigger_runtime WHERE id=1)=1 AND EXISTS(SELECT 1 FROM trigger_occurrences o WHERE o.run_id=r.id AND o.status='queued') AND NOT EXISTS(SELECT 1 FROM runs live WHERE live.run_kind IN ('trigger_model','trigger_image') AND (live.status='running' OR EXISTS(SELECT 1 FROM native_worker_leases lease WHERE lease.run_id=live.id))))) ORDER BY CASE WHEN r.run_kind IN ('trigger_model','trigger_image') THEN 1 ELSE 0 END,r.created_at,r.rowid LIMIT 1",params![crate::qq::text_batch::now_ms(),automatic_busy],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Option<String>>(3)?,r.get::<_,Option<String>>(4)?))).optional()?;
+        let automatic_busy=crate::diary_model::running_count(&tx)?+crate::schedule_model::running_count(&tx)?+crate::relationships_model::running_count(&tx)?+crate::rest_store::running_count(&tx)?>0;
+        let item=tx.query_row("SELECT r.id,r.conversation_id,r.config_json,r.reply_json,r.character_snapshot_json FROM runs r WHERE r.status='queued' AND NOT EXISTS(SELECT 1 FROM rest_control_candidates c WHERE c.run_id=r.id AND c.status='pending') AND (?2=0 OR r.run_kind NOT IN ('trigger_model','trigger_image')) AND NOT EXISTS(SELECT 1 FROM qq_text_batches batch WHERE batch.run_id=r.id AND batch.closed=0 AND batch.due_ms>?1 AND batch.first_ms<=?1) AND NOT EXISTS(SELECT 1 FROM runs earlier WHERE earlier.conversation_id=r.conversation_id AND earlier.status='queued' AND earlier.rowid<r.rowid) AND NOT EXISTS(SELECT 1 FROM runs other WHERE other.conversation_id=r.conversation_id AND (other.status='running' OR EXISTS(SELECT 1 FROM native_worker_leases l WHERE l.run_id=other.id))) AND (r.run_kind NOT IN ('trigger_model','trigger_image') OR ((SELECT clock_trusted AND space_ok FROM trigger_runtime WHERE id=1)=1 AND EXISTS(SELECT 1 FROM trigger_occurrences o WHERE o.run_id=r.id AND o.status='queued') AND NOT EXISTS(SELECT 1 FROM runs live WHERE live.run_kind IN ('trigger_model','trigger_image') AND (live.status='running' OR EXISTS(SELECT 1 FROM native_worker_leases lease WHERE lease.run_id=live.id))))) ORDER BY CASE WHEN r.run_kind IN ('trigger_model','trigger_image') THEN 1 ELSE 0 END,r.created_at,r.rowid LIMIT 1",params![crate::qq::text_batch::now_ms(),automatic_busy],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Option<String>>(3)?,r.get::<_,Option<String>>(4)?))).optional()?;
         let Some((id,conversation,config,reply,character))=item else{return Ok(None)};
+        if !crate::rest_runtime::ordinary_allowed_in(&tx,&id)? {tx.commit()?;return Ok(None);}
         let config=serde_json::from_str(&config)?;
         let reply=reply.map(|s|serde_json::from_str(&s)).transpose()?;
         let character=character.map(|s|serde_json::from_str(&s)).transpose()?;
@@ -368,6 +385,10 @@ pub async fn run_worker(state: AppState, cancellation: CancellationToken) {
         match claim(&state) {
             Ok(Some(item)) => process(&state, item, &cancellation).await,
             Ok(None) => {
+                if let Ok(Some(job)) = crate::rest_consolidation::claim_next(&state) {
+                    crate::rest_consolidation::run_claimed(&state, job, &cancellation).await;
+                    continue;
+                }
                 if let Ok(Some(job)) = crate::plugin_factory::claim_next(&state) {
                     crate::plugin_factory::run_claimed(&state, job, &cancellation).await;
                     continue;
@@ -442,6 +463,12 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
         let _=state.db(|db|{db.execute("UPDATE runs SET status='failed',error='任务类型与受信触发快照不一致，未发送请求',updated_at=?1 WHERE id=?2 AND status='running'",params![now(),item.id])?;Ok(())});
         return;
     }
+    if !matches!(
+        crate::rest_runtime::stage_allowed(state, &item.id),
+        Ok(true)
+    ) {
+        return;
+    }
     if trigger_context.is_none() {
         if let Err(code) =
             crate::conversation_images::prepare_for_run(state, &item.id, &item.config, cancel).await
@@ -485,7 +512,18 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
         }
     }
     let selected = state.db(|db| crate::skills::for_run(db, &item.id));
-    if !plugin_command && trigger_context.is_none() && matches!(&selected, Ok(None)) {
+    if !matches!(
+        crate::rest_runtime::stage_allowed(state, &item.id),
+        Ok(true)
+    ) {
+        return;
+    }
+    let cached_generation = state.db(|db| crate::rest_runtime::cached_generation_in(db, &item.id));
+    if !plugin_command
+        && trigger_context.is_none()
+        && matches!(&selected, Ok(None))
+        && matches!(&cached_generation, Ok(None))
+    {
         crate::conversation_summary::prepare_for_run(state, &item.id, &item.config, cancel).await;
     }
     let prepared = if plugin_command {
@@ -558,6 +596,19 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
                     if !valid {
                         return Err("会话身份或来源授权已改变，未发送请求".to_owned());
                     }
+                }
+                if !plugin_command && trigger_context.is_none() && matches!(&selected, Ok(None)) {
+                    match &cached_generation {
+                        Ok(Some(raw)) => return Ok(raw.clone()),
+                        Err(_) => return Err("暂存回复不可用，未重复请求模型".into()),
+                        _ => {}
+                    }
+                }
+                if !matches!(
+                    crate::rest_runtime::stage_allowed(state, &item.id),
+                    Ok(true)
+                ) {
+                    return Err("睡眠期间暂缓新的执行阶段".into());
                 }
                 if plugin_command {
                     return crate::plugin_commands::execute(state, &item.id, &plugin_cancel)
@@ -636,6 +687,18 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
             },
         ),
     };
+    if !plugin_command && trigger_context.is_none() && matches!(&selected, Ok(None)) {
+        if let Ok(raw) = &result {
+            let cached = crate::rest_runtime::cache_generation(state, &item.id, raw);
+            if matches!(cached, Ok(false)) {
+                return;
+            }
+            if cached.is_err() {
+                let _=state.db(|db|{db.execute("UPDATE runs SET status='failed',error='回复检查点未能保存',updated_at=?1 WHERE id=?2 AND status='running'",params![now(),item.id])?;Ok(())});
+                return;
+            }
+        }
+    }
     let generation_for_audit =
         if !plugin_command && trigger_context.is_none() && matches!(&selected, Ok(None)) {
             result.as_ref().ok().cloned()
@@ -647,6 +710,12 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
             if !plugin_command && trigger_context.is_none() && matches!(&selected, Ok(None)) =>
         {
             let prepared = async {
+                if !matches!(
+                    crate::rest_runtime::stage_allowed(state, &item.id),
+                    Ok(true)
+                ) {
+                    return Err("睡眠期间暂缓回复呈现".into());
+                }
                 let publish = state
                     .db(|db| {
                         let tx = db.transaction()?;
@@ -675,14 +744,20 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
                         )?)
                     })
                     .map_err(|_| "回复来源不可用".to_owned())?;
-                let mut plan = crate::attachment_echo::prepare(
-                    state,
-                    &item.config,
-                    &item.id,
-                    &owner,
-                    &item.conversation,
-                    &content,
-                )?;
+                let mut plan = match state
+                    .db(|db| crate::rest_runtime::cached_plan_in(db, &item.id))
+                    .map_err(|_| "回复检查点不可用".to_owned())?
+                {
+                    Some(plan) => plan,
+                    None => crate::attachment_echo::prepare(
+                        state,
+                        &item.config,
+                        &item.id,
+                        &owner,
+                        &item.conversation,
+                        &content,
+                    )?,
+                };
                 let materialize = state
                     .db(|db| {
                         let tx = db.transaction()?;
@@ -758,6 +833,7 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
         if status!="running" {return Ok(());}
         if trigger_context.is_none() && (result.is_ok() || generation_for_audit.is_some()) && (!crate::conversation_identity::validate_context_in(&tx,&item.id)?||!crate::conversation_context::validate_derived_in(&tx,&item.id)?) {
             tx.execute("UPDATE runs SET status='failed',error='上下文来源或约定版本已改变，结果未发布',updated_at=?1 WHERE id=?2 AND status='running'",params![now(),item.id])?;
+            tx.execute("DELETE FROM rest_deferred_presentations WHERE run_id=?1",[&item.id])?;
             crate::conversation_images::finish_run_in(&tx,&item.id,"failed")?;
             crate::trigger_store::observe_interactive_run_in(&tx,&item.id,"failed")?;
             tx.commit()?;return Ok(());
@@ -769,6 +845,11 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
             (Err(_),Some(raw)) if !publish=>Ok((raw,None)),
             (result,_)=>result,
         };
+        if result.is_ok() && crate::rest_runtime::cached_generation_in(&tx,&item.id)?.is_some() && !crate::rest_runtime::automatic_allowed_in(&tx)? {
+            if let Ok((_,Some(plan)))=&result {tx.execute("UPDATE rest_deferred_presentations SET plan_json=?1,media_inflight=0,updated_at=?2 WHERE run_id=?3",params![serde_json::to_string(plan)?,now(),item.id])?;}
+            tx.execute("UPDATE runs SET status='queued',error=NULL,updated_at=?1 WHERE id=?2 AND status='running'",params![now(),item.id])?;
+            tx.commit()?;return Ok(());
+        }
         match result {
             Ok((content,plan))=> {
                 tx.execute("INSERT INTO messages(id,conversation_id,run_id,role,content,created_at) VALUES(?1,?2,?3,'assistant',?4,?5)",params![uuid::Uuid::new_v4().to_string(),item.conversation,item.id,content,now()])?;
@@ -779,6 +860,7 @@ async fn process_inner(state: &AppState, item: RunInput, cancel: &CancellationTo
             },
             Err(error)=> {tx.execute("UPDATE runs SET status=?1,error=?2,updated_at=?3 WHERE id=?4",params![if cancel.is_cancelled(){"interrupted"}else{"failed"},error,now(),item.id])?;}
         }
+        tx.execute("DELETE FROM rest_deferred_presentations WHERE run_id=?1",[&item.id])?;
         let status:String=tx.query_row("SELECT status FROM runs WHERE id=?1",[&item.id],|r|r.get(0))?;
         crate::conversation_images::finish_run_in(&tx,&item.id,&status)?;
         if trigger_context.is_some() {
@@ -959,6 +1041,7 @@ fn prepare_messages(state: &AppState, item: &RunInput) -> ApiResult<Vec<Value>> 
                 system.push_str(&format!("\n以下为服务器提供的任务触发能力与当前时间，仅是可用范围，不是管理授权。请严格输出当前Schema草稿，所有动作由用户审核。\n{}",serde_json::to_string(&capabilities)?));
             }
         if let Some(context)=&commitments {system.push_str(&crate::conversation_commitments::host_capabilities_prompt(context)?);}
+        system.push_str(&crate::rest_runtime::prompt_state_in(&tx)?);
         let mut blocks=vec![ContextBlock::new("host_policy",BlockKind::HostPolicy,true,1000,vec![json!({"role":"system","content":system})])];
         if let Some(layers)=layers {
             for i in 0..layers.style_groups.len().min(48) {

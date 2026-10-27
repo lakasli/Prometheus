@@ -15,6 +15,344 @@ use sha2::{Digest, Sha256};
 pub const TIMEZONE: &str = "Asia/Shanghai";
 const MAX_CONTENT: usize = 12000;
 const MAX_EVENTS: usize = 200;
+
+/// Host-created CAS target for sleep consolidation. Contains references and
+/// coverage metadata only. It is not an authorization token on its own.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RestTarget {
+    pub id: String,
+    pub owner: String,
+    pub conversation: Option<String>,
+    pub visibility: String,
+    pub period: String,
+    pub start: String,
+    pub end: String,
+    pub timezone: String,
+    pub expected_revision: i64,
+    pub fingerprint: String,
+}
+
+pub(crate) fn rest_target_in(
+    db: &Connection,
+    owner: &str,
+    period: &str,
+    day: &str,
+    timezone: &str,
+    refs: &[crate::rest_store::RestSourceRef],
+) -> anyhow::Result<RestTarget> {
+    anyhow::ensure!(
+        !db.is_autocommit() && !refs.is_empty() && refs.len() <= 16,
+        "rest_domain_source_bounds"
+    );
+    let (start, end) = period_bounds(
+        period,
+        date(day).map_err(|_| anyhow::anyhow!("rest_invalid_date"))?,
+    )
+    .map_err(|_| anyhow::anyhow!("rest_invalid_period"))?;
+    let mut scope: Option<(String, Option<String>)> = None;
+    for reference in refs {
+        anyhow::ensure!(reference.owner_id == owner, "rest_domain_owner_mismatch");
+        let table = match reference.kind {
+            crate::rest_store::SourceKind::DiaryEvent => "diary_events",
+            crate::rest_store::SourceKind::DiaryEntry => "diary_entries",
+            _ => anyhow::bail!("rest_diary_source_kind_invalid"),
+        };
+        let current: (String, Option<String>) = db.query_row(
+            &format!("SELECT visibility,source_conversation_id FROM {table} WHERE id=?1"),
+            [&reference.id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        anyhow::ensure!(
+            scope.as_ref().is_none_or(|s| s == &current),
+            "rest_private_conversations_must_not_mix"
+        );
+        scope = Some(current);
+    }
+    let (visibility, conversation) = scope.unwrap();
+    let assistant =
+        memory::identity(db).map_err(|_| anyhow::anyhow!("rest_diary_identity_unavailable"))?;
+    let id = format!(
+        "diary:{}",
+        hex::encode(Sha256::digest(
+            format!("{assistant}:{visibility}:{owner}:{period}:{start}:{timezone}").as_bytes()
+        ))
+    );
+    let old:Option<(i64,Option<i64>,String,Option<String>)>=db.query_row("SELECT revision,deleted_at,generator,source_conversation_id FROM diary_entries WHERE id=?1",[&id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
+    if let Some((_, deleted, generator, prior_conversation)) = &old {
+        anyhow::ensure!(deleted.is_none(), "rest_deleted_target_not_revivable");
+        anyhow::ensure!(
+            prior_conversation.is_none() || prior_conversation == &conversation,
+            "rest_target_conversation_conflict"
+        );
+        anyhow::ensure!(
+            generator == "evidence_excerpt_v1"
+                || generator == "parent_catalogue_v2"
+                || generator.starts_with("model:"),
+            "rest_human_target_preserved"
+        );
+        let human:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM diary_entry_versions WHERE entry_id=?1 AND actor_id NOT IN('system','authorized_model','rest_consolidation'))",[&id],|r|r.get(0))?;
+        anyhow::ensure!(!human, "rest_human_target_preserved");
+    }
+    Ok(RestTarget {
+        id,
+        owner: owner.into(),
+        conversation,
+        visibility,
+        period: period.into(),
+        start: start.to_string(),
+        end: end.to_string(),
+        timezone: timezone.into(),
+        expected_revision: old.map(|r| r.0).unwrap_or(0),
+        fingerprint: crate::character::digest(&serde_json::to_vec(refs)?),
+    })
+}
+
+pub(crate) fn rest_target_current_in(db: &Connection, target: &RestTarget) -> anyhow::Result<bool> {
+    let current: Option<(i64, String, Option<i64>, String)> = db
+        .query_row(
+            "SELECT revision,source_fingerprint,deleted_at,status FROM diary_entries WHERE id=?1",
+            [&target.id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()?;
+    Ok(current.is_some_and(|(_, f, deleted, status)| {
+        deleted.is_none() && status != "invalidated" && f == target.fingerprint
+    }))
+}
+
+/// Exact refs only; no dynamic period reader or model-generated source ID.
+pub(crate) fn rest_read_sources_in(
+    db: &Connection,
+    cycle: &str,
+    target: &RestTarget,
+    refs: &[crate::rest_store::RestSourceRef],
+) -> anyhow::Result<Vec<(String, String)>> {
+    anyhow::ensure!(
+        !db.is_autocommit() && (1..=16).contains(&refs.len()),
+        "rest_domain_source_bounds"
+    );
+    let reader: i64 = db.query_row(
+        "SELECT schema_version FROM diary_meta WHERE id=1",
+        [],
+        |r| r.get(0),
+    )?;
+    anyhow::ensure!(reader == 2, "rest_diary_reader2_required");
+    let mut sources = Vec::new();
+    let mut bytes = 0usize;
+    for reference in refs {
+        anyhow::ensure!(
+            reference.owner_id == target.owner
+                && crate::rest_store::validate_source_in(db, cycle, reference, true)?,
+            "rest_domain_source_stale"
+        );
+        let (content, visibility, conversation) = match reference.kind {
+            crate::rest_store::SourceKind::DiaryEvent => {
+                let e = event(db, &reference.id, Some(&target.owner))
+                    .map_err(|_| anyhow::anyhow!("rest_event_unavailable"))?;
+                (e.content, e.visibility, e.source_conversation_id)
+            }
+            crate::rest_store::SourceKind::DiaryEntry => {
+                let e = entry(db, &reference.id, Some(&target.owner))
+                    .map_err(|_| anyhow::anyhow!("rest_entry_unavailable"))?;
+                anyhow::ensure!(
+                    e.period == "day" && e.status != "draft",
+                    "rest_parent_not_closed_day"
+                );
+                (e.content, e.visibility, e.source_conversation_id)
+            }
+            _ => anyhow::bail!("rest_diary_source_kind_invalid"),
+        };
+        anyhow::ensure!(
+            visibility == target.visibility && conversation == target.conversation,
+            "rest_private_conversations_must_not_mix"
+        );
+        anyhow::ensure!(
+            !crate::conversation_summary::contains_sensitive(&content),
+            "rest_sensitive_source_blocked"
+        );
+        bytes = bytes.saturating_add(content.len());
+        anyhow::ensure!(bytes <= 20000, "rest_source_token_budget");
+        sources.push((reference.id.clone(), content));
+    }
+    Ok(sources)
+}
+
+/// Only the verified evidence formatter supplies facts. CAS, frozen raw source
+/// coverage and source reader checks run again in the canonical commit TX.
+pub(crate) fn rest_write_in(
+    db: &Connection,
+    cycle: &str,
+    target: &RestTarget,
+    refs: &[crate::rest_store::RestSourceRef],
+    facts: &str,
+    model: &str,
+    timestamp: i64,
+) -> anyhow::Result<Entry> {
+    anyhow::ensure!(!db.is_autocommit(), "rest_domain_transaction_required");
+    let _ = rest_read_sources_in(db, cycle, target, refs)?;
+    let fresh = rest_target_in(
+        db,
+        &target.owner,
+        &target.period,
+        &target.start,
+        &target.timezone,
+        refs,
+    )?;
+    anyhow::ensure!(
+        fresh.expected_revision == target.expected_revision
+            && fresh.id == target.id
+            && fresh.fingerprint == target.fingerprint,
+        "rest_target_revision_conflict"
+    );
+    anyhow::ensure!(
+        !facts.is_empty()
+            && facts.len() <= MAX_CONTENT
+            && !crate::conversation_summary::contains_sensitive(facts),
+        "rest_evidence_output_invalid"
+    );
+    anyhow::ensure!(
+        !model.is_empty() && model.len() <= 128,
+        "rest_model_identifier_invalid"
+    );
+    let zone = tz(&target.timezone).map_err(|_| anyhow::anyhow!("rest_timezone_invalid"))?;
+    let start = date(&target.start).map_err(|_| anyhow::anyhow!("rest_date_invalid"))?;
+    let end = date(&target.end).map_err(|_| anyhow::anyhow!("rest_date_invalid"))?;
+    let begin = boundary(start, zone).map_err(|_| anyhow::anyhow!("rest_boundary_invalid"))?;
+    let finish = boundary(end, zone).map_err(|_| anyhow::anyhow!("rest_boundary_invalid"))?;
+    let event_cutoff: i64 = db.query_row(
+        "SELECT event_cutoff FROM rest_cycles WHERE id=?1",
+        [cycle],
+        |r| r.get(0),
+    )?;
+    let mut linked = std::collections::BTreeMap::new();
+    let mut parents_complete =
+        target.period == "day" || refs.len() == (end - start).num_days() as usize;
+    let mut watermark = 0i64;
+    for reference in refs {
+        if reference.kind == crate::rest_store::SourceKind::DiaryEvent {
+            linked.insert(reference.id.clone(), reference.revision);
+        } else {
+            let p = entry(db, &reference.id, Some(&target.owner))
+                .map_err(|_| anyhow::anyhow!("rest_parent_unavailable"))?;
+            anyhow::ensure!(
+                p.period_start >= target.start
+                    && p.period_end <= target.end
+                    && p.timezone == target.timezone,
+                "rest_parent_period_mismatch"
+            );
+            parents_complete &= p.observation_complete;
+            let mut stmt=db.prepare("SELECT event_id,event_revision FROM diary_entry_sources WHERE entry_id=?1 ORDER BY event_id LIMIT 513")?;
+            let rows = stmt
+                .query_map([&reference.id], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            anyhow::ensure!(rows.len() <= 512, "rest_raw_source_limit");
+            for (id, rev) in rows {
+                if let Some(previous) = linked.insert(id, rev) {
+                    anyhow::ensure!(previous == rev, "rest_parent_source_revision_conflict");
+                }
+            }
+        }
+    }
+    let mut stmt=db.prepare("SELECT id,revision,rowid,observed_at,source_conversation_id FROM diary_events WHERE assistant_id=?1 AND source_owner_id=?2 AND visibility=?3 AND deleted_at IS NULL AND happened_at>=?4 AND happened_at<?5 AND NOT EXISTS(SELECT 1 FROM diary_source_revocations r WHERE r.source_owner_id=diary_events.source_owner_id AND diary_events.rowid<=r.through_event_rowid) ORDER BY id LIMIT 513")?;
+    let raw = stmt
+        .query_map(
+            params![
+                memory::identity(db).map_err(|_| anyhow::anyhow!("rest_identity_unavailable"))?,
+                target.owner,
+                target.visibility,
+                begin,
+                finish
+            ],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                ))
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    anyhow::ensure!(
+        raw.len() <= 512 && raw.len() == linked.len(),
+        "rest_period_raw_coverage_conflict"
+    );
+    for (id, revision, rowid, observed, conversation) in raw {
+        anyhow::ensure!(
+            rowid <= event_cutoff
+                && linked.get(&id) == Some(&revision)
+                && conversation == target.conversation,
+            "rest_late_or_changed_source_conflict"
+        );
+        watermark = watermark.max(observed);
+    }
+    let gap:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM diary_observation_gaps WHERE start_at<?1 AND end_at>?2) OR (SELECT started_at FROM diary_meta WHERE id=1)>?2",params![finish,begin],|r|r.get(0))?;
+    let complete = !gap && parents_complete;
+    let status = if finish > timestamp {
+        "draft"
+    } else if complete {
+        "final"
+    } else {
+        "incomplete"
+    };
+    let revision = target.expected_revision + 1;
+    let epoch: i64 = db.query_row(
+        "SELECT deletion_epoch FROM diary_meta WHERE id=1",
+        [],
+        |r| r.get(0),
+    )?;
+    if target.expected_revision > 0 {
+        crate::conversation_invalidation::invalidate_source_in(
+            db,
+            "diary_entry",
+            &target.id,
+            Some(target.expected_revision),
+            timestamp,
+        )?;
+    }
+    let generator = format!("model:rest-quotes:{model}");
+    db.execute("INSERT INTO diary_entries(id,assistant_id,revision,period,period_start,period_end,timezone,visibility,source_owner_id,source_conversation_id,facts,feelings,content,status,generator,source_count,observation_complete,coverage_watermark,deletion_epoch,source_fingerprint,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,'',?11,?12,?13,?14,?15,?16,?17,?18,?19) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,source_conversation_id=excluded.source_conversation_id,facts=excluded.facts,feelings='',content=excluded.content,status=excluded.status,generator=excluded.generator,source_count=excluded.source_count,observation_complete=excluded.observation_complete,coverage_watermark=excluded.coverage_watermark,deletion_epoch=excluded.deletion_epoch,source_fingerprint=excluded.source_fingerprint,updated_at=excluded.updated_at",params![target.id,memory::identity(db).map_err(|_|anyhow::anyhow!("rest_identity_unavailable"))?,revision,target.period,target.start,target.end,target.timezone,target.visibility,target.owner,target.conversation,facts,status,generator,linked.len() as i64,complete,watermark,epoch,target.fingerprint,timestamp])?;
+    aggregation::clear(db, &target.id)
+        .map_err(|_| anyhow::anyhow!("rest_aggregation_clear_failed"))?;
+    db.execute(
+        "DELETE FROM diary_entry_sources WHERE entry_id=?1",
+        [&target.id],
+    )?;
+    db.execute(
+        "DELETE FROM diary_entry_parents WHERE entry_id=?1",
+        [&target.id],
+    )?;
+    for (id, rev) in linked {
+        db.execute(
+            "INSERT INTO diary_entry_sources VALUES(?1,?2,?3)",
+            params![target.id, id, rev],
+        )?;
+    }
+    if target.period != "day" {
+        for reference in refs {
+            db.execute(
+                "INSERT INTO diary_entry_parents VALUES(?1,?2,?3)",
+                params![target.id, reference.id, reference.revision],
+            )?;
+        }
+    }
+    db.execute(
+        "INSERT INTO diary_entry_versions VALUES(?1,?2,?3,'',?4,'rest_consolidation',?5)",
+        params![target.id, revision, facts, generator, timestamp],
+    )?;
+    // This is selected evidence, never a claim to have retained every raw word.
+    db.execute(
+        "INSERT INTO diary_entry_version_coverage VALUES(?1,?2,0)",
+        params![target.id, revision],
+    )?;
+    db.execute("UPDATE diary_model_jobs SET status='completed',error=NULL,entry_revision=?2,updated_at=?3 WHERE entry_id=?1",params![target.id,revision,timestamp])?;
+    entry(db, &target.id, Some(&target.owner))
+        .map_err(|_| anyhow::anyhow!("rest_written_entry_unavailable"))
+}
 #[path = "diary_aggregation.rs"]
 mod aggregation;
 pub use aggregation::{FragmentExcerpt, ParentExcerpt, ParentReference, ReductionStep};
@@ -790,6 +1128,8 @@ pub fn invalidate_contexts_in(db: &Connection, owner: Option<&str>) -> ApiResult
             )
             .api()?;
         db.execute("INSERT INTO memory_context_watermarks(conversation_id,assistant_id,through_run_rowid,updated_at) VALUES(?1,?2,?3,?4) ON CONFLICT(conversation_id) DO UPDATE SET through_run_rowid=max(through_run_rowid,excluded.through_run_rowid),updated_at=excluded.updated_at",params![c,memory::identity(db)?,floor,now()]).api()?;
+        crate::rest_runtime::erase_cached_through_in(db, &c, floor)
+            .map_err(|_| ApiError::internal())?;
         crate::conversation_summary::invalidate(db, &memory::identity(db)?, &c)
             .map_err(|_| ApiError::internal())?;
         crate::memory_candidates::invalidate(db, &memory::identity(db)?, &c)

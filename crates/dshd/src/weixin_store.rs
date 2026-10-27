@@ -717,6 +717,16 @@ pub fn claim_send(db: &mut Connection) -> Result<Option<PendingSend>> {
     tx.execute("UPDATE weixin_outbox SET status='failed',error_code='reply_context_expired',content=NULL,updated_at=?1 WHERE status='queued' AND NOT EXISTS(SELECT 1 FROM weixin_contexts c WHERE c.id=weixin_outbox.context_ref AND c.account_id=weixin_outbox.account_id AND c.peer=weixin_outbox.peer AND c.generation=weixin_outbox.generation AND c.token IS NOT NULL AND c.expires_at>?1)",[now()]).safe()?;
     crate::conversation_context::fence_queued_delivery_candidates_in(&tx, false)
         .map_err(|_| StoreError::Storage)?;
+    let rest = crate::rest_publication::schema_present_in(&tx).map_err(|_| StoreError::Storage)?;
+    let ack = if rest {
+        "EXISTS(SELECT 1 FROM rest_ack_permits ack WHERE ack.source_run_id=o.run_id)"
+    } else {
+        "0"
+    };
+    let query = format!(
+        "SELECT o.id,o.run_id,o.account_id,o.peer,a.base_url,o.credential_ref,o.generation,o.context_ref,o.client_id,o.content,o.deadline FROM weixin_outbox o JOIN weixin_account a ON a.account_id=o.account_id AND a.generation=o.generation WHERE o.status='queued' AND a.enabled=1 AND o.id NOT IN(SELECT value FROM json_each(?1)) AND NOT(({ack}) AND EXISTS(SELECT 1 FROM weixin_outbox held JOIN runs prior ON prior.id=held.run_id JOIN runs current ON current.id=o.run_id WHERE prior.conversation_id=current.conversation_id AND held.rowid<o.rowid AND held.status IN('sending','unknown'))) ORDER BY CASE WHEN {ack} THEN 0 ELSE 1 END,o.created_at,o.rowid LIMIT 1"
+    );
+    let mut skipped = Vec::<String>::new();
     let active: bool = tx
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM weixin_outbox WHERE status='sending')",
@@ -729,8 +739,31 @@ pub fn claim_send(db: &mut Connection) -> Result<Option<PendingSend>> {
         return Ok(None);
     }
     for _ in 0..64 {
-        let item=tx.query_row("SELECT o.id,o.run_id,o.account_id,o.peer,a.base_url,o.credential_ref,o.generation,o.context_ref,o.client_id,o.content,o.deadline FROM weixin_outbox o JOIN weixin_account a ON a.account_id=o.account_id AND a.generation=o.generation WHERE o.status='queued' AND a.enabled=1 ORDER BY o.created_at,o.rowid LIMIT 1",[],|r|Ok(PendingSend{id:r.get(0)?,run_id:r.get(1)?,account_id:r.get(2)?,peer:r.get(3)?,base_url:r.get(4)?,credential_ref:r.get(5)?,generation:r.get(6)?,context_ref:r.get(7)?,client_id:r.get(8)?,attempt_id:uuid::Uuid::new_v4().to_string(),content:r.get(9)?,deadline:r.get(10)?})).optional().safe()?;
+        let item = tx
+            .query_row(
+                &query,
+                [serde_json::to_string(&skipped).map_err(|_| StoreError::Storage)?],
+                |r| {
+                    Ok(PendingSend {
+                        id: r.get(0)?,
+                        run_id: r.get(1)?,
+                        account_id: r.get(2)?,
+                        peer: r.get(3)?,
+                        base_url: r.get(4)?,
+                        credential_ref: r.get(5)?,
+                        generation: r.get(6)?,
+                        context_ref: r.get(7)?,
+                        client_id: r.get(8)?,
+                        attempt_id: uuid::Uuid::new_v4().to_string(),
+                        content: r.get(9)?,
+                        deadline: r.get(10)?,
+                    })
+                },
+            )
+            .optional()
+            .safe()?;
         if let Some(item) = &item {
+            skipped.push(item.id.clone());
             if !crate::conversation_context::claim_delivery_allowed_in(&tx, &item.run_id)
                 .map_err(|_| StoreError::Storage)?
             {
@@ -751,6 +784,16 @@ pub fn claim_send(db: &mut Connection) -> Result<Option<PendingSend>> {
                 .map_err(|_| StoreError::Storage)?
             {
                 return Err(StoreError::StaleGeneration);
+            }
+            if !crate::rest_publication::claim_allowed_in(
+                &tx,
+                &item.run_id,
+                Some(item.deadline),
+                &item.content,
+            )
+            .map_err(|_| StoreError::Storage)?
+            {
+                continue;
             }
             tx.execute("UPDATE weixin_outbox SET status='sending',attempt_id=?1,updated_at=?2 WHERE id=?3 AND status='queued'",params![item.attempt_id,now(),item.id]).safe()?;
         }
@@ -1191,7 +1234,13 @@ mod tests {
         .unwrap();
         queue_reply_in(&tx, &id, &original).unwrap();
         tx.commit().unwrap();
-        assert_eq!(scalar(&db,"SELECT count(*) FROM weixin_outbox WHERE status='queued' AND error_code='original_response_too_large'"),1);
+        assert_eq!(
+            scalar(
+                &db,
+                "SELECT count(*) FROM weixin_outbox WHERE status='queued' AND error_code='original_response_too_large'"
+            ),
+            1
+        );
         let pending = claim_send(&mut db).unwrap().unwrap();
         assert_eq!(pending.content, OVERSIZE_REPLY);
         assert_eq!(
@@ -1208,7 +1257,13 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(scalar(&db,"SELECT count(*) FROM weixin_outbox WHERE status='accepted' AND error_code='original_response_too_large'"),1);
+        assert_eq!(
+            scalar(
+                &db,
+                "SELECT count(*) FROM weixin_outbox WHERE status='accepted' AND error_code='original_response_too_large'"
+            ),
+            1
+        );
         let many = vec![event("2", "peer@im.wechat", "context"); MAX_BATCH + 1];
         assert_eq!(
             ingest_batch(&mut db, &current, "too-many", &many, enqueue).unwrap_err(),
@@ -1330,7 +1385,13 @@ mod tests {
         .unwrap();
         db.execute("UPDATE weixin_contexts SET expires_at=?1 WHERE id=(SELECT context_ref FROM weixin_outbox WHERE run_id=?2)",params![now()-1,second]).unwrap();
         assert!(claim_send(&mut db).unwrap().is_none());
-        assert_eq!(scalar(&db,"SELECT count(*) FROM weixin_outbox WHERE status='failed' AND error_code='reply_context_expired'"),1);
+        assert_eq!(
+            scalar(
+                &db,
+                "SELECT count(*) FROM weixin_outbox WHERE status='failed' AND error_code='reply_context_expired'"
+            ),
+            1
+        );
         assert_eq!(
             scalar(
                 &db,
@@ -1380,7 +1441,13 @@ mod tests {
             ),
             1
         );
-        assert_eq!(scalar(&db,"SELECT count(*) FROM weixin_outbox WHERE status='cancelled' AND error_code='context_invalidated'"),1);
+        assert_eq!(
+            scalar(
+                &db,
+                "SELECT count(*) FROM weixin_outbox WHERE status='cancelled' AND error_code='context_invalidated'"
+            ),
+            1
+        );
         assert_eq!(
             scalar(
                 &db,
@@ -1445,7 +1512,13 @@ mod tests {
             disabled.generation
         );
         assert!(!credential_in_use(&db, &replacement).unwrap());
-        assert_eq!(scalar(&db,"SELECT count(*) FROM secrets WHERE id NOT IN (SELECT credential_ref FROM weixin_account)"),0);
+        assert_eq!(
+            scalar(
+                &db,
+                "SELECT count(*) FROM secrets WHERE id NOT IN (SELECT credential_ref FROM weixin_account)"
+            ),
+            0
+        );
         let input = AccountInput {
             account_id: "outside@im.bot".into(),
             base_url: "https://ilinkai.weixin.qq.com/".into(),

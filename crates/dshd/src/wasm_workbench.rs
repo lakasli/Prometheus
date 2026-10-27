@@ -762,6 +762,8 @@ pub fn claim_next(state: &AppState) -> ApiResult<Option<ClaimedJob>> {
         return Ok(None);
     }
     state.db(|db|Ok(transaction(db,|tx| {
+        if !crate::rest_runtime::automatic_allowed_in(tx).map_err(internal)? {return Ok(None);}
+
         let (_,config)=crate::character::current_config_in(tx).map_err(internal)?;
         let higher:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM runs WHERE status='queued') OR EXISTS(SELECT 1 FROM memory_candidate_jobs WHERE status='queued' AND expires_at>?1) OR EXISTS(SELECT 1 FROM image_analysis_jobs WHERE status='queued' AND expires_at>?1)",[now()],|r|r.get(0)).api()?;
         let own=running_count(tx).map_err(internal)?;

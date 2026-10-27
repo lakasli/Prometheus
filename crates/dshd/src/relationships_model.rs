@@ -357,7 +357,7 @@ fn active(db: &Connection, job: &ClaimedJob) -> bool {
     })
 }
 pub fn claim_next(state: &AppState) -> ApiResult<Option<ClaimedJob>> {
-    state.db(|db|{let tx=db.transaction()?;let(_,config)=crate::character::current_config_in(&tx)?;
+    state.db(|db|{let tx=db.transaction()?;if !crate::rest_runtime::automatic_allowed_in(&tx)? {return Ok(None);}let(_,config)=crate::character::current_config_in(&tx)?;
  let busy:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM runs WHERE status='queued') OR EXISTS(SELECT 1 FROM runs r WHERE r.run_kind IN ('trigger_model','trigger_image') AND (r.status='running' OR EXISTS(SELECT 1 FROM native_worker_leases l WHERE l.run_id=r.id)))",[],|r|r.get(0))?;
  let active_count=worker::running_count(&tx)?+crate::memory_candidates::running_count(&tx)?+crate::image_analysis::running_count(&tx)?+crate::wasm_workbench::running_count(&tx)?+crate::plugin_factory::running_count(&tx)?;
  if busy||running_count(&tx)?>0||crate::diary_model::running_count(&tx)?>0||crate::schedule_model::running_count(&tx)?>0||active_count>=config.assistant.max_concurrent_runs.min(2) as i64||config.model.credential_ref.is_none(){return Ok(None);}

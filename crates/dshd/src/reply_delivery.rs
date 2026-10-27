@@ -39,16 +39,52 @@ fn claim_in(db: &mut Connection, at: i64) -> anyhow::Result<Option<Delivery>> {
     tx.execute("UPDATE outbox SET status='expired',error='回复截止时间已过，未发送' WHERE status='queued' AND deadline<?1",[now()])?;
     tx.execute("UPDATE outbox_reply_parts SET status=(SELECT status FROM outbox WHERE id=outbox_reply_parts.outbox_id),error=(SELECT error FROM outbox WHERE id=outbox_reply_parts.outbox_id) WHERE status='queued' AND EXISTS(SELECT 1 FROM outbox o WHERE o.id=outbox_reply_parts.outbox_id AND o.status IN ('expired','cancelled'))",[])?;
     crate::conversation_context::fence_queued_delivery_candidates_in(&tx, true)?;
+    let rest = crate::rest_publication::schema_present_in(&tx)?;
+    let ack = if rest {
+        "EXISTS(SELECT 1 FROM rest_ack_permits ack WHERE ack.source_run_id=r.id)"
+    } else {
+        "0"
+    };
+    let query = format!("SELECT o.id,o.target_json,o.content,r.owner_id,r.conversation_id,p.seq,p.payload_json,r.id,o.deadline
+        FROM outbox o JOIN runs r ON r.id=o.run_id
+        LEFT JOIN outbox_reply_parts p ON p.outbox_id=o.id AND p.seq=(SELECT min(q.seq) FROM outbox_reply_parts q WHERE q.outbox_id=o.id AND q.status='queued')
+        WHERE o.status='queued' AND o.deadline>=?1 AND (p.seq IS NULL OR p.due_ms<=?2)
+        AND o.id NOT IN(SELECT value FROM json_each(?3))
+        AND NOT EXISTS(SELECT 1 FROM outbox_reply_parts u WHERE u.outbox_id=o.id AND u.status IN('unknown','failed','sending'))
+        AND NOT EXISTS(SELECT 1 FROM reply_account_pacing a WHERE a.account_id=o.account_id AND a.next_ms>?2)
+        AND NOT EXISTS(SELECT 1 FROM outbox older JOIN runs prior ON prior.id=older.run_id WHERE prior.conversation_id=r.conversation_id AND older.rowid<o.rowid AND (older.status IN('sending','unknown') OR EXISTS(SELECT 1 FROM outbox_reply_parts held WHERE held.outbox_id=older.id AND held.status IN('sending','unknown')) OR (older.status='queued' AND NOT({ack}))))
+        ORDER BY CASE WHEN {ack} THEN 0 ELSE 1 END,o.rowid LIMIT 1");
+    let mut skipped = Vec::<String>::new();
     // Consume stale queued records durably before considering a later answer;
     // cap work per tick so a large invalid queue cannot monopolize the DB lock.
     for _ in 0..64 {
         // The oldest unfinished message in one conversation fences newer answers.
         // Another conversation may continue while this one waits for its interval.
-        let item=tx.query_row("SELECT o.id,o.target_json,o.content,r.owner_id,r.conversation_id,p.seq,p.payload_json,r.id FROM outbox o JOIN runs r ON r.id=o.run_id LEFT JOIN outbox_reply_parts p ON p.outbox_id=o.id AND p.seq=(SELECT min(q.seq) FROM outbox_reply_parts q WHERE q.outbox_id=o.id AND q.status='queued') WHERE o.status='queued' AND o.deadline>=?1 AND (p.seq IS NULL OR p.due_ms<=?2) AND NOT EXISTS(SELECT 1 FROM outbox_reply_parts u WHERE u.outbox_id=o.id AND u.status IN ('unknown','failed','sending')) AND NOT EXISTS(SELECT 1 FROM reply_account_pacing a WHERE a.account_id=o.account_id AND a.next_ms>?2) AND NOT EXISTS(SELECT 1 FROM outbox older JOIN runs prior ON prior.id=older.run_id WHERE prior.conversation_id=r.conversation_id AND older.rowid<o.rowid AND older.status IN ('queued','sending','unknown')) ORDER BY o.rowid LIMIT 1",params![now(),at],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,Option<i64>>(5)?,r.get::<_,Option<String>>(6)?,r.get::<_,String>(7)?))).optional()?;
-        let Some((id, target, content, owner, conversation, seq, payload, run)) = item else {
+        let item = tx
+            .query_row(
+                &query,
+                params![now(), at, serde_json::to_string(&skipped)?],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, String>(4)?,
+                        r.get::<_, Option<i64>>(5)?,
+                        r.get::<_, Option<String>>(6)?,
+                        r.get::<_, String>(7)?,
+                        r.get::<_, i64>(8)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((id, target, content, owner, conversation, seq, payload, run, deadline)) = item
+        else {
             tx.commit()?;
             return Ok(None);
         };
+        skipped.push(id.clone());
         if !crate::conversation_context::claim_delivery_allowed_in(&tx, &run)? {
             continue;
         }
@@ -61,6 +97,14 @@ fn claim_in(db: &mut Connection, at: i64) -> anyhow::Result<Option<Delivery>> {
             "publication changed before send claim"
         );
         let target: ReplyTarget = serde_json::from_str(&target)?;
+        if !crate::rest_publication::claim_allowed_in(
+            &tx,
+            &run,
+            Some(deadline.min(target.deadline)),
+            payload.as_deref().unwrap_or(&content),
+        )? {
+            continue;
+        }
         tx.execute("UPDATE outbox SET status='sending' WHERE id=?1", [&id])?;
         if let Some(seq) = seq {
             tx.execute(
@@ -80,6 +124,13 @@ fn claim_in(db: &mut Connection, at: i64) -> anyhow::Result<Option<Delivery>> {
     }
     tx.commit()?;
     Ok(None)
+}
+#[cfg(test)]
+pub(crate) fn claim_id_for_rest_test(
+    db: &mut Connection,
+    at: i64,
+) -> anyhow::Result<Option<String>> {
+    Ok(claim_in(db, at)?.map(|item| item.id))
 }
 fn finish_in(
     db: &mut Connection,

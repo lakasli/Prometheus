@@ -1663,6 +1663,7 @@ fn invalidate_person_context(db: &Connection, id: &str) -> anyhow::Result<()> {
             |r| r.get(0),
         )?;
         db.execute("INSERT INTO memory_context_watermarks(conversation_id,assistant_id,through_run_rowid,updated_at) VALUES(?1,?2,?3,?4) ON CONFLICT(conversation_id) DO UPDATE SET through_run_rowid=max(through_run_rowid,excluded.through_run_rowid),updated_at=excluded.updated_at",params![c,assistant,through,now()])?;
+        crate::rest_runtime::erase_cached_through_in(db, &c, through)?;
         db.execute("UPDATE runs SET status='cancelled',error='人物资料已更正或遗忘，旧上下文已失效',updated_at=?1 WHERE conversation_id=?2 AND status='running'",params![now(),c])?;
         db.execute("UPDATE outbox SET status='cancelled',error='人物资料已更正或遗忘' WHERE status='queued' AND run_id IN (SELECT id FROM runs WHERE conversation_id=?1 AND rowid<=?2)",params![c,through])?;
         db.execute("DELETE FROM run_prompt_snapshots WHERE run_id IN (SELECT id FROM runs WHERE conversation_id=?1 AND rowid<=?2)",params![c,through])?;

@@ -322,8 +322,18 @@ pub async fn materialize(
         })
         .map_err(|_| "回复来源不可用".to_owned())?
         .ok_or("任务已取消或上下文已失效".to_owned())?;
-    for item in &mut plan.items {
+    for index in 0..plan.items.len() {
+        if !crate::rest_runtime::checkpoint_plan(state, run_id, plan)? {
+            return Err("睡眠期间暂缓后续媒体阶段".into());
+        }
+        let item = &mut plan.items[index];
         materialization_active(state, &source, owner, conversation, cancel)?;
+        if item.kind != "text"
+            && item.asset_id.is_none()
+            && !crate::rest_runtime::begin_media_stage(state, run_id)?
+        {
+            return Err("睡眠期间暂缓新的媒体阶段".into());
+        }
         let result: Result<String, String> = match item.kind.as_str() {
             "text" => continue,
             "voice" => {
@@ -408,6 +418,9 @@ pub async fn materialize(
                 plan.normalized = true;
             }
         }
+    }
+    if !crate::rest_runtime::checkpoint_plan(state, run_id, plan)? {
+        return Err("睡眠期间暂缓发布已完成的媒体计划".into());
     }
     Ok(())
 }

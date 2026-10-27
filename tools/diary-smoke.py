@@ -138,10 +138,6 @@ def main():
                                 expected=403, headers={'Origin': 'https://invalid.example'})
                 check('diary mutations enforce CSRF and exact origin', True)
                 conversation = harness.conversation('Synthetic diary source')
-                if args.live_config_from:
-                    configure_live(harness, args.live_config_from)
-                else:
-                    harness.configure(provider.server_port)
                 policies, _, _ = harness.request('GET', PREFIX + '/diary/policies')
                 check('automatic collection and model egress default off', not policies['items'])
                 policy = {'source_owner_id': harness.owner, 'enabled': True,
@@ -165,6 +161,13 @@ def main():
                 same, _, _ = harness.request('POST', PREFIX + '/diary/consolidate', body)
                 check('day is persisted with stable identity and idempotent revision',
                       entry['id'] == same['id'] and entry['revision'] == same['revision'] and entry['source_count'] == 1)
+                # Test the no-change transaction before enabling a provider.
+                # Otherwise a legitimate background model commit can advance
+                # the revision between these two API calls on an NTP-ready host.
+                if args.live_config_from:
+                    configure_live(harness, args.live_config_from)
+                else:
+                    harness.configure(provider.server_port)
                 # Only this isolated instance's scheduler clock is acknowledged.
                 with harness.db() as db:
                     db.execute('UPDATE trigger_runtime SET clock_trusted=1,space_ok=1 WHERE id=1')

@@ -116,6 +116,9 @@ pub async fn run(state: AppState, cancel: CancellationToken) {
         if cancel.is_cancelled() {
             break;
         }
+        if crate::rest_runtime::tick(&state).is_err() {
+            tracing::warn!("rest coordinator unavailable");
+        }
         #[cfg(target_os = "linux")]
         if sync_check.elapsed() >= Duration::from_secs(60) {
             sync_check = Instant::now();

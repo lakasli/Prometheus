@@ -6,6 +6,97 @@ import sqlite3
 import sys
 
 
+REST_COLUMNS = {
+    "rest_meta": "id schema_version",
+    "rest_policies": "assistant_id revision policy_json actor_ref updated_at",
+    "assistant_rest_states": "assistant_id generation revision phase cycle_id wake_at drain_at consolidate_at logical_at clock_epoch mono_ms reason",
+    "rest_control_grants": "assistant_id scope_ref owner_id conversation_id speaker_ref revision can_sleep can_wake valid_until actor_ref updated_at",
+    "rest_operations": "id assistant_id actor_ref idempotency_key request_digest result_json created_at source_run_id",
+    "rest_cycles": "id assistant_id generation trigger_kind trigger_ref source_run_id policy_revision policy_json wake_at drain_at consolidate_at run_cutoff event_cutoff entry_cutoff person_cutoff deletion_epoch calls reserved_tokens created_at finished_at partial error_code",
+    "rest_cycle_sources": "cycle_id owner_id policy_revision allow_model policy_digest revocation_epoch revocation_watermark",
+    "rest_cycle_refs": "cycle_id source_kind source_id source_json",
+    "rest_produced_refs": "cycle_id source_kind source_id revision owner_id source_json job_id attempt_id job_fence stage parent_digest parent_refs_json",
+    "rest_steps": "cycle_id ordinal kind status checkpoint_json result_digest error_code updated_at",
+    "rest_ack_permits": "id cycle_id generation source_run_id scope_ref grant_revision kind payload_digest expires_at used_at",
+    "consolidation_jobs": "id assistant_id cycle_id owner_id kind period_start period_end target_revision status fence attempts snapshot_digest uses_model checkpoint_json result_digest error_code",
+    "rest_job_sources": "job_id source_kind source_id source_json",
+    "rest_job_attempts": "id job_id cycle_id fence reserved_tokens started_at finished_at outcome",
+    "rest_consolidation_profiles": "cycle_id config_revision config_digest provider model credential_ref",
+    "rest_consolidation_targets": "job_id target_json input_digest",
+    "rest_consolidation_blocks": "cycle_id kind scope_digest reason",
+    "rest_management_requests": "assistant_id actor_id operation request_key request_digest result_json created_at",
+    "rest_control_candidates": "run_id input_digest received_at status operation_id error_code finished_at",
+    "rest_schedule_receipts": "policy_revision nominal_at status operation_id",
+    "rest_deferred_presentations": "run_id raw_generation plan_json media_inflight updated_at",
+}
+
+REST_DEFAULT_POLICY = {
+    "natural_enabled": False, "schedule_enabled": False,
+    "time_zone": "Asia/Shanghai", "sleep_local": None, "wake_local": None,
+    "default_sleep_seconds": None, "max_sleep_seconds": 86400,
+    "drain_seconds": 30, "consolidation_seconds": 300, "queue_limit": 128,
+    "max_job_attempts": 3, "max_cycle_calls": 8,
+    "max_cycle_reserved_tokens": 24000, "ack_seconds": 30,
+}
+
+
+def _unique_rest_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Duplicate Rest policy field")
+        result[key] = value
+    return result
+
+
+def check_rest(db, tables, reader):
+    """An unused complete additive schema is reversible; durable decisions are not."""
+    present = set(REST_COLUMNS) & tables
+    named = {name for name in tables if name.startswith("rest_")}
+    if not present and not named:
+        return
+    if present != set(REST_COLUMNS) or named - set(REST_COLUMNS):
+        raise RuntimeError("Rest schema is incomplete or unknown; refusing to ignore partial rest state")
+    for table, expected in REST_COLUMNS.items():
+        columns = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+        if columns != set(expected.split()):
+            raise RuntimeError("Rest schema columns are incomplete or unknown; a compatible reader is required")
+    used = {table for table in REST_COLUMNS
+            if db.execute(f"SELECT EXISTS(SELECT 1 FROM {table})").fetchone()[0]}
+    if not used:
+        return
+    meta = db.execute("SELECT id,schema_version FROM rest_meta").fetchall()
+    if len(meta) != 1 or meta[0][0] != 1 or type(meta[0][1]) is not int or meta[0][1] < 1:
+        raise RuntimeError("Rest schema metadata is incomplete or invalid")
+    version = meta[0][1]
+    if version > max(1, reader):
+        raise RuntimeError("Target release cannot read this Rest schema version")
+    policies = db.execute("SELECT assistant_id,revision,policy_json,actor_ref FROM rest_policies").fetchall()
+    states = db.execute("SELECT assistant_id,generation,revision,phase,cycle_id,wake_at,drain_at,consolidate_at,reason FROM assistant_rest_states").fetchall()
+    if len(policies) != 1 or len(states) != 1 or not policies[0][0] or policies[0][0] != states[0][0]:
+        raise RuntimeError("Rest initial state is incomplete; refusing semantic downgrade")
+    try:
+        policy = json.loads(policies[0][2], object_pairs_hook=_unique_rest_object)
+    except (ValueError, TypeError) as error:
+        raise RuntimeError("Rest policy is invalid; refusing semantic downgrade") from error
+    if (not isinstance(policy, dict) or set(policy) != set(REST_DEFAULT_POLICY)
+            or any(type(policy[key]) is not type(value) for key, value in REST_DEFAULT_POLICY.items()
+                   if value is not None)
+            or any(policy[key] is not None and type(policy[key]) is not expected_type
+                   for key, expected_type in (("sleep_local", str), ("wake_local", str),
+                                              ("default_sleep_seconds", int)))):
+        raise RuntimeError("Rest policy schema is incomplete or invalid")
+    # Clock samples and logical timestamps alone do not turn a default-off
+    # instance into used Rest. Every semantic auxiliary row does, even erased,
+    # revoked, unknown, completed, or an unclaimed raw presentation cache.
+    auxiliary = used - {"rest_meta", "rest_policies", "assistant_rest_states"}
+    untouched_policy = (policies[0][1] == 1 and policies[0][3] == "initial_disabled"
+                        and policy == REST_DEFAULT_POLICY)
+    untouched_state = states[0][1:] == (0, 1, "awake", None, None, None, None, None)
+    if reader < version and (auxiliary or not untouched_policy or not untouched_state):
+        raise RuntimeError("Target release lacks Rest durable control, authorization, source, wake or delivery semantics")
+
+
 def check(data_dir, release_source):
     manifest = pathlib.Path(release_source) / "deploy/release-capabilities.json"
     capabilities = json.loads(manifest.read_text()) if manifest.is_file() else {}
@@ -14,6 +105,7 @@ def check(data_dir, release_source):
         return
     with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as db:
         tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        check_rest(db, tables, int(capabilities.get("rest", 0)))
         version = db.execute("SELECT coalesce(max(version),0) FROM dsh_schema_migrations").fetchone()[0] if "dsh_schema_migrations" in tables else 0
         # Version 1 is additive for legacy work. A future schema requires its reader.
         if version > max(1, int(capabilities.get("schema_reader", 0))):
