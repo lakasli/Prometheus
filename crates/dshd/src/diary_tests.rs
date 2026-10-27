@@ -204,6 +204,105 @@ fn source_authorization_and_model_egress_are_independent() {
     build(&mut db, "owner-a", "day", "2026-10-02");
     assert!(prepare_generation_in(&db).unwrap().is_some());
 }
+
+#[test]
+fn sleep_checkpoint_makes_current_day_recallable_without_model_egress() {
+    let mut db = database();
+    let policy = SourcePolicy {
+        source_owner_id: "owner-a".into(),
+        enabled: true,
+        allow_model: false,
+        timezone: TIMEZONE.into(),
+    };
+    save_policy(&mut db, "admin", 0, &policy).unwrap();
+    note(
+        &mut db,
+        "admin",
+        &input("SLEEP_TODAY_ALLOWED", "alice", "2026-10-01"),
+    )
+    .unwrap();
+    note(
+        &mut db,
+        "admin",
+        &input("SLEEP_TODAY_OTHER", "bob", "2026-10-01"),
+    )
+    .unwrap();
+    let tx = db.transaction().unwrap();
+    checkpoint_sleep_in(&tx, timestamp("2026-10-01") + 60).unwrap();
+    let entries = retrieve(&tx, "owner-a", "SLEEP_TODAY_ALLOWED", 4, 64000).unwrap();
+    assert_eq!(entries.len(), 1);
+    assert!(entries[0].facts.contains("SLEEP_TODAY_ALLOWED"));
+    assert!(!entries[0].facts.contains("SLEEP_TODAY_OTHER"));
+    assert_eq!(entries[0].status, "draft");
+    assert!(retrieve(&tx, "owner-b", "SLEEP_TODAY_OTHER", 4, 64000)
+        .unwrap()
+        .is_empty());
+    assert!(prepare_generation_in(&tx).unwrap().is_none());
+    checkpoint_sleep_in(&tx, timestamp("2026-10-01") + 120).unwrap();
+    assert_eq!(
+        entry(&tx, &entries[0].id, None).unwrap().revision,
+        entries[0].revision
+    );
+    tx.commit().unwrap();
+}
+
+#[test]
+fn sleep_checkpoint_keeps_protected_targets_and_over_budget_evidence() {
+    let mut db = database();
+    save_policy(
+        &mut db,
+        "admin",
+        0,
+        &SourcePolicy {
+            source_owner_id: "owner-a".into(),
+            enabled: true,
+            allow_model: false,
+            timezone: TIMEZONE.into(),
+        },
+    )
+    .unwrap();
+    note(&mut db, "admin", &input("initial", "alice", "2026-10-01")).unwrap();
+    let existing = build(&mut db, "owner-a", "day", "2026-10-01");
+    db.execute(
+        "UPDATE diary_entries SET generator='human',facts='human protected' WHERE id=?1",
+        [&existing.id],
+    )
+    .unwrap();
+    for i in 0..201 {
+        note(
+            &mut db,
+            "admin",
+            &input(&format!("bounded evidence {i}"), "alice", "2026-10-02"),
+        )
+        .unwrap();
+    }
+    let tx = db.transaction().unwrap();
+    checkpoint_sleep_in(&tx, timestamp("2026-10-01") + 60).unwrap();
+    assert_eq!(
+        entry(&tx, &existing.id, None).unwrap().facts,
+        "human protected"
+    );
+    checkpoint_sleep_in(&tx, timestamp("2026-10-02") + 60).unwrap();
+    assert_eq!(
+        tx.query_row(
+            "SELECT count(*) FROM diary_events WHERE deleted_at IS NULL",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        202
+    );
+    assert_eq!(
+        tx.query_row(
+            "SELECT reason FROM diary_consolidation_blocks WHERE period_start='2026-10-02'",
+            [],
+            |r| r.get::<_, String>(0)
+        )
+        .unwrap(),
+        "diary_period_budget_exceeded"
+    );
+    tx.commit().unwrap();
+}
 #[test]
 fn model_result_is_fenced_against_correction_forgetting_and_policy_changes() {
     let mut db = database();

@@ -98,6 +98,11 @@ def main():
                     messages = json.loads(db.execute('SELECT messages_json FROM run_prompt_snapshots WHERE run_id=?', (after,)).fetchone()[0])
                     captured = db.execute("SELECT count(*) FROM diary_events WHERE content LIKE '%SLEEP_DIARY_BOUNDARY_694%' AND deleted_at IS NULL").fetchone()[0]
                     retained = db.execute('SELECT count(*) FROM messages WHERE run_id=?', (before,)).fetchone()[0]
+                    report['diary_checkpoint'] = {
+                        'captured_events': captured,
+                        'recallable_entries': db.execute("SELECT count(*) FROM diary_entries WHERE facts LIKE '%SLEEP_DIARY_BOUNDARY_694%' AND deleted_at IS NULL").fetchone()[0],
+                        'model_jobs': db.execute('SELECT count(*) FROM diary_model_jobs').fetchone()[0],
+                    }
                 check('sleep boundary excludes previous raw assistant turns from the real next request', cut >= old_order and not any(m['role'] == 'assistant' for m in messages))
                 check('original messages and captured diary evidence remain', retained > 0 and captured > 0)
                 check('post-wake request recalls the recorded fact through diary evidence',

@@ -922,6 +922,8 @@ pub fn sleep_in(
         // Persist the bounded, authorized delivery capture before freezing the
         // cycle's diary cutoff. Originals remain available for later batches.
         crate::diary::tick_in(db, at).map_err(|_| anyhow::anyhow!("rest_diary_capture_failed"))?;
+        crate::diary::checkpoint_sleep_in(db, at)
+            .map_err(|_| anyhow::anyhow!("rest_diary_checkpoint_failed"))?;
     }
     let wake = next_wake(&policy, request.wake_at, at)?;
     let drain = at.saturating_add(policy.drain_seconds).min(wake);

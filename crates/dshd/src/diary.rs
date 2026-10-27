@@ -1819,6 +1819,75 @@ fn fingerprint(events: &[Event], suffix: &str) -> String {
     hex::encode(hash.finalize())
 }
 
+/// Persist today's authorized evidence before a sleep context boundary. This
+/// is a local excerpt, not an extra model-export grant or a closed-day claim.
+pub(crate) fn checkpoint_sleep_in(db: &Connection, timestamp: i64) -> ApiResult<Value> {
+    let scopes = {
+        let mut stmt=db.prepare("SELECT c.scope_key,c.visibility,c.source_owner_id,c.timezone FROM diary_scope_checkpoints c WHERE c.source_owner_id IS NULL OR EXISTS(SELECT 1 FROM diary_source_policies p WHERE p.source_owner_id=c.source_owner_id AND p.enabled=1) ORDER BY c.scope_key LIMIT 17").api()?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, String>(3)?,
+                ))
+            })
+            .api()?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().api()?
+    };
+    let mut generated = 0;
+    let mut blocked = 0;
+    for (index, (scope, visibility, owner, timezone)) in scopes.into_iter().enumerate() {
+        let day = local_date(timestamp, tz(&timezone)?)?;
+        if index >= 16 {
+            record_consolidation_block(db, &scope, "day", day, "sleep_scope_limit", timestamp)?;
+            blocked += 1;
+            continue;
+        }
+        let assistant = memory::identity(db)?;
+        let key = format!(
+            "{assistant}:{visibility}:{}:day:{day}:{timezone}",
+            owner.as_deref().unwrap_or("")
+        );
+        let id = format!("diary:{}", hex::encode(Sha256::digest(key.as_bytes())));
+        // Never revive a deleted target or overwrite an edited/selected entry.
+        let protected:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM diary_entries WHERE id=?1 AND (deleted_at IS NOT NULL OR generator!='evidence_excerpt_v1')) OR EXISTS(SELECT 1 FROM diary_entry_versions WHERE entry_id=?1 AND actor_id!='system')",[&id],|r|r.get(0)).api()?;
+        if protected {
+            record_consolidation_block(
+                db,
+                &scope,
+                "day",
+                day,
+                "sleep_target_protected",
+                timestamp,
+            )?;
+            blocked += 1;
+            continue;
+        }
+        match consolidate_in(
+            db,
+            &visibility,
+            owner.as_deref(),
+            "day",
+            &day.to_string(),
+            &timezone,
+            timestamp,
+        ) {
+            Ok(_) => {
+                clear_consolidation_block(db, &scope, "day", day)?;
+                generated += 1;
+            }
+            Err(e) if e.code == "diary_period_budget_exceeded" => {
+                record_consolidation_block(db, &scope, "day", day, e.code, timestamp)?;
+                blocked += 1;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(json!({"generated":generated,"blocked":blocked,"generator":"evidence_excerpt_v1"}))
+}
+
 /// One shared scheduler calls this under its database transaction. Work per
 /// pass is bounded; a persisted day cursor resumes after shutdown or backlog.
 pub fn tick_in(db: &Connection, timestamp: i64) -> ApiResult<Value> {
