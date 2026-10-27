@@ -102,6 +102,8 @@ def main():
                 csrf = None
 
                 def request(method, path, body=None, expected=200, extra=None, use_csrf=True):
+                    nonlocal stage
+                    stage = method + ' ' + path
                     headers = {'Origin': lan.ORIGIN, 'Content-Type': 'application/json'}
                     if csrf and use_csrf:
                         headers['X-CSRF-Token'] = csrf
@@ -147,10 +149,7 @@ def main():
                 request('POST', api + '/auth/logout', {})
                 request('GET', api + '/config', expected=401)
                 check('logout revokes the HTTPS session', True)
-                try:
-                    request('GET', api + '/config', extra={'Host':'invalid.example:8086'}, expected=404)
-                except AssertionError:
-                    raise
+                request('GET', api + '/config', extra={'Host':'invalid.example:8086'}, expected=403)
                 check('a mismatched Host cannot read a management resource', True)
                 with socket.create_connection((lan.HOST, lan.PORT), timeout=3) as plain:
                     plain.sendall(f'GET /admin/ HTTP/1.1\r\nHost: {lan.HOST}:{lan.PORT}\r\nConnection: close\r\n\r\n'.encode())

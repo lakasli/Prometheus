@@ -58,6 +58,11 @@ https://{host}:{port} {{
     tls internal
     reverse_proxy 127.0.0.1:{upstream}
 }}
+
+https://:{port} {{
+    bind {host}
+    respond "Invalid management host" 403
+}}
 '''
 
 

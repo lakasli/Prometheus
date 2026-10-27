@@ -17,6 +17,7 @@ class LanHttpsProfileTests(unittest.TestCase):
         self.assertIn('@outside not remote_ip 192.168.189.0/24', config)
         self.assertIn('respond @outside "LAN access only" 403', config)
         self.assertNotIn('0.0.0.0', config)
+        self.assertIn('respond "Invalid management host" 403', config)
 
     def test_proxy_neither_claims_other_ports_nor_installs_system_trust(self):
         config = lan.caddyfile()
