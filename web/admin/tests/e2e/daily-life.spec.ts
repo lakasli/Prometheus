@@ -112,6 +112,7 @@ test("daily routine and personal activities save through the real authenticated 
       () => document.documentElement.scrollWidth <= window.innerWidth + 1,
     ),
   ).toBe(true);
+  expect(await page.locator('.schedule-system > .panel').evaluateAll(elements=>elements.every(el=>el.getBoundingClientRect().right<=window.innerWidth))).toBe(true);
   await page.screenshot({
     path: path.join(evidence, "daily-calendar-mobile.png"),
     fullPage: false,

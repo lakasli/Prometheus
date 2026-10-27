@@ -1509,6 +1509,18 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.schedule-system {
+  grid-template-columns: minmax(0, 1fr);
+}
+.schedule-system > .panel,
+.life-intro > div {
+  min-width: 0;
+}
+@media (max-width: 540px) {
+  .life-intro {
+    flex-wrap: wrap;
+  }
+}
 .calendar-heading {
   align-items: center;
 }
