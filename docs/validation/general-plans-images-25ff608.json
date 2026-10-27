@@ -1,0 +1,712 @@
+{
+  "application_commit": "25ff608fba7e7a137f86ce0f31fa84382e4ec815",
+  "compatibility_tools_commit": "8efb4b10f8e3593361ad28ddaa0a82ee0f0b645e",
+  "web_archive_sha256": "a36ebbd60b328dbc95cbfa00b4984b9a1c8415758bf06306fbbe867e99e6b7b8",
+  "production_before": {
+    "at": "2026-10-27T10:12:32.168840+00:00",
+    "commit": "3c5b7f6e2a53f3a0c4bc5cfc99cd8b5b0c4fc723",
+    "config_revision": "7",
+    "config_sha256": "567bdede8ac418110d1a3cd19497a2327b04fa366539c39ca811b48cf4e449ed",
+    "identity_sha256": "02d4c0a19fec90e8753c4b64cda52e9b7ef5d3b60b779abef91b67319447724d",
+    "personality_revision": 3,
+    "personality_matches_asset_v3": false,
+    "personality_has_fixed_poem_hobby": true,
+    "personality_has_identity_labels": false,
+    "counts": {
+      "conversations": 4,
+      "runs": 67,
+      "messages": 130,
+      "memory_records": 0,
+      "diary_events": 5,
+      "diary_entries": 1,
+      "secrets": 3
+    },
+    "rest_policy_revision": 2,
+    "rest_policy": {
+      "anticipation_enabled": true,
+      "reset_context_on_sleep": true,
+      "natural_enabled": false,
+      "schedule_enabled": true,
+      "time_zone": "Asia/Shanghai",
+      "sleep_local": "23:00",
+      "wake_local": "07:00",
+      "default_sleep_seconds": null,
+      "max_sleep_seconds": 86400,
+      "drain_seconds": 30,
+      "consolidation_seconds": 300,
+      "queue_limit": 128,
+      "max_job_attempts": 3,
+      "max_cycle_calls": 8,
+      "max_cycle_reserved_tokens": 24000,
+      "ack_seconds": 30
+    },
+    "phase": "awake",
+    "personal_policy": {
+      "revision": 1,
+      "enabled": true,
+      "daily_limit": 4,
+      "valid_until": 1824611021,
+      "format": null
+    },
+    "grants": [
+      {
+        "title": "嘉卉的抄诗小安排",
+        "revision": 1,
+        "policy_sha256": "0395dbf332a1aa46f31be617b9a5459f9b1746c643ba835119932a31a7a4f4ce"
+      }
+    ],
+    "diary_source_policies": [
+      {
+        "source_sha256": "5b73433414a7420dffc5068e1b2aabf7428470975c1100d96514d32decf2c6c8",
+        "revision": 1,
+        "enabled": true,
+        "allow_model": false,
+        "authorized_at": 1793074492
+      }
+    ],
+    "service": "active",
+    "source_clean": true,
+    "ready": {
+      "commit": "3c5b7f6e2a53f3a0c4bc5cfc99cd8b5b0c4fc723",
+      "status": "ready"
+    },
+    "binary_sha256": "54d4a2e70e972bfe5495753663b938dfbec4c61f7b00f513f70ac7f5db5c2859",
+    "web": {
+      "commit": "3c5b7f6e2a53f3a0c4bc5cfc99cd8b5b0c4fc723",
+      "api_version": 1
+    }
+  },
+  "production_after": {
+    "at": "2026-10-27T11:16:43.998913+00:00",
+    "commit": "25ff608fba7e7a137f86ce0f31fa84382e4ec815",
+    "config_revision": "7",
+    "config_sha256": "567bdede8ac418110d1a3cd19497a2327b04fa366539c39ca811b48cf4e449ed",
+    "identity_sha256": "02d4c0a19fec90e8753c4b64cda52e9b7ef5d3b60b779abef91b67319447724d",
+    "personality_revision": 4,
+    "personality_matches_asset_v3": true,
+    "personality_has_fixed_poem_hobby": false,
+    "personality_has_identity_labels": false,
+    "counts": {
+      "conversations": 4,
+      "runs": 67,
+      "messages": 130,
+      "memory_records": 0,
+      "diary_events": 5,
+      "diary_entries": 1,
+      "secrets": 3
+    },
+    "rest_policy_revision": 2,
+    "rest_policy": {
+      "anticipation_enabled": true,
+      "reset_context_on_sleep": true,
+      "natural_enabled": false,
+      "schedule_enabled": true,
+      "time_zone": "Asia/Shanghai",
+      "sleep_local": "23:00",
+      "wake_local": "07:00",
+      "default_sleep_seconds": null,
+      "max_sleep_seconds": 86400,
+      "drain_seconds": 30,
+      "consolidation_seconds": 300,
+      "queue_limit": 128,
+      "max_job_attempts": 3,
+      "max_cycle_calls": 8,
+      "max_cycle_reserved_tokens": 24000,
+      "ack_seconds": 30
+    },
+    "phase": "awake",
+    "personal_policy": {
+      "revision": 2,
+      "enabled": true,
+      "daily_limit": 4,
+      "valid_until": 1824611021,
+      "format": "text_v1"
+    },
+    "grants": [
+      {
+        "title": "日常自主安排",
+        "revision": 2,
+        "policy_sha256": "0395dbf332a1aa46f31be617b9a5459f9b1746c643ba835119932a31a7a4f4ce"
+      }
+    ],
+    "diary_source_policies": [
+      {
+        "source_sha256": "5b73433414a7420dffc5068e1b2aabf7428470975c1100d96514d32decf2c6c8",
+        "revision": 1,
+        "enabled": true,
+        "allow_model": false,
+        "authorized_at": 1793074492
+      }
+    ],
+    "service": "active",
+    "source_clean": true,
+    "ready": {
+      "commit": "25ff608fba7e7a137f86ce0f31fa84382e4ec815",
+      "status": "ready"
+    },
+    "binary_sha256": "f33e47b41937608a001b779d37b0339448af9c66c4d124a4e96d1c897e9f7a81",
+    "web": {
+      "commit": "25ff608fba7e7a137f86ce0f31fa84382e4ec815",
+      "api_version": 1
+    }
+  },
+  "preserved": {
+    "config_revision": true,
+    "config_sha256": true,
+    "identity_sha256": true,
+    "counts": true,
+    "rest_policy_revision": true,
+    "rest_policy": true,
+    "diary_source_policies": true
+  },
+  "runtime": {
+    "at": "2026-10-27T11:20:57.238935+00:00",
+    "commit": "25ff608fba7e7a137f86ce0f31fa84382e4ec815",
+    "https_certificate_verified": true,
+    "https_ca_sha256": "8d33d43a417643c59a572f302448acbe5b29730735a5a5199281624b12e4a9aa",
+    "https_index_matches_release": true,
+    "https_javascript_matches_release": true,
+    "anonymous_api_statuses": {
+      "/assistant/personality": 401,
+      "/schedule/activities": 401,
+      "/config": 401,
+      "/schedule/decisions": 401
+    },
+    "source_sha": "25ff608fba7e7a137f86ce0f31fa84382e4ec815",
+    "source_clean": true,
+    "rust_result_lines": [
+      "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.66s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "test result: ok. 650 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 34.30s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+    ],
+    "build_result_lines": [
+      "    Finished `release` profile [optimized] target(s) in 0.31s"
+    ],
+    "backups": [
+      "/home/campanus/apps/dsh/shared/backups/pre-25ff608fba7e7a137f86ce0f31fa84382e4ec815-20261027T111602319752180.sqlite"
+    ],
+    "daemon_processes": 1
+  },
+  "deployment": {
+    "commit": "25ff608fba7e7a137f86ce0f31fa84382e4ec815",
+    "previous_release": "/home/campanus/apps/dsh/releases/c7fb2d6a518ed29e31bebc6b72c6b12d4ea8cf2b",
+    "compatibility_tools_commit": "8efb4b10f8e3593361ad28ddaa0a82ee0f0b645e",
+    "deployed_at": "2026-10-27T11:16:03.845365+00:00",
+    "web_manifest": {
+      "commit": "25ff608fba7e7a137f86ce0f31fa84382e4ec815",
+      "api_version": 1
+    }
+  },
+  "final_isolated_reports": {
+    "qq-generic-live-25ff608": {
+      "kind": "isolated daily-life acceptance",
+      "status": "passed",
+      "started_at": "2026-10-27T11:04:08.560846+00:00",
+      "architecture": "aarch64",
+      "external_model": true,
+      "production_modified": false,
+      "real_qq_tested": false,
+      "real_weixin_tested": false,
+      "checks": [
+        "new schedule reads require authentication",
+        "standard work grants enforce CSRF and revisions without a hobby-specific switch",
+        "ordinary native conversation completes with the schedule protocol",
+        "spoken own plan is persisted as an enabled autonomous calendar activity",
+        "actual provider system prompt uses the human perspective without mechanical identity words",
+        "fixed system instructions contain no prescribed hobby or poem catalogue",
+        "real model accepts explicitly supplied family background without a technical disclaimer",
+        "scheduled general writing leaves a real private artifact and content hash",
+        "completed activity is recorded in the source-private diary without publishing its content",
+        "known natural QQ statement completes through semantic checking",
+        "known reply replay really registers an activity without a sentence whitelist",
+        "REPLAY_QUOTE_CASE remains ordinary dialogue",
+        "REPLAY_QUOTE_CASE does not create an activity",
+        "REPLAY_CONDITIONAL_CASE remains ordinary dialogue",
+        "REPLAY_CONDITIONAL_CASE does not create an activity",
+        "jpg passes actual decode, vision and ordinary native reply",
+        "jpg reply does not expose processing or format parameters",
+        "corrupt image is rejected before creating a false visual answer",
+        "one-minute notice invokes the configured model and fixed Python decision script"
+      ],
+      "commit": "25ff608fba7e7a137f86ce0f31fa84382e4ec815",
+      "last_check": "one-minute notice invokes the configured model and fixed Python decision script",
+      "initial_run_status": "completed",
+      "initial_run_error": null,
+      "synthetic_plan_answer": "好，我用接下来十分钟把这几天攒下的零散待办列成一张清单，按轻重缓急排一排。\n清单写出来就是成果，今晚心里能清楚些。",
+      "offered_slot_count": 3,
+      "activity_count": 1,
+      "spoken_recovery_count": 0,
+      "synthetic_family_answer": "林远山、周晴，这下我记牢了，往后聊到爸妈就不会叫错。",
+      "known_reply_native_injected": true,
+      "model_schedule_choice": "execute",
+      "passed": 19,
+      "real_request_limit": 12,
+      "real_requests": [
+        {
+          "kind": "native_or_notice",
+          "request_sha256": "0874798465b0b8b6d8115ab2f2d766480dfcb61e7ff7b40898a1df27acd83ad0",
+          "status": "finished",
+          "http_status": 200,
+          "response_sha256": "6c67cd995b04bee781e1994b0eb2e20ef8c2c3dfef4a71a5b6719ab1fb8df938",
+          "finish_reason": "stop"
+        },
+        {
+          "kind": "native_or_notice",
+          "request_sha256": "56889855a8a7a00a4d9a19e7ccae498397e27a8d24b265751ffd4e681302f290",
+          "status": "finished",
+          "http_status": 200,
+          "response_sha256": "792fe30326cbbb482ad847315c29145490c19b591bc4df7a8567bcd553e5ad5c",
+          "finish_reason": "stop"
+        },
+        {
+          "kind": "plan_check",
+          "request_sha256": "2a6c207a2c4db0502b69b16aec9a9f269919faf3e624a81d51d1c27d34922d9a",
+          "status": "finished",
+          "http_status": 200,
+          "response_sha256": "2fa1437102cb9b2647cf9b006dc187e18b7ab3248170764510387e271bd71298",
+          "finish_reason": "stop"
+        },
+        {
+          "kind": "plan_check",
+          "request_sha256": "dea2471f52151c3c96d4d05d82f7124813a449640fa78eea1ed5aaf45e7f8bf6",
+          "status": "finished",
+          "http_status": 200,
+          "response_sha256": "c6dca4ade3bf4b2861d39f062b1240b0415b3b5884018ac2b38321a1d26a62e8",
+          "finish_reason": "stop"
+        },
+        {
+          "kind": "plan_check",
+          "request_sha256": "94d34f5dbad85ffc8ed29968ba38d77d36264f9f6eafe0cb7de9683ae7eba285",
+          "status": "finished",
+          "http_status": 200,
+          "response_sha256": "8223be32330bab621fe7fc0660fc7801c9fb1acd5d08dedabaa35e83b974f4e9",
+          "finish_reason": "stop"
+        },
+        {
+          "kind": "vision",
+          "request_sha256": "0b5e8fe9185b5a56dfe2ff7de8676982671af558b80a19bb454754f11f76cc76",
+          "status": "finished",
+          "http_status": 200,
+          "response_sha256": "2c4bd1560ceaf5eb123a4bad46c52ec062e07fdb52275a5f11fd35cf7401fcd8",
+          "finish_reason": "stop"
+        },
+        {
+          "kind": "native_or_notice",
+          "request_sha256": "f8f2b6b9121c8343abc5e6be87c6c91b79c7e7ead9d9e7823ab05c2ce7f6149d",
+          "status": "finished",
+          "http_status": 200,
+          "response_sha256": "d57b5640979f094ae1d3a24e77240a368dba0f0c9c53a47d2855e2941931a74e",
+          "finish_reason": "stop"
+        },
+        {
+          "kind": "native_or_notice",
+          "request_sha256": "5b810f822869ba6feb57e863110add07ecce6b0324f76e217edba23922b263bf",
+          "status": "finished",
+          "http_status": 200,
+          "response_sha256": "1600dd246f8774100aa4ba15c3a57575426bafe9af1009e143e4674486a1b7dc",
+          "finish_reason": "stop"
+        }
+      ],
+      "peak_real_requests": 1,
+      "finished_at": "2026-10-27T11:04:46.033044+00:00"
+    },
+    "qq-generic-mock-25ff608": {
+      "kind": "isolated daily-life acceptance",
+      "status": "passed",
+      "started_at": "2026-10-27T11:03:33.483460+00:00",
+      "architecture": "aarch64",
+      "external_model": false,
+      "production_modified": false,
+      "real_qq_tested": false,
+      "real_weixin_tested": false,
+      "checks": [
+        "new schedule reads require authentication",
+        "standard work grants enforce CSRF and revisions without a hobby-specific switch",
+        "ordinary native conversation completes with the schedule protocol",
+        "spoken own plan is persisted as an enabled autonomous calendar activity",
+        "actual provider system prompt uses the human perspective without mechanical identity words",
+        "fixed system instructions contain no prescribed hobby or poem catalogue",
+        "scheduled general writing leaves a real private artifact and content hash",
+        "completed activity is recorded in the source-private diary without publishing its content",
+        "known natural QQ statement completes through semantic checking",
+        "known reply replay really registers an activity without a sentence whitelist",
+        "REPLAY_QUOTE_CASE remains ordinary dialogue",
+        "REPLAY_QUOTE_CASE does not create an activity",
+        "REPLAY_CONDITIONAL_CASE remains ordinary dialogue",
+        "REPLAY_CONDITIONAL_CASE does not create an activity",
+        "png passes actual decode, vision and ordinary native reply",
+        "png reply does not expose processing or format parameters",
+        "jpg passes actual decode, vision and ordinary native reply",
+        "jpg reply does not expose processing or format parameters",
+        "webp passes actual decode, vision and ordinary native reply",
+        "webp reply does not expose processing or format parameters",
+        "gif passes actual decode, vision and ordinary native reply",
+        "gif reply does not expose processing or format parameters",
+        "bmp passes actual decode, vision and ordinary native reply",
+        "bmp reply does not expose processing or format parameters",
+        "corrupt image is rejected before creating a false visual answer",
+        "one-minute notice invokes the configured model and fixed Python decision script",
+        "accepted sleep cuts conversation context while retaining original log messages"
+      ],
+      "commit": "25ff608fba7e7a137f86ce0f31fa84382e4ec815",
+      "last_check": "accepted sleep cuts conversation context while retaining original log messages",
+      "initial_run_status": "completed",
+      "initial_run_error": null,
+      "synthetic_plan_answer": "我趁这会儿先把想法整理成一段记录。",
+      "offered_slot_count": 3,
+      "activity_count": 1,
+      "spoken_recovery_count": 0,
+      "known_reply_native_injected": true,
+      "model_schedule_choice": "execute",
+      "passed": 27,
+      "finished_at": "2026-10-27T11:04:05.388559+00:00"
+    },
+    "qq-generic-persona-25ff608": {
+      "kind": "personality presentation isolated acceptance",
+      "commit": "25ff608fba7e7a137f86ce0f31fa84382e4ec815",
+      "binary_sha256": "f33e47b41937608a001b779d37b0339448af9c66c4d124a4e96d1c897e9f7a81",
+      "personality_sha256": "d435f7b8b40ba818fc789959bc13ba188ce0d70477f843bb8206504e9500d825",
+      "tested_at": "2026-10-27T11:07:01.892365+00:00",
+      "platform": "aarch64",
+      "passed": 11,
+      "checks": [
+        "personality asset has six nonempty text fields and the requested name",
+        "displayed personality fields avoid mechanical identity wording",
+        "current personality requires authentication",
+        "personality update requires CSRF",
+        "requested personality is saved and applied as a new revision",
+        "stale personality update is rejected",
+        "existing conversation uses new personality and example responses in its next HTTP request",
+        "completed run snapshot is preserved and new run freezes the requested name",
+        "personality update preserves stable identity and all existing memory records",
+        "previous personality can be restored through the authenticated versioned API",
+        "restored personality and existing memory survive a real daemon restart"
+      ],
+      "production_data_accessed": false,
+      "external_model_tested": false,
+      "real_qq_tested": false,
+      "real_weixin_tested": false
+    },
+    "qq-generic-wake-25ff608": {
+      "kind": "isolated real-clock sleeping wake acceptance",
+      "status": "passed",
+      "started_at": "2026-10-27T11:04:46.616452+00:00",
+      "architecture": "aarch64",
+      "checks": [
+        "temporary daemon matches the published binary",
+        "pre-sleep interaction completes",
+        "actual daemon enters sleeping before the future civil wake",
+        "sleeping instance can receive the one-minute model decision",
+        "notice uses the real one-minute window",
+        "actual provider receives the sleeping state for this exact wake",
+        "fixed wake executes without another model request",
+        "post-wake conversation completes",
+        "sleep boundary excludes previous raw assistant turns from the real next request",
+        "original messages and captured diary evidence remain",
+        "post-wake request recalls the recorded fact through diary evidence"
+      ],
+      "production_accessed": false,
+      "external_model": false,
+      "real_channel_tested": false,
+      "synthetic_clock_or_event_injected": false,
+      "commit": "25ff608fba7e7a137f86ce0f31fa84382e4ec815",
+      "last_check": "post-wake request recalls the recorded fact through diary evidence",
+      "diary_checkpoint": {
+        "captured_events": 1,
+        "recallable_entries": 1,
+        "model_jobs": 0
+      },
+      "passed": 11,
+      "wake_at": 1793099220,
+      "notified_at": 1793099160,
+      "notice_phase": "sleeping",
+      "finished_at": "2026-10-27T11:07:00.378013+00:00"
+    }
+  },
+  "earlier_reports_including_failures": {
+    "qq-generic-live-c7fb2d6-r2": {
+      "kind": "isolated daily-life acceptance",
+      "status": "failed",
+      "started_at": "2026-10-27T10:35:55.302479+00:00",
+      "architecture": "aarch64",
+      "external_model": true,
+      "production_modified": false,
+      "real_qq_tested": false,
+      "real_weixin_tested": false,
+      "checks": [
+        "new schedule reads require authentication",
+        "standard work grants enforce CSRF and revisions without a hobby-specific switch"
+      ],
+      "commit": "c7fb2d6a518ed29e31bebc6b72c6b12d4ea8cf2b",
+      "last_check": "ordinary native conversation completes with the schedule protocol",
+      "initial_run_status": "failed",
+      "initial_run_error": "模型回复未符合逐句JSON列表契约",
+      "synthetic_plan_answer": null,
+      "error_type": "AssertionError",
+      "real_request_limit": 12,
+      "real_requests": [
+        {
+          "kind": "native_or_notice",
+          "request_sha256": "67f3285c8fc15e5d1cb116435b028316773c123d81fc745f8f071de9dbe681bf",
+          "status": "finished",
+          "http_status": 200,
+          "response_sha256": "2b0d4834668174aa66805a55831fb9079f45d3240dbbc02ef31e1fa5942340a2"
+        }
+      ],
+      "peak_real_requests": 1,
+      "finished_at": "2026-10-27T10:35:58.109316+00:00"
+    },
+    "qq-generic-live-c7fb2d6-r3": {
+      "kind": "isolated daily-life acceptance",
+      "status": "failed",
+      "started_at": "2026-10-27T10:37:02.034769+00:00",
+      "architecture": "aarch64",
+      "external_model": true,
+      "production_modified": false,
+      "real_qq_tested": false,
+      "real_weixin_tested": false,
+      "checks": [
+        "new schedule reads require authentication",
+        "standard work grants enforce CSRF and revisions without a hobby-specific switch"
+      ],
+      "commit": "c7fb2d6a518ed29e31bebc6b72c6b12d4ea8cf2b",
+      "last_check": "ordinary native conversation completes with the schedule protocol",
+      "initial_run_status": "failed",
+      "initial_run_error": "模型回复未符合逐句JSON列表契约",
+      "synthetic_plan_answer": null,
+      "error_type": "AssertionError",
+      "real_request_limit": 12,
+      "real_requests": [
+        {
+          "kind": "native_or_notice",
+          "request_sha256": "474c9378763c54f46f9996303a8913ead3ef9e987be3273fb545cede04c3a440",
+          "status": "finished",
+          "http_status": 200,
+          "response_sha256": "1ce0f314e0b85cc1ea6dc5b212ba5617dc4c9974b7bbc223d08cd2e17ec1699e",
+          "finish_reason": "stop"
+        }
+      ],
+      "peak_real_requests": 1,
+      "finished_at": "2026-10-27T10:37:04.600593+00:00"
+    },
+    "qq-generic-live-c7fb2d6": {
+      "kind": "isolated daily-life acceptance",
+      "status": "failed",
+      "started_at": "2026-10-27T10:32:45.459839+00:00",
+      "architecture": "aarch64",
+      "external_model": true,
+      "production_modified": false,
+      "real_qq_tested": false,
+      "real_weixin_tested": false,
+      "checks": [
+        "new schedule reads require authentication",
+        "standard work grants enforce CSRF and revisions without a hobby-specific switch"
+      ],
+      "commit": "c7fb2d6a518ed29e31bebc6b72c6b12d4ea8cf2b",
+      "last_check": "ordinary native conversation completes with the schedule protocol",
+      "error_type": "AssertionError",
+      "real_request_limit": 12,
+      "real_requests": [
+        {
+          "kind": "native_or_notice",
+          "request_sha256": "43f31db387a8faec0b7b163c989fae7c083218b208e322160f2aaa3c89aa3bf3",
+          "status": "finished",
+          "http_status": 200,
+          "response_sha256": "9a685b05f8758f27537921c67fec7344bf63ff8b657dfe4755881d0d614dbca5"
+        }
+      ],
+      "peak_real_requests": 1,
+      "finished_at": "2026-10-27T10:32:52.057033+00:00"
+    },
+    "qq-generic-live-probe-c7fb2d6": {
+      "kind": "isolated direct semantic component probe",
+      "production_conversations_read": false,
+      "real_channel_tested": false,
+      "status": "passed",
+      "checks": [
+        {
+          "expected_activity": true,
+          "passed": true
+        },
+        {
+          "expected_activity": false,
+          "passed": true
+        },
+        {
+          "expected_activity": false,
+          "passed": true
+        }
+      ],
+      "requests": [
+        {
+          "kind": "plan_check",
+          "request_sha256": "b62dc2da4455bc6e5c4bce4767bd6f84fa00f20140b8d2cb4a08daf5257f7c9c",
+          "status": "finished",
+          "http_status": 200,
+          "response_sha256": "ca173bc2c5d9059f1f6d175fabb0c8894d342f000f2c8cb397ef2b9f092215d2"
+        },
+        {
+          "kind": "plan_check",
+          "request_sha256": "8c00a230707087b53db6a85b1036959bd9deec910a69cf9f214dc0fefa22b325",
+          "status": "finished",
+          "http_status": 200,
+          "response_sha256": "fe6d314acc3672adc0c4c5e1387c2d499db0c6bc25c4a289006b603f3dd13911"
+        },
+        {
+          "kind": "plan_check",
+          "request_sha256": "52cce81e152e6cf41e402babc93b9a2c1e57c12b29c60f2ca3ae83fca0ec371d",
+          "status": "finished",
+          "http_status": 200,
+          "response_sha256": "59e125c26a06ece15bba2030ef167523cb02b802bc18f237daa5aca0f4258d6d"
+        }
+      ]
+    },
+    "qq-generic-mock-c7fb2d6": {
+      "kind": "isolated daily-life acceptance",
+      "status": "passed",
+      "started_at": "2026-10-27T10:32:11.231084+00:00",
+      "architecture": "aarch64",
+      "external_model": false,
+      "production_modified": false,
+      "real_qq_tested": false,
+      "real_weixin_tested": false,
+      "checks": [
+        "new schedule reads require authentication",
+        "standard work grants enforce CSRF and revisions without a hobby-specific switch",
+        "ordinary native conversation completes with the schedule protocol",
+        "spoken own plan is persisted as an enabled autonomous calendar activity",
+        "actual provider system prompt uses the human perspective without mechanical identity words",
+        "fixed system instructions contain no prescribed hobby or poem catalogue",
+        "scheduled general writing leaves a real private artifact and content hash",
+        "completed activity is recorded in the source-private diary without publishing its content",
+        "known natural QQ statement completes through semantic checking",
+        "known reply replay really registers an activity without a sentence whitelist",
+        "REPLAY_QUOTE_CASE remains ordinary dialogue",
+        "REPLAY_QUOTE_CASE does not create an activity",
+        "REPLAY_CONDITIONAL_CASE remains ordinary dialogue",
+        "REPLAY_CONDITIONAL_CASE does not create an activity",
+        "png passes actual decode, vision and ordinary native reply",
+        "png reply does not expose processing or format parameters",
+        "jpg passes actual decode, vision and ordinary native reply",
+        "jpg reply does not expose processing or format parameters",
+        "webp passes actual decode, vision and ordinary native reply",
+        "webp reply does not expose processing or format parameters",
+        "gif passes actual decode, vision and ordinary native reply",
+        "gif reply does not expose processing or format parameters",
+        "bmp passes actual decode, vision and ordinary native reply",
+        "bmp reply does not expose processing or format parameters",
+        "corrupt image is rejected before creating a false visual answer",
+        "one-minute notice invokes the configured model and fixed Python decision script",
+        "accepted sleep cuts conversation context while retaining original log messages"
+      ],
+      "commit": "c7fb2d6a518ed29e31bebc6b72c6b12d4ea8cf2b",
+      "last_check": "accepted sleep cuts conversation context while retaining original log messages",
+      "synthetic_plan_answer": "我趁这会儿先把想法整理成一段记录。",
+      "offered_slot_count": 3,
+      "activity_count": 1,
+      "spoken_recovery_count": 0,
+      "known_reply_native_injected": true,
+      "model_schedule_choice": "execute",
+      "passed": 27,
+      "finished_at": "2026-10-27T10:32:43.185620+00:00"
+    },
+    "qq-generic-persona-c7fb2d6": {
+      "kind": "personality presentation isolated acceptance",
+      "commit": "c7fb2d6a518ed29e31bebc6b72c6b12d4ea8cf2b",
+      "binary_sha256": "ec93017113aaf949629820e61acaf9b4aa6f67f2cdddd83cac6953924158ac3e",
+      "personality_sha256": "d435f7b8b40ba818fc789959bc13ba188ce0d70477f843bb8206504e9500d825",
+      "tested_at": "2026-10-27T10:35:02.066181+00:00",
+      "platform": "aarch64",
+      "passed": 11,
+      "checks": [
+        "personality asset has six nonempty text fields and the requested name",
+        "displayed personality fields avoid mechanical identity wording",
+        "current personality requires authentication",
+        "personality update requires CSRF",
+        "requested personality is saved and applied as a new revision",
+        "stale personality update is rejected",
+        "existing conversation uses new personality and example responses in its next HTTP request",
+        "completed run snapshot is preserved and new run freezes the requested name",
+        "personality update preserves stable identity and all existing memory records",
+        "previous personality can be restored through the authenticated versioned API",
+        "restored personality and existing memory survive a real daemon restart"
+      ],
+      "production_data_accessed": false,
+      "external_model_tested": false,
+      "real_qq_tested": false,
+      "real_weixin_tested": false
+    },
+    "qq-generic-wake-c7fb2d6": {
+      "kind": "isolated real-clock sleeping wake acceptance",
+      "status": "passed",
+      "started_at": "2026-10-27T10:32:52.411850+00:00",
+      "architecture": "aarch64",
+      "checks": [
+        "temporary daemon matches the published binary",
+        "pre-sleep interaction completes",
+        "actual daemon enters sleeping before the future civil wake",
+        "sleeping instance can receive the one-minute model decision",
+        "notice uses the real one-minute window",
+        "actual provider receives the sleeping state for this exact wake",
+        "fixed wake executes without another model request",
+        "post-wake conversation completes",
+        "sleep boundary excludes previous raw assistant turns from the real next request",
+        "original messages and captured diary evidence remain",
+        "post-wake request recalls the recorded fact through diary evidence"
+      ],
+      "production_accessed": false,
+      "external_model": false,
+      "real_channel_tested": false,
+      "synthetic_clock_or_event_injected": false,
+      "commit": "c7fb2d6a518ed29e31bebc6b72c6b12d4ea8cf2b",
+      "last_check": "post-wake request recalls the recorded fact through diary evidence",
+      "diary_checkpoint": {
+        "captured_events": 1,
+        "recallable_entries": 1,
+        "model_jobs": 0
+      },
+      "passed": 11,
+      "wake_at": 1793097300,
+      "notified_at": 1793097240,
+      "notice_phase": "sleeping",
+      "finished_at": "2026-10-27T10:35:00.514571+00:00"
+    }
+  },
+  "checks": {
+    "windows_rust_daemon": 649,
+    "windows_rust_kernel": 4,
+    "linux_rust_daemon": 650,
+    "linux_rust_kernel": 4,
+    "frontend": 204,
+    "python_windows": 149,
+    "python_linux": 149,
+    "local_isolated_browser_cases": 1
+  },
+  "browser": {
+    "production_personality_saved_as_revision": 4,
+    "specialized_poem_controls_removed_verified_before_final_switch": true,
+    "final_browser_reload": "blocked_by_certificate_authority_error_no_bypass",
+    "verified_https_api_and_assets_with_existing_public_ca": true
+  },
+  "real_qq_client_tested": false,
+  "real_weixin_tested": false,
+  "rollback_executed": false,
+  "cleanup_and_rollback_gate": {
+    "rollback_read_only_gates": {
+      "c7fb2d6a518ed29e31bebc6b72c6b12d4ea8cf2b": {
+        "exit": 0,
+        "allowed": true
+      },
+      "3c5b7f6e2a53f3a0c4bc5cfc99cd8b5b0c4fc723": {
+        "exit": 2,
+        "allowed": false
+      }
+    },
+    "rollback_executed": false,
+    "private_temporary_root_removed": true
+  }
+}

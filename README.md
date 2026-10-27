@@ -30,7 +30,7 @@ M0/M1原始部署与真实Harness / QQ联调已通过，历史证据见 [M0/M1�
 - 同来源长会话增量摘要：复用现有任务槽、来源与覆盖水位、敏感资料省略、超长轮次明确摘录、取消恢复和遗忘联动；管理页可查看并重建派生摘要。独立验收见 [摘要记录](docs/summary-validation.md)。
 - 会话记忆候选：明确勾选来源消息、模型提取、审核后私有入库，拒绝 / 到期 / 遗忘清除候选正文，不自动共享或覆盖事实。当前发布与验证状态见 [候选记录](docs/memory-candidate-validation.md)。
 - 微信 iLink 单账号文字私聊适配：管理页扫码、本人来源限制、原子游标 / 入站去重、冻结回复上下文、凭据失效与不确定发送处理。实现与模拟验证见 [微信说明](docs/weixin.md) 和 [验收边界](docs/weixin-validation.md)；真实手机扫码与收发仍待验收。
-- PNG 视觉后端保留格式校验、实际解码、去元数据、DeepSeek-flash 与 Native 上下文回答；原 Web 单 PNG 对话界面验收见 [历史图片对话记录](docs/conversation-images-validation.md)。当前 Web 工作台已改为日志，相关运行与视觉事件在日志查看。见 [图片对话契约](docs/image-analysis.md)。
+- 图片后端支持 PNG、JPEG/JPG、WebP、GIF、BMP，实际解码、方向纠正和去元数据后，经 DeepSeek-flash 与 Native 上下文回答；GIF / WebP 读取首帧，失败使用自然短句。通用文字安排使用现有日程授权，性格不预设抄诗爱好。见 [当前契约](docs/general-plans-images.md)。原 Web 单 PNG 界面验收见 [历史图片对话记录](docs/conversation-images-validation.md)；当前 Web 工作台已改为日志。
 
 管理页面按 [架构的信息架构](docs/architecture.md#143-页面与用户操作) 组织。“角色卡”并入“助手与模型”，“对话工作台”改为只读“日志记录”，删除“任务与诊断”入口。日志展示输入 / 输出、Run、工具、视觉、语音合成与投递等实际运行事件；ASR / subagent 尚未接入。旧 WAT 与独立图片诊断 API 保留原权限边界，不再挂页面入口。契约与本轮验收见 [单助手与运行日志](docs/assistant-runtime-logs.md)。
 
