@@ -83,6 +83,10 @@ class Relay:
                 if len(body) > 131072:
                     raise ValueError('response_size_limit')
                 record.update(status='finished', http_status=response.status, response_sha256=hashlib.sha256(body).hexdigest())
+                if response.status == 200:
+                    completion=json.loads(body).get('choices',[{}])[0]
+                    record['finish_reason']=completion.get('finish_reason')
+                    record['synthetic_content']=str(completion.get('message',{}).get('content',''))[:16000]
                 return response.status, body
             except Exception as error:
                 record.update(status='failed', error_type=type(error).__name__)
