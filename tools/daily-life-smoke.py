@@ -157,6 +157,12 @@ def main():
                     result = h.request('GET', API + '/runs/' + run)[0]
                     return result if result['status'] in base.TERMINAL else None
                 result = wait(terminal)
+                report['initial_run_status']=result['status']
+                report['initial_run_error']=result.get('error')
+                report['synthetic_plan_answer'] = result.get('response', '')
+                with h.db() as db:
+                    generated=db.execute('SELECT raw_generation FROM rest_deferred_presentations WHERE run_id=?',(run,)).fetchone()
+                    report['synthetic_initial_generation']=generated[0][:16000] if generated else None
                 check('ordinary native conversation completes with the schedule protocol', result['status'] == 'completed')
                 activities = h.request('GET', API + '/schedule/activities')[0]['items']
                 # All inputs here are synthetic; retain enough evidence to
