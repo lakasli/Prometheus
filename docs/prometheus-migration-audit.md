@@ -50,4 +50,25 @@ TypeScript只可调用包内固定探针，不接受用户程序/命令；C++仅
 
 ## 本批发布证据
 
-固定发布SHA、最终检查计数、真实实例切换及数据连续性在完成后追加。开发检查与WSL研究不计作Windows正式发布通过。
+本批应用固定为 **`9eb13b80bffd0231e4388a9fd973563411073a34`**，已推送`origin/codex/prometheus-typescript`并用ls-remote核实。后续本报告提交不改变运行代码SHA。Windows11 Pro 10.0.26200 x64、Intel Core Ultra7 155H/22逻辑CPU、约31.6GiB内存（开始可用约13.4GiB）、D盘约412GiB可用；Node24.22.1、npm12.2.1、PowerShell7.6.5，原生探针使用MSVC14.44.35207与SDK10.0.26100.0。
+
+| 检查                | 结果                                                                                                                                                                                                                                  |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 开发类型/格式       | TypeScript/Vue typecheck、format:check及本批git diff --check通过，退出0。                                                                                                                                                             |
+| 开发后端            | 最终43项通过、0失败、0跳过，约23.8秒。                                                                                                                                                                                                |
+| 开发浏览器          | 最终8项通过，约10.4秒；覆盖模型日记实际来源标记。                                                                                                                                                                                     |
+| Windows固定源码构建 | `package-windows.ps1 -Commit 9eb13b80bffd0231e4388a9fd973563411073a34 -PreviousVerifiedCommit 248181c5bbbc2159ee4030bd8ae237a8b53916b2 -IncludeWorkerProbe`从Git archive构建；前后端及探针分别编译成功、生产依赖安装成功，命令退出0。 |
+| ZIP与制品           | ZIP SHA256 `91fb8b4c3f7e80ab4aa8040d3273a6e37c193dec08254ab5da9aa8b5d70e22db`；release.json包括两个探针EXE。                                                                                                                          |
+| 固定制品验收        | `verify-release.mjs <runtime>`18项通过，退出0；PROMETHEUS_RELEASE_ROOT绑定实际runtime后迁移逻辑5项、浏览器8项均通过，退出0。                                                                                                          |
+| 固定探针            | 哈希核对后，子进程退出3221225794，未得到权限证明；报告blocked、execution_available=false。探针检查为失败（PowerShell命令退出1），不计入18项应用检查，也不将Job空进程计作完整隔离/进程树验证。                                         |
+| 正式启动与健康      | 2026-10-31T01:21:54+08:00包内Start-Prometheus.ps1校验制品哈希后前台启动，Node PID26604；live/ready均为同一完整SHA。                                                                                                                   |
+| 实例连续性          | schema2、稳定身份、管理员1、资料/Run/消息/凭据0、配置/性格revision1及主密钥哈希前后一致；integrity_check=ok、NTFS ACL核对通过。未初始化新账户、未覆盖用户账户或保存配置。                                                             |
+| 实例访问            | 既有账户登录页面浏览器检查通过；7个匿名管理API均401。没有读取用户密码或代替用户登录正式实例。                                                                                                                                         |
+
+上一可用Windows版本为`248181c5bbbc2159ee4030bd8ae237a8b53916b2`。先核对PID12196、命令行、健康SHA与数据锁，且无在途Run/整理/投递、QQ/微信关闭，再Stop-Process停止该Node；这不是优雅退出证明。旧CLI确认PID退出后清理原锁，完整备份成功（4个文件，含主密钥与数据库快照，integrity_check=ok）。备份路径`.local/prometheus/backups/instance-2026-10-30T17-21-45-397Z-9d3e2364-8cb7-47c8-8b5d-9911ab69d25e`。
+
+备份逐文件哈希核对后，恢复至新的私有目录`.local/prometheus/recovery-drills/be77168e-c794-4648-8eae-8592af8dfc9e`，用上一版制品在18469启动并检查ready、稳定身份、管理员数和SQLite完整性，随后关闭；没有覆盖正式实例。制品位于`.local/prometheus/releases/9eb13b80bffd0231e4388a9fd973563411073a34/runtime`。发布报告、独立worker失败报告和切换证据分别位于`.local/prometheus/release-validation/reports/`、`.local/prometheus/worker-validation/9eb13b80bffd0231e4388a9fd973563411073a34/`和`.local/prometheus/upgrade-evidence/9eb13b8/report.json`。
+
+保留的开发失败：FTS首次测试未考虑JSON转义后的带引号文本，修复字面短语编码后通过；新增第8个浏览器流程因逐项重复登录触发真实限流，改为内存复用首项已验证会话后通过，生产限流未放宽；worker检查首次同步spawn异常未结构化，已修复为blocked。原失败不计入通过数。
+
+正式实例无真实模型/渠道配置，本批模型和协议仍为隔离合成服务。未进行真实平台、外部模型、媒体worker、性能规模或长期运行验收；完整迁移目标保持未完成。
