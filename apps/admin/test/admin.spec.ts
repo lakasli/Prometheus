@@ -182,13 +182,8 @@ test("profile source fields, explicit conflict review, identity binding and page
     .first()
     .click();
   await expect(panel).toContainText("所选陈述的版本记录");
-  await panel
-    .getByText("本页关系图（最多50个人物，仅显示已批准的有向关系）", {
-      exact: true,
-    })
-    .click();
   await expect(
-    panel.getByRole("img", { name: "当前页已批准人物关系图" }),
+    panel.getByRole("group", { name: "当前页已批准人物关系图" }),
   ).toBeVisible();
   await panel.getByRole("button", { name: "放大", exact: true }).click();
   await panel.getByRole("button", { name: "右移", exact: true }).click();
@@ -1549,5 +1544,509 @@ test("verified direct interactions can be recorded and withdrawn with a replay t
     .getByRole("button", { name: "放弃账本修改", exact: true })
     .click();
   await page.getByRole("button", { name: "运行总览", exact: true }).click();
+  expect(errors).toEqual([]);
+});
+
+test("profile mappings keep both source records and discard an uncancellable late detail after filtering", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const me = await (await page.request.get("/api/admin/v1/auth/me")).json();
+  const headers = {
+    origin: "http://127.0.0.1:18449",
+    "x-csrf-token": me.csrf_token,
+  };
+  async function create(name: string) {
+    const r = await page.request.post("/api/admin/v1/relationships/profiles", {
+      headers,
+      data: {
+        name,
+        notes: name + "原始资料",
+        confirmed: true,
+        reason: "独立核对建档",
+      },
+    });
+    expect(r.status()).toBe(201);
+    return r.json();
+  }
+  let p = await create("映射页-甲"),
+    q = await create("映射页-乙");
+  const scored = await page.request.post(
+    "/api/admin/v1/relationships/profiles/" + p.id + "/affinity/events",
+    {
+      headers: { ...headers, "if-match": '"' + p.revision + '"' },
+      data: {
+        delta: 2,
+        reason: "保留独立计分",
+        reviewed: true,
+        event_key: crypto.randomUUID(),
+        kind: "manual_adjustment",
+        source: { type: "manual" },
+      },
+    },
+  );
+  expect(scored.ok()).toBe(true);
+  await page.getByRole("button", { name: "人物", exact: true }).click();
+  const panel = page.getByRole("region", { name: "人物资料与身份" });
+  await panel.getByLabel("查找人物", { exact: true }).fill("映射页-");
+  await panel.getByRole("button", { name: "查找", exact: true }).click();
+  const list = panel.getByRole("navigation", { name: "人物档案" });
+  await list.getByRole("button", { name: /映射页-甲/ }).click();
+  await expect(panel.locator(".profile-detail > h3")).toHaveText("映射页-甲");
+  await panel
+    .getByRole("button", { name: "合并同域档案", exact: true })
+    .click();
+  await panel.getByLabel("同域目标人物", { exact: true }).selectOption(q.id);
+  await panel.getByLabel("依据", { exact: true }).fill("已独立核对同域身份");
+  await panel.getByLabel("已分别核对两个人物，明确确认本次映射变更").check();
+  await panel.getByRole("button", { name: "核对并保存", exact: true }).click();
+  await expect(
+    panel.getByRole("button", { name: "拆分同域映射", exact: true }),
+  ).toBeVisible();
+  p = await (
+    await page.request.get("/api/admin/v1/relationships/profiles/" + p.id)
+  ).json();
+  q = await (
+    await page.request.get("/api/admin/v1/relationships/profiles/" + q.id)
+  ).json();
+  expect(p.merged_into).toBe(q.id);
+  expect(p.data.notes).toBe("映射页-甲原始资料");
+  expect(q.data.notes).toBe("映射页-乙原始资料");
+  for (const [person, value] of [
+    [p, 52],
+    [q, 50],
+  ] as const)
+    expect(
+      (
+        await (
+          await page.request.get(
+            "/api/admin/v1/relationships/profiles/" + person.id + "/affinity",
+          )
+        ).json()
+      ).affinity,
+    ).toBe(value);
+  await panel
+    .getByRole("button", { name: "拆分同域映射", exact: true })
+    .click();
+  await expect(panel.getByText("原目标：", { exact: false })).toContainText(
+    "映射页-乙",
+  );
+  await panel.getByLabel("依据", { exact: true }).fill("复核后分别保留档案");
+  await panel.getByLabel("已分别核对两个人物，明确确认本次映射变更").check();
+  await panel.getByRole("button", { name: "核对并保存", exact: true }).click();
+  await expect(
+    panel.getByRole("button", { name: "合并同域档案", exact: true }),
+  ).toBeVisible();
+  expect(
+    (
+      await (
+        await page.request.get("/api/admin/v1/relationships/profiles/" + p.id)
+      ).json()
+    ).merged_into,
+  ).toBeNull();
+  // Exercise the response guard as well as AbortController: the test fetch deliberately ignores only detail cancellation.
+  await page.evaluate(() => {
+    const original = window.fetch.bind(window);
+    window.fetch = (input, init) =>
+      original(
+        input,
+        /\/relationships\/profiles\/[a-f0-9-]{36}$/.test(String(input))
+          ? { ...init, signal: undefined }
+          : init,
+      );
+  });
+  let arrived!: () => void, release!: () => void, finished!: () => void;
+  const incoming = new Promise<void>((r) => (arrived = r)),
+    gate = new Promise<void>((r) => (release = r)),
+    done = new Promise<void>((r) => (finished = r));
+  await page.route(
+    "**/api/admin/v1/relationships/profiles/" + p.id,
+    async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      arrived();
+      await gate;
+      try {
+        await route.fulfill({
+          response,
+          json: {
+            ...body,
+            data: { ...body.data, name: "LATE_DETAIL_SENTINEL" },
+          },
+        });
+      } finally {
+        finished();
+      }
+    },
+  );
+  await list.getByRole("button", { name: /映射页-甲/ }).click();
+  await incoming;
+  await panel.getByLabel("查找人物", { exact: true }).fill("映射页-乙");
+  await panel.getByRole("button", { name: "查找", exact: true }).click();
+  await expect(list.getByRole("button", { name: /映射页-/ })).toHaveCount(1);
+  await expect(panel.locator(".profile-detail > h3")).toHaveCount(0);
+  release();
+  await done;
+  await page.waitForTimeout(100);
+  await expect(
+    panel.getByText("LATE_DETAIL_SENTINEL", { exact: true }),
+  ).toHaveCount(0);
+  await expect(panel.locator(".profile-detail > h3")).toHaveCount(0);
+  await page.unroute("**/api/admin/v1/relationships/profiles/" + p.id);
+  expect(errors).toEqual([]);
+});
+
+test("relationship graph converges, supports keyboard and precise dragging, and releases frames across lifecycle changes", async ({
+  page,
+}) => {
+  test.setTimeout(60000);
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.addInitScript(() => {
+    const request = window.requestAnimationFrame.bind(window),
+      cancel = window.cancelAnimationFrame.bind(window);
+    const state = { frames: 0, pending: new Set<number>() };
+    (window as any).profileAnimation = state;
+    window.requestAnimationFrame = (cb) => {
+      let id = 0;
+      id = request((time) => {
+        state.pending.delete(id);
+        cb(time);
+      });
+      state.pending.add(id);
+      state.frames++;
+      return id;
+    };
+    window.cancelAnimationFrame = (id) => {
+      state.pending.delete(id);
+      cancel(id);
+    };
+  });
+  await page.reload();
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  const me = await (await page.request.get("/api/admin/v1/auth/me")).json(),
+    headers = {
+      origin: "http://127.0.0.1:18449",
+      "x-csrf-token": me.csrf_token,
+    },
+    people: any[] = [];
+  for (let i = 0; i < 8; i++) {
+    const r = await page.request.post("/api/admin/v1/relationships/profiles", {
+      headers,
+      data: {
+        name: "交互图-" + i,
+        reason: "合成关系图独立人物",
+        confirmed: true,
+      },
+    });
+    expect(r.status()).toBe(201);
+    people.push(await r.json());
+  }
+  const pairs = [
+    [0, 1],
+    [0, 2],
+    [0, 3],
+    [1, 2],
+    [1, 4],
+    [2, 3],
+    [2, 5],
+    [3, 4],
+    [3, 6],
+    [4, 5],
+    [5, 6],
+    [1, 0],
+  ];
+  const approved: any[] = [];
+  for (const [index, [from, to]] of [...pairs, [6, 0]].entries()) {
+    const p = await (
+        await page.request.get(
+          "/api/admin/v1/relationships/profiles/" + people[from].id,
+        )
+      ).json(),
+      q = await (
+        await page.request.get(
+          "/api/admin/v1/relationships/profiles/" + people[to].id,
+        )
+      ).json();
+    const r = await page.request.post("/api/admin/v1/relationships/edges", {
+      headers: { ...headers, "if-match": '"' + p.revision + '"' },
+      data: {
+        from_id: p.id,
+        to_id: q.id,
+        expected_to_revision: q.revision,
+        relationship_type: "有向边-" + index,
+        statement_kind: "third_party",
+        source: { type: "manual" },
+        reason: "合成来源明确的端点",
+      },
+    });
+    expect(r.status()).toBe(201);
+    const detail = await r.json(),
+      edge = detail.edges.find(
+        (e: any) => e.relationship_type === "有向边-" + index,
+      );
+    if (index < pairs.length) {
+      const review = await page.request.post(
+        "/api/admin/v1/relationships/edges/" + edge.id + "/review",
+        {
+          headers: { ...headers, "if-match": '"' + edge.revision + '"' },
+          data: {
+            action: "approve",
+            reason: "人工分别审核有向边",
+            supersedes: [],
+          },
+        },
+      );
+      expect(review.status()).toBe(200);
+      approved.push(edge);
+    }
+  }
+  await page.getByRole("button", { name: "人物", exact: true }).click();
+  const panel = page.getByRole("region", { name: "人物资料与身份" });
+  await panel.getByLabel("查找人物", { exact: true }).fill("交互图-");
+  await panel.getByRole("button", { name: "查找", exact: true }).click();
+  const network = panel.locator(".profile-network"),
+    canvas = network.locator(".graph-canvas"),
+    svg = network.locator("svg.profile-graph"),
+    viewport = network.locator(".profile-graph-viewport");
+  const frameState = () =>
+    page.evaluate(() => ({
+      frames: (window as any).profileAnimation.frames,
+      pending: (window as any).profileAnimation.pending.size,
+    }));
+  const stopped = async () => {
+    await expect(canvas).toHaveAttribute("data-animating", "false", {
+      timeout: 6000,
+    });
+    expect((await frameState()).pending).toBe(0);
+    const before = await frameState();
+    await page.waitForTimeout(160);
+    expect(await frameState()).toEqual(before);
+  };
+  const position = (node: import("@playwright/test").Locator) =>
+    node.evaluate((el) => {
+      const m = (el as SVGGElement).transform.baseVal.consolidate()!.matrix;
+      return { x: m.e, y: m.f };
+    });
+  await expect(network.locator(".profile-graph-node")).toHaveCount(8);
+  await expect(network.locator(".profile-graph-edge")).toHaveCount(12);
+  await stopped();
+  expect((await frameState()).frames).toBeLessThan(400);
+  const detailRequests: string[] = [],
+    writes: string[] = [];
+  page.on("request", (r) => {
+    if (
+      /\/relationships\/profiles\/[a-f0-9-]{36}$/.test(r.url()) &&
+      r.method() === "GET"
+    )
+      detailRequests.push(r.url());
+    if (r.url().includes("/api/admin/v1/") && r.method() !== "GET")
+      writes.push(r.url());
+  });
+  const first = network.locator('[data-person-id="' + people[0].id + '"]'),
+    second = network.locator('[data-person-id="' + people[1].id + '"]');
+  await first.hover();
+  await expect(first).toHaveClass(/hovered/);
+  await first.focus();
+  expect(detailRequests).toHaveLength(0);
+  await first.press("Enter");
+  await expect(panel.locator(".profile-detail > h3")).toHaveText("交互图-0");
+  expect(detailRequests).toHaveLength(1);
+  await second.focus();
+  await second.press("Space");
+  await expect(panel.locator(".profile-detail > h3")).toHaveText("交互图-1");
+  expect(detailRequests).toHaveLength(2);
+  await first.click();
+  await expect(panel.locator(".profile-detail > h3")).toHaveText("交互图-0");
+  expect(detailRequests).toHaveLength(3);
+  await network.getByRole("button", { name: "放大", exact: true }).click();
+  await stopped();
+  await expect(network.getByLabel("关系图缩放比例")).toHaveText("120%");
+  const central = await network.locator(".profile-graph-node").evaluateAll(
+    (nodes) =>
+      nodes
+        .filter(
+          (n) =>
+            !(n as SVGGElement)
+              .querySelector("title")!
+              .textContent!.includes("0 条"),
+        )
+        .map((el) => {
+          const m = (el as SVGGElement).transform.baseVal.consolidate()!.matrix;
+          return {
+            id: el.getAttribute("data-person-id")!,
+            distance: Math.hypot(m.e - 450, m.f - 340),
+          };
+        })
+        .sort((a, b) => a.distance - b.distance)[0].id,
+  );
+  const dragged = network.locator('[data-person-id="' + central + '"]'),
+    linked =
+      approved.find((e) => e.from_person_id === central) ??
+      approved.find((e) => e.to_person_id === central),
+    neighborId =
+      linked.from_person_id === central
+        ? linked.to_person_id
+        : linked.from_person_id,
+    neighbor = network.locator('[data-person-id="' + neighborId + '"]'),
+    edgePath = network.locator('[data-edge-id="' + linked.id + '"] path');
+  const beforeNeighbor = await position(neighbor),
+    beforeEdge = (await edgePath.getAttribute("d"))!,
+    requestsBefore = detailRequests.length;
+  async function dragNode(cancelPointer = false) {
+    const box = await dragged.locator(".node-disc").boundingBox();
+    expect(box).not.toBeNull();
+    const start = { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 },
+      at = await position(dragged),
+      end = {
+        x: start.x + (at.x < 450 ? 42 : -42),
+        y: start.y + (at.y < 340 ? 24 : -24),
+      };
+    const expected = await viewport.evaluate((el, p) => {
+      const point = new DOMPoint(p.x, p.y).matrixTransform(
+        (el as SVGGElement).getScreenCTM()!.inverse(),
+      );
+      return { x: point.x, y: point.y };
+    }, end);
+    await svg.evaluate((el) =>
+      el.addEventListener(
+        "pointerdown",
+        (e) =>
+          el.setAttribute(
+            "data-test-pointer",
+            String((e as PointerEvent).pointerId),
+          ),
+        { once: true, capture: true },
+      ),
+    );
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(end.x, end.y, { steps: 10 });
+    await expect(dragged).toHaveClass(/dragged/);
+    const actual = await position(dragged);
+    expect(
+      Math.hypot(actual.x - expected.x, actual.y - expected.y),
+    ).toBeLessThan(3);
+    if (cancelPointer) {
+      const pointer = Number(await svg.getAttribute("data-test-pointer"));
+      expect(
+        await dragged.evaluate(
+          (el, p) => (el as SVGGElement).hasPointerCapture(p),
+          pointer,
+        ),
+      ).toBe(true);
+      await dragged.evaluate(
+        (el, p) =>
+          el.dispatchEvent(
+            new PointerEvent("pointercancel", {
+              pointerId: p,
+              bubbles: true,
+              isPrimary: true,
+            }),
+          ),
+        pointer,
+      );
+      expect(
+        await dragged.evaluate(
+          (el, p) => (el as SVGGElement).hasPointerCapture(p),
+          pointer,
+        ),
+      ).toBe(false);
+    }
+  }
+  await dragNode();
+  await expect(edgePath).not.toHaveAttribute("d", beforeEdge);
+  await expect
+    .poll(async () => {
+      const p = await position(neighbor);
+      return Math.hypot(p.x - beforeNeighbor.x, p.y - beforeNeighbor.y);
+    })
+    .toBeGreaterThan(0.05);
+  await page.mouse.up();
+  await expect(dragged).not.toHaveClass(/dragged/);
+  expect(detailRequests).toHaveLength(requestsBefore);
+  await stopped();
+  await dragNode(true);
+  await page.mouse.up();
+  await expect(dragged).not.toHaveClass(/dragged/);
+  expect(detailRequests).toHaveLength(requestsBefore);
+  await stopped();
+  const oldTransform = await viewport.getAttribute("transform"),
+    sbox = await svg.boundingBox();
+  await page.mouse.move(sbox!.x + 6, sbox!.y + 6);
+  await page.mouse.down();
+  await page.mouse.move(sbox!.x + 36, sbox!.y + 26, { steps: 4 });
+  await page.mouse.up();
+  await expect(viewport).not.toHaveAttribute("transform", oldTransform!);
+  await svg.hover();
+  await page.mouse.wheel(0, -100);
+  await expect(network.getByLabel("关系图缩放比例")).toHaveText("130%");
+  await stopped();
+  await network.getByRole("button", { name: "复位", exact: true }).click();
+  await stopped();
+  await expect(network.getByLabel("关系图缩放比例")).toHaveText("100%");
+  // Controlled visibility event verifies the handler; this does not claim an OS background-tab test.
+  await network.getByRole("button", { name: "放大", exact: true }).click();
+  await page.evaluate(() => {
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      value: true,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await stopped();
+  await page.evaluate(() => {
+    delete (document as any).hidden;
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await stopped();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(canvas).toHaveAttribute("data-reduced-motion", "true");
+  await stopped();
+  const reduced = await frameState();
+  const beforeReduced = await position(dragged);
+  await dragNode();
+  await page.mouse.up();
+  const afterReduced = await position(dragged);
+  expect(
+    Math.hypot(
+      afterReduced.x - beforeReduced.x,
+      afterReduced.y - beforeReduced.y,
+    ),
+  ).toBeGreaterThan(10);
+  await stopped();
+  expect(await frameState()).toEqual(reduced);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  expect(
+    await page.locator("body").evaluate((el) => el.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await panel.locator(".profile-columns").screenshot({
+    path: resolve(
+      "../../.local/prometheus/screenshots/profile-network-desktop.png",
+    ),
+  });
+  await page.setViewportSize({ width: 320, height: 844 });
+  expect(
+    await page.locator("body").evaluate((el) => el.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await network.screenshot({
+    path: resolve(
+      "../../.local/prometheus/screenshots/profile-network-mobile.png",
+    ),
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await network.locator("summary").click();
+  await stopped();
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await network.locator("summary").click();
+  await expect(canvas).toHaveAttribute("data-animating", "true");
+  await page.getByRole("button", { name: "运行总览", exact: true }).click();
+  await expect(network).toHaveCount(0);
+  expect((await frameState()).pending).toBe(0);
+  const left = await frameState();
+  await page.waitForTimeout(160);
+  expect(await frameState()).toEqual(left);
+  expect(writes).toEqual([]);
   expect(errors).toEqual([]);
 });

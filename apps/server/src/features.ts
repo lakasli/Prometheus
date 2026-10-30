@@ -79,6 +79,10 @@ export class Features {
       },
     );
     this.profiles = new Profiles(store, runtime, this.knowledge, this.diary);
+    this.relationships.authorizePerson = (actor, id) => {
+      const p = this.profiles.person(actor, id, true);
+      return { owner_id: p.owner_id, visibility: p.visibility };
+    };
     this.affinitySources = new AffinitySources(
       store,
       runtime,
@@ -668,7 +672,7 @@ export class Features {
         status: 201,
       };
     const profile =
-      /^\/relationships\/profiles\/([a-f0-9-]{36})(?:\/(assertions|bind|unbind|link|unlink|contact))?$/.exec(
+      /^\/relationships\/profiles\/([a-f0-9-]{36})(?:\/(assertions|bind|unbind|link|unlink|contact|merge|split))?$/.exec(
         path,
       );
     if (profile) {
@@ -700,6 +704,31 @@ export class Features {
         const value = await readBody(),
           expected = revision(request.headers["if-match"]);
         switch (op) {
+          case "merge": {
+            const b = fields(value, [
+              "into_id",
+              "expected_into_revision",
+              "confirmed",
+              "reason",
+            ]);
+            this.relationships.merge(admin.id, id, {
+              ...b,
+              expected_from_revision: expected,
+            });
+            return { data: this.profiles.detail(admin.id, id) };
+          }
+          case "split": {
+            const b = fields(value, [
+              "expected_into_revision",
+              "confirmed",
+              "reason",
+            ]);
+            this.relationships.split(admin.id, id, {
+              ...b,
+              expected_from_revision: expected,
+            });
+            return { data: this.profiles.detail(admin.id, id) };
+          }
           case "assertions":
             return {
               data: this.profiles.propose(admin.id, id, expected, value),

@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { api } from "../api";
 import ProfileModelPanel from "./ProfileModelPanel.vue";
 import AffinityLedgerPanel from "./AffinityLedgerPanel.vue";
+import ProfileGraph from "./ProfileGraph.vue";
 const props = defineProps<{ refreshToken?: unknown }>();
 const emit = defineEmits<{ error: [unknown]; dirty: [boolean]; changed: [] }>();
 const busy = ref(false),
@@ -12,6 +13,9 @@ const busy = ref(false),
   offset = ref(0),
   query = ref(""),
   selected = ref<any>(null),
+  selectedId = ref<string | null>(null),
+  detailLoading = ref(false),
+  mappingTarget = ref<any>(null),
   sources = ref<any[]>([]),
   conversations = ref<any[]>([]),
   graph = ref<any>(null),
@@ -43,6 +47,7 @@ const mode = ref(""),
     contact: "pending_verification",
     evidence: "",
     expires: "",
+    confirmed: false,
   });
 const fields = [
   ["name", "姓名"],
@@ -76,7 +81,27 @@ const draft = computed(
   () => !!mode.value || modelDirty.value || affinityDirty.value,
 );
 watch(draft, (v) => emit("dirty", v));
-onUnmounted(() => emit("dirty", false));
+let disposed = false,
+  detailEpoch = 0;
+let detailController: AbortController | undefined,
+  loadController: AbortController | undefined;
+onUnmounted(() => {
+  disposed = true;
+  detailEpoch++;
+  detailController?.abort();
+  loadController?.abort();
+  emit("dirty", false);
+});
+const compatiblePeople = computed(() =>
+  items.value.filter(
+    (p) =>
+      p.id !== selected.value?.id &&
+      p.can_manage &&
+      !p.merged_into &&
+      p.owner_id === selected.value?.owner_id &&
+      p.visibility === selected.value?.visibility,
+  ),
+);
 const sourceOptions = computed(() =>
   sources.value.filter(
     (s) =>
@@ -91,6 +116,7 @@ function begin(next: string) {
   affinityDirty.value = false;
   modelFormGeneration.value++;
   mode.value = next;
+  mappingTarget.value = null;
   Object.assign(form, {
     name: selected.value?.data.name ?? "",
     notes: selected.value?.data.notes ?? "",
@@ -104,52 +130,123 @@ function begin(next: string) {
     from: "",
     until: "",
     expires: "",
+    confirmed: false,
   });
   notice.value = "";
   history.value = [];
 }
 async function act(action: () => Promise<void>) {
-  if (busy.value) return;
+  if (busy.value || disposed) return;
   busy.value = true;
   try {
     await action();
   } catch (e) {
-    emit("error", e);
+    if (!disposed && !(e instanceof Error && e.name === "AbortError"))
+      emit("error", e);
   } finally {
     busy.value = false;
   }
 }
 async function load() {
-  const p = await api<any>(
-    `/relationships/profiles?limit=50&offset=${offset.value}&q=${encodeURIComponent(query.value)}`,
+  loadController?.abort();
+  const controller = new AbortController();
+  loadController = controller;
+  const params = `offset=${offset.value}&q=${encodeURIComponent(query.value)}`;
+  const g = await api<any>(
+    `/relationships/graph?${params}`,
+    "GET",
+    undefined,
+    undefined,
+    controller.signal,
   );
-  items.value = p.items;
-  total.value = p.total;
-  graph.value = await api(
-    `/relationships/graph?offset=${offset.value}&q=${encodeURIComponent(query.value)}`,
-  );
+  if (disposed || controller.signal.aborted || loadController !== controller)
+    return false;
+  items.value = g.page_items;
+  total.value = g.total;
+  graph.value = g;
+  if (
+    selectedId.value &&
+    !g.page_items.some((p: any) => p.id === selectedId.value)
+  )
+    clearSelection();
+  return true;
+}
+function clearDraft() {
+  mode.value = "";
+  modelDirty.value = false;
+  affinityDirty.value = false;
+  modelFormGeneration.value++;
+  mappingTarget.value = null;
+  history.value = [];
+}
+function clearSelection() {
+  detailEpoch++;
+  detailController?.abort();
+  selectedId.value = null;
+  selected.value = null;
+  detailLoading.value = false;
+  clearDraft();
+}
+async function readDetail(id: string) {
+  detailController?.abort();
+  const controller = new AbortController(),
+    epoch = ++detailEpoch;
+  detailController = controller;
+  detailLoading.value = true;
+  try {
+    const p = await api<any>(
+      `/relationships/profiles/${id}`,
+      "GET",
+      undefined,
+      undefined,
+      controller.signal,
+    );
+    if (
+      disposed ||
+      controller.signal.aborted ||
+      epoch !== detailEpoch ||
+      selectedId.value !== id ||
+      !items.value.some((p) => p.id === id)
+    )
+      return;
+    selected.value = p;
+  } catch (e) {
+    if (!disposed && !controller.signal.aborted && epoch === detailEpoch)
+      emit("error", e);
+  } finally {
+    if (!disposed && epoch === detailEpoch) detailLoading.value = false;
+  }
 }
 async function select(id: string) {
+  if (busy.value || !items.value.some((p) => p.id === id)) return;
   if (draft.value && !confirm("放弃未保存的人物修改？")) return;
-  await act(async () => {
-    selected.value = await api(`/relationships/profiles/${id}`);
-    mode.value = "";
-    history.value = [];
-  });
+  clearDraft();
+  selectedId.value = id;
+  selected.value = null;
+  await readDetail(id);
 }
 async function refresh() {
-  await load();
-  if (selected.value)
-    selected.value = await api(`/relationships/profiles/${selected.value.id}`);
+  if (!(await load())) return;
+  if (selectedId.value) await readDetail(selectedId.value);
+}
+async function browse(page = offset.value) {
+  if (busy.value) return;
+  if (draft.value && !confirm("放弃未保存的人物修改？")) return;
+  clearDraft();
+  detailController?.abort();
+  detailEpoch++;
+  offset.value = page;
+  await act(refresh);
 }
 watch(
   () => props.refreshToken,
   () => {
-    if (!mode.value) void act(refresh);
+    if (!draft.value) void act(refresh);
   },
 );
 async function saved(p: any) {
   selected.value = p;
+  selectedId.value = p.id;
   mode.value = "";
   notice.value = "已保存。";
   await load();
@@ -184,6 +281,42 @@ async function save() {
   await act(async () => {
     const p = selected.value;
     switch (mode.value) {
+      case "merge": {
+        const target = compatiblePeople.value.find((p) => p.id === form.other);
+        if (!target || !form.confirmed)
+          throw new Error("请选择同域档案并明确核对映射");
+        await saved(
+          await api(
+            `/relationships/profiles/${p.id}/merge`,
+            "POST",
+            {
+              into_id: target.id,
+              expected_into_revision: target.revision,
+              reason: form.reason,
+              confirmed: form.confirmed,
+            },
+            p.revision,
+          ),
+        );
+        break;
+      }
+      case "split": {
+        if (!mappingTarget.value || !form.confirmed)
+          throw new Error("请核对目标并明确确认拆分");
+        await saved(
+          await api(
+            `/relationships/profiles/${p.id}/split`,
+            "POST",
+            {
+              expected_into_revision: mappingTarget.value.revision,
+              reason: form.reason,
+              confirmed: form.confirmed,
+            },
+            p.revision,
+          ),
+        );
+        break;
+      }
       case "create":
         await saved(
           await api("/relationships/profiles", "POST", {
@@ -370,6 +503,19 @@ async function unlink() {
     ),
   );
 }
+async function prepareSplit() {
+  if (busy.value || !selected.value?.merged_into) return;
+  if (draft.value && !confirm("放弃未保存的人物修改？")) return;
+  await act(async () => {
+    const target = await api<any>(
+      `/relationships/profiles/${selected.value.merged_into}`,
+    );
+    if (!target.can_manage) throw new Error("拆分须同时具有两个档案的管理权限");
+    clearDraft();
+    begin("split");
+    mappingTarget.value = target;
+  });
+}
 async function forget() {
   if (
     !confirm("遗忘此人物及其字段、关系、身份和联系证据？原聊天与离线备份保留。")
@@ -382,8 +528,7 @@ async function forget() {
       undefined,
       selected.value.revision,
     );
-    selected.value = null;
-    mode.value = "";
+    clearSelection();
     await load();
   });
 }
@@ -393,47 +538,6 @@ async function showHistory(a: any, kind: string) {
       await api<any>(`/relationships/${kind}/${a.id}/history`)
     ).items;
   });
-}
-const coords = reactive<Record<string, { x: number; y: number }>>({}),
-  view = reactive({ x: 0, y: 0, zoom: 1 });
-watch(graph, (g) => {
-  for (const [i, p] of (g?.items ?? []).entries())
-    if (!coords[p.id])
-      coords[p.id] = { x: 95 + (i % 5) * 155, y: 70 + Math.floor(i / 5) * 105 };
-});
-let drag:
-  | { id: string; x: number; y: number; original: { x: number; y: number } }
-  | undefined;
-function down(e: PointerEvent, id: string) {
-  if (e.button !== 0) return;
-  e.preventDefault();
-  (e.currentTarget as Element).setPointerCapture(e.pointerId);
-  const point = graphPoint(e);
-  drag = {
-    id,
-    x: point.x,
-    y: point.y,
-    original: { ...(id === "pan" ? view : coords[id]!) },
-  };
-}
-function move(e: PointerEvent) {
-  if (!drag) return;
-  const point = graphPoint(e);
-  const scale = drag.id === "pan" ? 1 : view.zoom,
-    target = drag.id === "pan" ? view : coords[drag.id]!;
-  target.x = drag.original.x + (point.x - drag.x) / scale;
-  target.y = drag.original.y + (point.y - drag.y) / scale;
-}
-function graphPoint(e: PointerEvent) {
-  const target = e.currentTarget as SVGElement,
-    svg = target instanceof SVGSVGElement ? target : target.ownerSVGElement,
-    matrix = svg?.getScreenCTM()?.inverse();
-  return matrix
-    ? new DOMPoint(e.clientX, e.clientY).matrixTransform(matrix)
-    : { x: e.clientX, y: e.clientY };
-}
-function position(id: string) {
-  return coords[id] ?? { x: 0, y: 0 };
 }
 onMounted(() =>
   act(async () => {
@@ -472,15 +576,7 @@ onMounted(() =>
       字段保留来源和陈述类型，人工批准后才可进入已核对身份的对话。身份关联不合并私有范围或好感分。
     </p>
     <p role="status" v-if="notice">{{ notice }}</p>
-    <form
-      class="profile-tools"
-      @submit.prevent="
-        act(async () => {
-          offset = 0;
-          await load();
-        })
-      "
-    >
+    <form class="profile-tools" @submit.prevent="browse(0)">
       <label>查找人物<input v-model="query" maxlength="128" /></label
       ><button :disabled="busy">查找</button
       ><button type="button" @click="begin('create')">建立来源域人物</button>
@@ -493,7 +589,8 @@ onMounted(() =>
         <button
           v-for="p in items"
           :key="p.id"
-          :aria-pressed="selected?.id === p.id"
+          :aria-pressed="selectedId === p.id"
+          :disabled="busy"
           @click="select(p.id)"
         >
           {{ p.data.name }}
@@ -512,40 +609,45 @@ onMounted(() =>
           {{ offset + 1 }}–{{ Math.min(offset + items.length, total) }} /
           {{ total }}
         </p>
-        <button
-          :disabled="offset === 0 || busy"
-          @click="
-            act(async () => {
-              offset -= 50;
-              await load();
-            })
-          "
-        >
+        <button :disabled="offset === 0 || busy" @click="browse(offset - 50)">
           上一页</button
         ><button
           :disabled="offset + 50 >= total || busy"
-          @click="
-            act(async () => {
-              offset += 50;
-              await load();
-            })
-          "
+          @click="browse(offset + 50)"
         >
           下一页
         </button>
       </nav>
+      <ProfileGraph
+        v-if="graph"
+        :items="graph.items"
+        :edges="graph.edges"
+        :selected-id="selectedId"
+        :busy="busy"
+        @select="select"
+      />
       <div class="profile-detail">
+        <p v-if="detailLoading" role="status">正在加载人物资料…</p>
         <template v-if="selected"
           ><h3>{{ selected.data.name }}</h3>
           <p>{{ selected.data.notes }}</p>
-          <div class="profile-tools">
+          <p v-if="selected.merged_into">
+            此档案已映射到
+            {{ selected.merged_into }}。原资料、关系端点和好感分继续独立。
+          </p>
+          <div v-if="selected.can_manage" class="profile-tools">
             <button @click="begin('rename')">更正名称与备注</button
-            ><button @click="begin('field')">新增字段陈述</button
+            ><button v-if="!selected.merged_into" @click="begin('field')">
+              新增字段陈述</button
             ><button @click="begin('edge')">新增有向关系</button
             ><button @click="begin('bind')">核对账号身份</button
             ><button @click="begin('link')">关联跨账号身份</button
             ><button @click="begin('contact')">联系许可记录</button
-            ><button class="danger" @click="forget">遗忘人物</button>
+            ><button v-if="!selected.merged_into" @click="begin('merge')">
+              合并同域档案
+            </button>
+            <button v-else @click="prepareSplit">拆分同域映射</button>
+            <button class="danger" @click="forget">遗忘人物</button>
           </div>
           <h4>字段陈述</h4>
           <p v-if="!selected.assertions.length">
@@ -583,17 +685,20 @@ onMounted(() =>
             >
             <div class="profile-tools">
               <button
-                v-if="a.status === 'pending'"
+                v-if="selected.can_manage && a.status === 'pending'"
                 @click="review(a, 'assertions', 'approve')"
               >
                 审核批准</button
               ><button
-                v-if="a.status === 'pending'"
+                v-if="selected.can_manage && a.status === 'pending'"
                 @click="review(a, 'assertions', 'reject')"
               >
                 拒绝</button
               ><button @click="showHistory(a, 'assertions')">版本记录</button
-              ><button @click="review(a, 'assertions', 'forget')">
+              ><button
+                v-if="selected.can_manage"
+                @click="review(a, 'assertions', 'forget')"
+              >
                 遗忘字段
               </button>
             </div>
@@ -618,17 +723,22 @@ onMounted(() =>
             </p>
             <div class="profile-tools">
               <button
-                v-if="e.status === 'pending'"
+                v-if="selected.can_manage && e.status === 'pending'"
                 @click="review(e, 'edges', 'approve')"
               >
                 审核批准</button
               ><button
-                v-if="e.status === 'pending'"
+                v-if="selected.can_manage && e.status === 'pending'"
                 @click="review(e, 'edges', 'reject')"
               >
                 拒绝</button
               ><button @click="showHistory(e, 'edges')">版本记录</button
-              ><button @click="review(e, 'edges', 'forget')">遗忘关系</button>
+              ><button
+                v-if="selected.can_manage"
+                @click="review(e, 'edges', 'forget')"
+              >
+                遗忘关系
+              </button>
             </div>
           </article>
           <h4>已核对的账号</h4>
@@ -644,7 +754,7 @@ onMounted(() =>
             身份关联：{{
               selected.group.members.map((p: any) => p.data.name).join("、")
             }}
-            <button @click="unlink">拆分关联</button>
+            <button v-if="selected.can_manage" @click="unlink">拆分关联</button>
           </p>
           <p>
             联系状态：{{
@@ -708,9 +818,43 @@ onMounted(() =>
                         ? "跨账号关联"
                         : mode === "contact"
                           ? "联系许可"
-                          : "名称与备注"
+                          : mode === "merge"
+                            ? "合并同域档案"
+                            : mode === "split"
+                              ? "拆分同域映射"
+                              : "名称与备注"
             }}
           </h3>
+          <template v-if="mode === 'merge' || mode === 'split'">
+            <p>
+              只建立或拆开已核对的同域映射；原字段、关系端点、账号身份、好感分和联系许可保持各自归属。身份组须先解除，不能建立链式映射。
+            </p>
+            <label v-if="mode === 'merge'"
+              >同域目标人物<select
+                v-model="form.other"
+                aria-label="同域目标人物"
+                required
+              >
+                <option value="">请选择并核对目标</option>
+                <option v-for="p in compatiblePeople" :key="p.id" :value="p.id">
+                  {{ p.data.name }} · {{ p.id.slice(0, 8) }} · 版本{{
+                    p.revision
+                  }}
+                </option>
+              </select></label
+            >
+            <p v-else>
+              原目标：{{ mappingTarget?.data.name }} · {{ mappingTarget?.id }} ·
+              版本{{ mappingTarget?.revision }}
+            </p>
+            <label
+              ><input
+                v-model="form.confirmed"
+                type="checkbox"
+                required
+              />已分别核对两个人物，明确确认本次映射变更</label
+            >
+          </template>
           <template v-if="['create', 'rename'].includes(mode)"
             ><label
               >名称<input v-model="form.name" required maxlength="128" /></label
@@ -922,79 +1066,6 @@ onMounted(() =>
         </details>
       </div>
     </div>
-    <details v-if="graph">
-      <summary>本页关系图（最多50个人物，仅显示已批准的有向关系）</summary>
-      <div class="profile-tools">
-        <button @click="view.zoom = Math.min(2, view.zoom + 0.2)">放大</button
-        ><button @click="view.zoom = Math.max(0.3, view.zoom - 0.2)">
-          缩小</button
-        ><button @click="view.x -= 80">左移</button
-        ><button @click="view.x += 80">右移</button
-        ><button @click="view.y -= 80">上移</button
-        ><button @click="view.y += 80">下移</button
-        ><button @click="Object.assign(view, { x: 0, y: 0, zoom: 1 })">
-          复位
-        </button>
-      </div>
-      <p>
-        拖动空白平移，拖动节点调整位置；双击节点打开档案。列表提供同等操作。
-      </p>
-      <svg
-        class="profile-graph"
-        viewBox="0 0 800 500"
-        role="img"
-        aria-label="当前页已批准人物关系图"
-        @pointerdown.self="down($event, 'pan')"
-        @pointermove="move"
-        @pointerup="drag = undefined"
-        @pointercancel="drag = undefined"
-      >
-        <defs>
-          <marker
-            id="profile-arrow"
-            viewBox="0 0 10 10"
-            refX="9"
-            refY="5"
-            markerWidth="8"
-            markerHeight="8"
-            orient="auto-start-reverse"
-          >
-            <path d="M0,0 L10,5 L0,10Z" fill="currentColor" />
-          </marker>
-        </defs>
-        <g :transform="`translate(${view.x} ${view.y}) scale(${view.zoom})`">
-          <g v-for="e in graph.edges" :key="e.id">
-            <line
-              :x1="position(e.from_id).x"
-              :y1="position(e.from_id).y"
-              :x2="position(e.to_id).x"
-              :y2="position(e.to_id).y"
-              stroke="currentColor"
-              marker-end="url(#profile-arrow)"
-            />
-            <text
-              :x="(position(e.from_id).x + position(e.to_id).x) / 2"
-              :y="(position(e.from_id).y + position(e.to_id).y) / 2 - 8"
-            >
-              {{ e.relationship_type }}
-            </text>
-          </g>
-          <g
-            v-for="p in graph.items"
-            :key="p.id"
-            :transform="`translate(${position(p.id).x} ${position(p.id).y})`"
-            @pointerdown.stop="down($event, p.id)"
-            @dblclick="select(p.id)"
-          >
-            <circle r="31" />
-            <text text-anchor="middle" dy="5">
-              {{ p.data.name.slice(0, 7) }}
-            </text>
-            <title>{{ p.data.name }}</title>
-          </g>
-        </g>
-      </svg>
-    </details>
   </section>
 </template>
 <style scoped>
@@ -1010,7 +1081,10 @@ onMounted(() =>
 }
 .profile-columns {
   display: grid;
-  grid-template-columns: minmax(160px, 220px) minmax(0, 1fr);
+  grid-template-columns: minmax(130px, 170px) minmax(230px, 1fr) minmax(
+      280px,
+      1.15fr
+    );
   gap: 20px;
 }
 .profile-columns nav > button {
@@ -1050,21 +1124,6 @@ onMounted(() =>
 .profile-form input[type="checkbox"] {
   display: inline;
 }
-.profile-graph {
-  width: 100%;
-  height: 500px;
-  background: var(--surface, #f8f9fb);
-  border: 1px solid #aab3bf;
-  touch-action: none;
-}
-.profile-graph circle {
-  fill: #f3efdf;
-  stroke: #6e7d8d;
-}
-.profile-graph text {
-  font-size: 12px;
-  fill: #243543;
-}
 .profile-panel pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1073,12 +1132,9 @@ onMounted(() =>
   border-color: #2b688d;
   background: #e1eff7;
 }
-@media (max-width: 760px) {
+@media (max-width: 1100px) {
   .profile-columns {
     grid-template-columns: 1fr;
-  }
-  .profile-graph {
-    height: 340px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

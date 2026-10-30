@@ -145,7 +145,10 @@ export class Profiles {
           limit,
           offset,
         )
-        .map((p) => this.public(p)),
+        .map((p) => ({
+          ...this.public(p),
+          can_manage: p.manager_id === actor || p.owner_id === actor,
+        })),
       total: this.store.get(`SELECT count(*) AS n ${sql}`, actor, actor, q, q)!
         .n,
       limit,
@@ -455,6 +458,13 @@ export class Profiles {
       const p = this.person(actor, id, true);
       this.check(p, expected);
       const source = this.sources.resolve(actor, b.source);
+      if (
+        this.store.get(
+          "SELECT alias_id FROM person_aliases WHERE alias_id=?",
+          id,
+        )
+      )
+        throw bad("请在合并后的主档案提交新的字段候选", "person_merged");
       this.scope(p, source);
       if (
         Number(
@@ -1549,6 +1559,7 @@ export class Profiles {
       ids = new Set(list.items.filter((p) => !p.merged_into).map((p) => p.id));
     return {
       ...list,
+      page_items: list.items,
       items: list.items.filter((p) => ids.has(p.id)),
       edges: this.store
         .all(

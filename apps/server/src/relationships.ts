@@ -7,6 +7,13 @@ import type { Store } from "./store.ts";
 import type { Knowledge } from "./knowledge.ts";
 export class Relationships {
   readonly affinity: Affinity;
+  authorizePerson?: (
+    actor: string,
+    id: string,
+  ) => {
+    owner_id: unknown;
+    visibility: unknown;
+  };
   constructor(
     readonly store: Store,
     readonly runtime: Runtime,
@@ -57,7 +64,27 @@ export class Relationships {
     );
     if (person) this.affinity.ensure(person);
   }
-  merge(owner: string, from: string, value: unknown) {
+  private managed(actor: string, id: string) {
+    const p = this.authorizePerson?.(actor, id);
+    return this.runtime.records.get(
+      "people",
+      id,
+      p ? String(p.owner_id) : actor,
+    );
+  }
+  private reason(value: unknown, label: string) {
+    const text = string(value, label, 2000, 1);
+    if (
+      this.store.redact(text) !== text ||
+      text.includes("\0") ||
+      /(?:sk-[A-Za-z0-9_-]{16,}|(?:api[_ -]?key|password|密码|验证码|access[_ -]?token)\s*[:=：]\s*\S{4,})/i.test(
+        text,
+      )
+    )
+      throw bad(`${label}含无效字符或疑似秘密`);
+    return text;
+  }
+  merge(actor: string, from: string, value: unknown) {
     const body = fields(value, [
         "into_id",
         "expected_from_revision",
@@ -68,10 +95,16 @@ export class Relationships {
       into = string(body.into_id, "目标人物", 36, 36);
     if (body.confirmed !== true || from === into)
       throw bad("请选择不同的同域人物并明确确认合并");
-    const reason = string(body.reason, "合并依据", 2000, 1);
+    const reason = this.reason(body.reason, "合并依据");
     return this.store.transaction(() => {
-      const source = this.runtime.records.get("people", from, owner),
-        target = this.runtime.records.get("people", into, owner);
+      const source = this.managed(actor, from),
+        target = this.managed(actor, into),
+        owner = source.owner_id;
+      if (target.owner_id !== owner || target.visibility !== source.visibility)
+        throw bad(
+          "仅可合并同一来源owner及相同可见范围的人物",
+          "merge_scope_conflict",
+        );
       if (
         source.revision !== body.expected_from_revision ||
         target.revision !== body.expected_into_revision
@@ -118,10 +151,16 @@ export class Relationships {
       );
       this.bump(from, into);
       this.mapping(owner, from, into, "merge", reason);
-      this.runtime.invalidate(owner, { action: "corrected", id: from });
-      this.runtime.invalidate(owner, { action: "corrected", id: into });
+      this.runtime.invalidate(source.visibility === "shared" ? "*" : owner, {
+        action: "corrected",
+        id: from,
+      });
+      this.runtime.invalidate(source.visibility === "shared" ? "*" : owner, {
+        action: "corrected",
+        id: into,
+      });
       this.store.audit(
-        owner,
+        actor,
         "relationships",
         "completed",
         "人物映射已确认，原档案、关系端点和独立好感账本保留",
@@ -137,7 +176,7 @@ export class Relationships {
       };
     });
   }
-  split(owner: string, from: string, value: unknown) {
+  split(actor: string, from: string, value: unknown) {
     const body = fields(value, [
       "expected_from_revision",
       "expected_into_revision",
@@ -145,9 +184,10 @@ export class Relationships {
       "reason",
     ]);
     if (body.confirmed !== true) throw bad("拆分需要明确确认");
-    const reason = string(body.reason, "拆分依据", 2000, 1);
+    const reason = this.reason(body.reason, "拆分依据");
     return this.store.transaction(() => {
-      const source = this.runtime.records.get("people", from, owner),
+      const source = this.managed(actor, from),
+        owner = source.owner_id,
         alias = this.store.get(
           "SELECT person_id FROM person_aliases WHERE alias_id=? AND owner_id=?",
           from,
@@ -155,7 +195,12 @@ export class Relationships {
         );
       if (!alias) throw missing();
       const into = String(alias.person_id),
-        target = this.runtime.records.get("people", into, owner);
+        target = this.managed(actor, into);
+      if (target.owner_id !== owner)
+        throw bad(
+          "合并目标来源域已变化，须先核对原映射",
+          "merge_scope_conflict",
+        );
       if (
         source.revision !== body.expected_from_revision ||
         target.revision !== body.expected_into_revision
@@ -164,10 +209,16 @@ export class Relationships {
       this.store.run("DELETE FROM person_aliases WHERE alias_id=?", from);
       this.bump(from, into);
       this.mapping(owner, from, into, "split", reason);
-      this.runtime.invalidate(owner, { action: "corrected", id: from });
-      this.runtime.invalidate(owner, { action: "corrected", id: into });
+      this.runtime.invalidate(source.visibility === "shared" ? "*" : owner, {
+        action: "corrected",
+        id: from,
+      });
+      this.runtime.invalidate(source.visibility === "shared" ? "*" : owner, {
+        action: "corrected",
+        id: into,
+      });
       this.store.audit(
-        owner,
+        actor,
         "relationships",
         "completed",
         "人物映射已拆分，原资料与账本继续独立",

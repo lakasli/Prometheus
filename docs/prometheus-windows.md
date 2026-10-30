@@ -94,3 +94,5 @@ node deploy/prometheus/backup-instance.mjs --data-dir D:/DSH/.local/prometheus/i
 显式日记人物候选回归：`node --test apps/server/test/profile-model.test.mjs`，同样支持固定runtime服务夹具，安全/ACL/密码散列及构造场景辅助为本地。schema8 SQL夹具通过实际服务升级，正式发布另演练完整备份恢复。排队引用、模型完成、保存待审与人工批准分别验证，取消不提前归还物理请求槽或凭据引用。schema8升级前完整备份，旧8制品拒绝打开9；见[人物候选迁移记录](prometheus-profile-model-validation.md)。
 
 互动来源与账本重放回归：`node --test apps/server/test/affinity-sources.test.mjs`，服务夹具支持固定runtime，安全/ACL辅助和合成SQL场景构造来自本地。schema9旧分数作为已知检查点，新增事件按实际来源、原策略和停机覆盖重算；旧9制品拒绝打开10，完整实例升级/恢复独立演练。见[互动来源与重放记录](prometheus-affinity-sources-validation.md)。
+
+人物映射与关系图：`node --test apps/server/test/profile-mappings.test.mjs` 支持固定runtime服务夹具，源域/身份的合成SQL及安全辅助为本地；`npm run test --workspace @prometheus/admin`执行12项本地图布局/物理纯函数，浏览器仍用固定包执行test:e2e，分别记账。本批保持schema10，无数据库迁移；正式切换仍备份完整实例并在独立目录验证新旧制品恢复。见[映射与关系图记录](prometheus-profile-network-validation.md)。
