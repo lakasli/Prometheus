@@ -9,7 +9,31 @@ const provider = createServer(async (request, response) => {
   const input = JSON.parse(raw);
   const system = String(input.messages?.[0]?.content ?? "");
   let content = "合成浏览器回复。";
-  if (system.startsWith("PROMETHEUS_DIARY_GENERATOR_V2"))
+  if (system.startsWith("PROMETHEUS_PROFILE_CANDIDATES_V1")) {
+    const payload = JSON.parse(input.messages[1].content);
+    if (payload.source.facts.includes("PROFILE_UI_SLOW"))
+      await new Promise((r) => setTimeout(r, 5000));
+    content = JSON.stringify({
+      assertions: [
+        {
+          field: "hobby",
+          value: "浏览器日记人物候选",
+          statement_kind: "inference",
+          reason: "本次明确选择的日记事实，仅保留推测标签",
+        },
+      ],
+      edges: payload.allowed_targets.length
+        ? [
+            {
+              to_person_id: payload.allowed_targets[0].id,
+              relationship_type: "colleague",
+              statement_kind: "third_party",
+              reason: "本次已核对目标的来源陈述",
+            },
+          ]
+        : [],
+    });
+  } else if (system.startsWith("PROMETHEUS_DIARY_GENERATOR_V2"))
     content = JSON.stringify({
       facts: "浏览器固定来源的完整日记归并。",
       feelings: "独立的合成感受。",
@@ -39,6 +63,7 @@ const provider = createServer(async (request, response) => {
       action: { type: "text", content: "待单独启用的提醒" },
       enabled: false,
     });
+  if (response.destroyed) return;
   response.writeHead(200, { "content-type": "application/json" });
   response.end(JSON.stringify({ choices: [{ message: { content } }] }));
 });

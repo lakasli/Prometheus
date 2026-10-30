@@ -79,6 +79,15 @@ CREATE TABLE IF NOT EXISTS profile_context_uses(run_id TEXT NOT NULL REFERENCES 
 CREATE INDEX IF NOT EXISTS profile_context_person ON profile_context_uses(person_id,run_id);
 CREATE TABLE IF NOT EXISTS profile_source_tombstones(source_type TEXT NOT NULL,source_id TEXT NOT NULL,source_revision INTEGER NOT NULL,invalidated_at INTEGER NOT NULL,PRIMARY KEY(source_type,source_id));
 CREATE TABLE IF NOT EXISTS profile_expiry_marks(kind TEXT NOT NULL,id TEXT NOT NULL,revision INTEGER NOT NULL,PRIMARY KEY(kind,id,revision));
+CREATE TABLE IF NOT EXISTS profile_model_jobs(id TEXT PRIMARY KEY,actor_id TEXT NOT NULL,person_id TEXT NOT NULL,person_revision INTEGER NOT NULL,source_type TEXT NOT NULL,source_id TEXT NOT NULL,source_revision INTEGER NOT NULL,source_owner_id TEXT NOT NULL,ref_json TEXT NOT NULL,targets_json TEXT NOT NULL,deletion_epoch INTEGER NOT NULL,idempotency_key TEXT NOT NULL,fingerprint TEXT NOT NULL,status TEXT NOT NULL,error_code TEXT,result_json TEXT NOT NULL DEFAULT '{}',revision INTEGER NOT NULL DEFAULT 1,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,UNIQUE(actor_id,idempotency_key));
+CREATE INDEX IF NOT EXISTS profile_model_queue ON profile_model_jobs(status,created_at,id);
+CREATE INDEX IF NOT EXISTS profile_model_source ON profile_model_jobs(source_type,source_id);
+CREATE INDEX IF NOT EXISTS profile_model_actor ON profile_model_jobs(actor_id,person_id,created_at);
+CREATE TABLE IF NOT EXISTS profile_model_attempts(id TEXT PRIMARY KEY,job_id TEXT NOT NULL REFERENCES profile_model_jobs(id),owner_id TEXT NOT NULL,status TEXT NOT NULL,config_json TEXT,input_bytes INTEGER NOT NULL,input_hash TEXT NOT NULL,output_metadata_json TEXT,error_code TEXT,started_at INTEGER NOT NULL,finished_at INTEGER);
+CREATE INDEX IF NOT EXISTS profile_model_budget ON profile_model_attempts(owner_id,started_at);
+CREATE INDEX IF NOT EXISTS profile_model_attempt_time ON profile_model_attempts(started_at);
+CREATE INDEX IF NOT EXISTS profile_model_open_attempt ON profile_model_attempts(job_id) WHERE finished_at IS NULL;
+INSERT OR IGNORE INTO metadata VALUES('profile.model.deletion_epoch','0');
 CREATE TABLE IF NOT EXISTS schedule_activities(id TEXT PRIMARY KEY,owner_id TEXT NOT NULL,assistant_id TEXT NOT NULL,revision INTEGER NOT NULL,creator TEXT NOT NULL,state TEXT NOT NULL,definition_json TEXT NOT NULL,grant_revision INTEGER,approved_json TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS schedule_activity_owner ON schedule_activities(owner_id,state,updated_at);
 CREATE TABLE IF NOT EXISTS schedule_exceptions(activity_id TEXT NOT NULL REFERENCES schedule_activities(id),nominal_at INTEGER NOT NULL,definition_json TEXT NOT NULL,state TEXT NOT NULL,revision INTEGER NOT NULL,PRIMARY KEY(activity_id,nominal_at));

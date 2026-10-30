@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { api } from "../api";
+import ProfileModelPanel from "./ProfileModelPanel.vue";
 const props = defineProps<{ refreshToken?: unknown }>();
 const emit = defineEmits<{ error: [unknown]; dirty: [boolean]; changed: [] }>();
 const busy = ref(false),
@@ -67,7 +68,9 @@ const statuses: Record<string, string> = {
   forgotten: "已遗忘",
   invalidated: "来源已失效",
 };
-const draft = computed(() => !!mode.value);
+const modelDirty = ref(false),
+  modelFormGeneration = ref(0);
+const draft = computed(() => !!mode.value || modelDirty.value);
 watch(draft, (v) => emit("dirty", v));
 onUnmounted(() => emit("dirty", false));
 const sourceOptions = computed(() =>
@@ -79,7 +82,9 @@ const sourceOptions = computed(() =>
   ),
 );
 function begin(next: string) {
-  if (mode.value && !confirm("放弃未保存的人物修改？")) return;
+  if (draft.value && !confirm("放弃未保存的人物修改？")) return;
+  modelDirty.value = false;
+  modelFormGeneration.value++;
   mode.value = next;
   Object.assign(form, {
     name: selected.value?.data.name ?? "",
@@ -120,7 +125,7 @@ async function load() {
   );
 }
 async function select(id: string) {
-  if (mode.value && !confirm("放弃未保存的人物修改？")) return;
+  if (draft.value && !confirm("放弃未保存的人物修改？")) return;
   await act(async () => {
     selected.value = await api(`/relationships/profiles/${id}`);
     mode.value = "";
@@ -652,6 +657,20 @@ onMounted(() =>
               {{ n.revision }}
             </p>
           </details>
+          <ProfileModelPanel
+            :key="`${selected.id}:${modelFormGeneration}`"
+            :person="selected"
+            :sources="sourceOptions"
+            :targets="items"
+            @error="emit('error', $event)"
+            @dirty="modelDirty = $event"
+            @changed="
+              async () => {
+                if (!mode) await refresh();
+                emit('changed');
+              }
+            "
+          />
         </template>
         <p v-else>选择人物查看来源与审核记录。</p>
         <form v-if="mode" class="profile-form" @submit.prevent="save">

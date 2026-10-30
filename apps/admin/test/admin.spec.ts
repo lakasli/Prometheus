@@ -1261,3 +1261,138 @@ test("diary events, immutable period coverage, explicit model permission and rec
   ).toHaveValue("");
   expect(errors).toEqual([]);
 });
+test("explicit diary profile jobs remain pending until review and can be cancelled through the management page", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const me = await (await page.request.get("/api/admin/v1/auth/me")).json(),
+    headers = {
+      origin: "http://127.0.0.1:18449",
+      "x-csrf-token": me.csrf_token,
+    },
+    state = JSON.parse(
+      readFileSync(resolve("../../.local/prometheus/e2e-state.json"), "utf8"),
+    );
+  const secret = await (
+      await page.request.post("/api/admin/v1/secrets", {
+        headers,
+        data: { kind: "model_api_key", value: "synthetic-profile-browser-key" },
+      })
+    ).json(),
+    current = await (await page.request.get("/api/admin/v1/config")).json();
+  current.config.model = {
+    base_url: state.modelUrl,
+    model: "synthetic-profile-browser",
+    credential_ref: secret.id,
+  };
+  expect(
+    (
+      await page.request.put("/api/admin/v1/config", {
+        headers: { ...headers, "if-match": `"${current.revision}"` },
+        data: { config: current.config },
+      })
+    ).status(),
+  ).toBe(200);
+  const policies = await (
+    await page.request.get("/api/admin/v1/diary/policies")
+  ).json();
+  let policy = policies.items.find(
+    (p: any) => p.source_key.startsWith("self:") && p.visibility === "private",
+  );
+  policy = await (
+    await page.request.patch(`/api/admin/v1/diary/policies/${policy.id}`, {
+      headers: { ...headers, "if-match": `"${policy.revision}"` },
+      data: {
+        source_key: policy.source_key,
+        visibility: "private",
+        time_zone: policy.time_zone,
+        enabled: true,
+        allow_model: true,
+        confirmed: true,
+      },
+    })
+  ).json();
+  const create = async (name: string) =>
+    await (
+      await page.request.post("/api/admin/v1/relationships/profiles", {
+        headers,
+        data: { name, reason: "浏览器明确核对人物", confirmed: true },
+      })
+    ).json();
+  const p = await create("浏览器专用日记人物"),
+    q = await create("浏览器专用同域目标");
+  const event = async (content: string) =>
+    await (
+      await page.request.post("/api/admin/v1/diary/events", {
+        headers: { ...headers, "idempotency-key": crypto.randomUUID() },
+        data: { content, happened_at: Math.floor(Date.now() / 1000) - 30 },
+      })
+    ).json();
+  const source = await event("浏览器为本次人物整理明确选取的事实"),
+    slow = await event("PROFILE_UI_SLOW 仅供本次取消的合成日记");
+  await page.getByRole("button", { name: "人物", exact: true }).click();
+  const panel = page.getByRole("region", { name: "人物资料与身份" });
+  await panel
+    .getByRole("button", { name: "浏览器专用日记人物 本人私有", exact: true })
+    .click();
+  const jobs = panel.locator(".profile-model-panel");
+  await jobs.getByText("从日记整理待审核人物资料", { exact: true }).click();
+  await jobs
+    .getByLabel("本次人物整理来源", { exact: true })
+    .selectOption(`diary_event:${source.id}`);
+  await jobs.getByLabel(q.data.name, { exact: true }).check();
+  await jobs
+    .getByLabel("我已核对人物与所选来源，并同意本次发送给已配置模型", {
+      exact: true,
+    })
+    .check();
+  await jobs
+    .getByRole("button", { name: "排队生成待审核候选", exact: true })
+    .click();
+  await expect(jobs.getByRole("status")).toContainText("完成后仍须逐项审核");
+  await expect(jobs).toContainText("已生成待审核候选");
+  await expect(
+    panel
+      .locator(".profile-statement")
+      .filter({ hasText: "浏览器日记人物候选" }),
+  ).toContainText("待审核");
+  await expect(
+    panel
+      .locator(".profile-statement")
+      .filter({ hasText: "浏览器日记人物候选" }),
+  ).toContainText("推测");
+  const detail = await (
+    await page.request.get(`/api/admin/v1/relationships/profiles/${p.id}`)
+  ).json();
+  expect(detail.assertions.every((a: any) => a.status === "pending")).toBe(
+    true,
+  );
+  expect(detail.edges.every((e: any) => e.status === "pending")).toBe(true);
+  await jobs
+    .getByLabel("本次人物整理来源", { exact: true })
+    .selectOption(`diary_event:${slow.id}`);
+  await jobs
+    .getByLabel("我已核对人物与所选来源，并同意本次发送给已配置模型", {
+      exact: true,
+    })
+    .check();
+  await jobs
+    .getByRole("button", { name: "排队生成待审核候选", exact: true })
+    .click();
+  await jobs
+    .getByRole("button", { name: "取消这次人物整理", exact: true })
+    .click();
+  await expect(jobs).toContainText("已取消");
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.locator("body").evaluate((el) => el.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await jobs.screenshot({
+    path: resolve(
+      "../../.local/prometheus/screenshots/profile-model-mobile.png",
+    ),
+    animations: "disabled",
+  });
+  expect(errors).toEqual([]);
+});

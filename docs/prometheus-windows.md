@@ -69,7 +69,7 @@ node deploy/prometheus/backup-instance.mjs --data-dir D:/DSH/.local/prometheus/i
 
 脚本取得与服务相同的原子数据锁，复制主密钥等全部文件、生成SQLite一致性快照并检查integrity_check，保存私有清单与逐文件哈希。拒绝符号链接及数据目录内的目标；已有锁时失败，不杀进程。备份位于.local/prometheus/backups/instance-*，不输出秘密。
 
-当前实现schema8不能由schema1/2/3/4/5/6/7制品打开，实际部署SHA见对应验收记录。升级前自动创建原schema数据库快照，正式升级另备份完整实例；回退先保留新目录，向另一个私有目录恢复匹配旧制品的完整快照（含主密钥），再用上一版固定SHA启动和复验。不能覆盖运行数据或仅切换代码。
+当前实现schema9不能由schema1/2/3/4/5/6/7/8制品打开，实际部署SHA见对应验收记录。升级前自动创建原schema数据库快照，正式升级另备份完整实例；回退先保留新目录，向另一个私有目录恢复匹配旧制品的完整快照（含主密钥），再用上一版固定SHA启动和复验。不能覆盖运行数据或仅切换代码。
 
 ## 隔离工作器前置检查
 
@@ -90,3 +90,5 @@ node deploy/prometheus/backup-instance.mjs --data-dir D:/DSH/.local/prometheus/i
 日记周期与覆盖回归：`node --test apps/server/test/diary.test.mjs`。HTTP/进程内服务夹具可绑定固定runtime；Temporal/严格JSON纯函数、安全辅助和少量直接方法来自本地构建。新管理页的周期账本与旧选源模型草稿分别显示；仅获模型许可的正文进入普通Native检索。schema6升级前完整备份，旧制品不能直接打开7。详见[日记迁移验收](prometheus-diary-validation.md)。
 
 人物来源与身份回归：`node --test apps/server/test/profiles.test.mjs`，HTTP和进程内服务夹具支持绑定固定runtime，安全/ACL/密码散列辅助来自本地构建；独立schema7 SQL夹具升级仍通过所绑定的实际服务。字段/有向边审核、来源失效、私聊身份与跨账号关联不授予工具或主动发送权限。schema7升级前完整备份，旧7制品拒绝打开8；详见[人物来源迁移记录](prometheus-profiles-validation.md)。
+
+显式日记人物候选回归：`node --test apps/server/test/profile-model.test.mjs`，同样支持固定runtime服务夹具，安全/ACL/密码散列及构造场景辅助为本地。schema8 SQL夹具通过实际服务升级，正式发布另演练完整备份恢复。排队引用、模型完成、保存待审与人工批准分别验证，取消不提前归还物理请求槽或凭据引用。schema8升级前完整备份，旧8制品拒绝打开9；见[人物候选迁移记录](prometheus-profile-model-validation.md)。

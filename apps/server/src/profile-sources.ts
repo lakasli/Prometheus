@@ -13,6 +13,7 @@ export type ProfileRef = {
   scope: string | null;
 };
 export type ProfileSource = {
+  statement_type?: string;
   ref: ProfileRef;
   owner: string;
   visibility: string;

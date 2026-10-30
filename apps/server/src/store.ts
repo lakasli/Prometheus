@@ -50,7 +50,7 @@ export class Store {
       : undefined;
     if (tables.length) {
       if (
-        !["1", "2", "3", "4", "5", "6", "7", "8"].includes(
+        !["1", "2", "3", "4", "5", "6", "7", "8", "9"].includes(
           String(previousSchema),
         )
       ) {
@@ -58,7 +58,7 @@ export class Store {
         throw new Error("Unsupported Prometheus schema; do not downgrade");
       }
     }
-    if (tables.length && previousSchema !== "8") {
+    if (tables.length && previousSchema !== "9") {
       const backupDir = privateDirectory(join(path, "backups"));
       const target = join(
         backupDir,
@@ -106,7 +106,7 @@ export class Store {
         now(),
       );
       this.run(
-        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','8') ON CONFLICT(key) DO UPDATE SET value='8'",
+        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','9') ON CONFLICT(key) DO UPDATE SET value='9'",
       );
       if (
         previousSchema &&
@@ -125,6 +125,14 @@ export class Store {
       );
       this.run(
         "UPDATE diary_attempts SET status='interrupted',config_json=NULL,error_code='service_restarted',finished_at=? WHERE finished_at IS NULL",
+        now(),
+      );
+      this.run(
+        "UPDATE profile_model_attempts SET status='interrupted',config_json=NULL,error_code='service_restarted',finished_at=? WHERE finished_at IS NULL",
+        now(),
+      );
+      this.run(
+        "UPDATE profile_model_jobs SET status='interrupted',error_code='service_restarted',revision=revision+1,updated_at=? WHERE status IN ('running','cancelling')",
         now(),
       );
       this.run(
@@ -447,6 +455,10 @@ export class Store {
       ) ||
       this.get(
         "SELECT id FROM diary_attempts WHERE config_json IS NOT NULL AND instr(config_json,?)>0",
+        id,
+      ) ||
+      this.get(
+        "SELECT id FROM profile_model_attempts WHERE config_json IS NOT NULL AND instr(config_json,?)>0",
         id,
       )
     )

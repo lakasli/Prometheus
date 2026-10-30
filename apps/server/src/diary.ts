@@ -80,6 +80,8 @@ export class Diary {
       throw bad("日记来源未开启所需采集/模型许可", "source_forbidden");
     return {
       content,
+      statement_type:
+        kind === "diary_event" ? String(row.statement_type) : "period_facts",
       owner: String(row.owner_id),
       visibility: String(row.visibility),
       policy_id: String(policy.id),

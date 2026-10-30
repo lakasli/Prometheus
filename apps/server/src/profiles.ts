@@ -11,7 +11,7 @@ import {
 import { now } from "./security.ts";
 import { profileValue } from "./profile-values.ts";
 import { ProfileSources } from "./profile-sources.ts";
-import type { ProfileSource } from "./profile-sources.ts";
+import type { ProfileSource, ProfileRef } from "./profile-sources.ts";
 import type { Store, Row } from "./store.ts";
 import type { Runtime } from "./runtime.ts";
 import type { Knowledge } from "./knowledge.ts";
@@ -26,6 +26,7 @@ export type ProfileUse = {
   edge_revision?: number;
 };
 export class Profiles {
+  onModelInvalidated?: () => void;
   readonly sources: ProfileSources;
   private refreshing = false;
   constructor(
@@ -988,6 +989,7 @@ export class Profiles {
     });
   }
   invalidateSource(type: string, id: string, revision: number) {
+    this.advanceDeletionEpoch();
     this.store.run(
       "INSERT INTO profile_source_tombstones VALUES(?,?,?,?) ON CONFLICT(source_type,source_id) DO UPDATE SET source_revision=max(source_revision,excluded.source_revision),invalidated_at=excluded.invalidated_at",
       type,
@@ -1002,6 +1004,7 @@ export class Profiles {
     ]);
   }
   invalidatePolicy(id: string) {
+    this.advanceDeletionEpoch();
     this.eraseWhere("source_policy_id=?", [id]);
   }
   private eraseWhere(where: string, args: (string | number)[]) {
@@ -1104,6 +1107,7 @@ export class Profiles {
       id,
     );
     if (!p) return;
+    this.advanceDeletionEpoch();
     this.invalidate(id);
     for (const a of this.store.all(
       "SELECT * FROM profile_assertions WHERE person_id=? AND deleted_at IS NULL",
@@ -1346,6 +1350,168 @@ export class Profiles {
         u.edge_id ?? "",
         u.edge_revision ?? 0,
       );
+  }
+  private advanceDeletionEpoch() {
+    this.store.run(
+      "UPDATE metadata SET value=CAST(value AS INTEGER)+1 WHERE key='profile.model.deletion_epoch'",
+    );
+    this.onModelInvalidated?.();
+  }
+  generated(
+    actor: string,
+    id: string,
+    ref: ProfileRef,
+    output: {
+      assertions: {
+        field: string;
+        value: unknown;
+        statement_kind: string;
+        reason: string;
+      }[];
+      edges: {
+        to_person_id: string;
+        relationship_type: string;
+        statement_kind: string;
+        reason: string;
+      }[];
+    },
+  ) {
+    const p = this.person(actor, id, true),
+      assertions: string[] = [],
+      edges: string[] = [],
+      changed = new Set<string>(),
+      at = now();
+    for (const a of output.assertions) {
+      const value = profileValue(a.field, a.value),
+        reason = this.clean(a.reason, "模型字段依据"),
+        statement = this.statement(a.statement_kind);
+      if (statement === "confirmed") throw bad("模型不能自行核实事实");
+      this.clean(JSON.stringify(value), "模型字段", 4000);
+      const duplicate = this.store.get(
+        "SELECT id FROM profile_assertions WHERE person_id=? AND field=? AND value_json=? AND statement_kind=? AND source_type=? AND source_id=? AND source_revision=? AND status IN ('pending','approved') AND deleted_at IS NULL",
+        id,
+        a.field,
+        JSON.stringify(value),
+        statement,
+        ref.type,
+        ref.id,
+        ref.revision,
+      );
+      if (duplicate) {
+        assertions.push(String(duplicate.id));
+        continue;
+      }
+      if (
+        Number(
+          this.store.get(
+            "SELECT count(*) AS n FROM profile_assertions WHERE person_id=? AND deleted_at IS NULL",
+            id,
+          )!.n,
+        ) >= 500
+      )
+        throw bad("单个人物最多500条现存字段陈述");
+      const aid = randomUUID();
+      this.store.run(
+        "INSERT INTO profile_assertions VALUES(?,?,?,?,1,'pending',?,?,?,?,?,?,?,?,?,NULL,NULL,?,?,NULL)",
+        aid,
+        id,
+        a.field,
+        JSON.stringify(value),
+        statement,
+        ref.type,
+        ref.id,
+        ref.revision,
+        ref.policy_id,
+        JSON.stringify(ref),
+        reason,
+        String(p.owner_id),
+        String(p.visibility),
+        at,
+        at,
+      );
+      this.store.run(
+        "INSERT INTO profile_assertion_versions VALUES(?,1,?,'pending',?,?,?)",
+        aid,
+        JSON.stringify(value),
+        reason,
+        actor,
+        at,
+      );
+      assertions.push(aid);
+      changed.add(id);
+    }
+    for (const e of output.edges) {
+      const q = this.person(actor, e.to_person_id, true);
+      if (
+        q.owner_id !== p.owner_id ||
+        q.visibility !== p.visibility ||
+        q.id === p.id
+      )
+        throw bad("模型目标范围已变化");
+      const type = this.clean(e.relationship_type, "模型关系", 200),
+        reason = this.clean(e.reason, "模型关系依据"),
+        statement = this.statement(e.statement_kind);
+      if (statement === "confirmed") throw bad("模型不能自行核实关系");
+      const duplicate = this.store.get(
+        "SELECT id FROM profile_edges WHERE from_person_id=? AND to_person_id=? AND relationship_type=? AND statement_kind=? AND source_type=? AND source_id=? AND source_revision=? AND status IN ('pending','approved') AND deleted_at IS NULL",
+        id,
+        String(q.id),
+        type,
+        statement,
+        ref.type,
+        ref.id,
+        ref.revision,
+      );
+      if (duplicate) {
+        edges.push(String(duplicate.id));
+        continue;
+      }
+      if (
+        Number(
+          this.store.get(
+            "SELECT count(*) AS n FROM profile_edges WHERE from_person_id=? AND deleted_at IS NULL",
+            id,
+          )!.n,
+        ) >= 500
+      )
+        throw bad("单人物最多500条有向关系");
+      const eid = randomUUID();
+      this.store.run(
+        "INSERT INTO profile_edges VALUES(?,?,?,?,1,'pending',?,?,?,?,?,?,?,?,?,?,?,NULL,NULL)",
+        eid,
+        id,
+        String(q.id),
+        type,
+        statement,
+        ref.type,
+        ref.id,
+        ref.revision,
+        ref.policy_id,
+        JSON.stringify(ref),
+        reason,
+        String(p.owner_id),
+        String(p.visibility),
+        at,
+        at,
+      );
+      this.store.run(
+        "INSERT INTO profile_edge_versions VALUES(?,1,?,'pending',?,?,?)",
+        eid,
+        type,
+        reason,
+        actor,
+        at,
+      );
+      edges.push(eid);
+      changed.add(id);
+      changed.add(String(q.id));
+    }
+    for (const id of changed) this.bump(id);
+    return {
+      assertion_ids: [...new Set(assertions)],
+      edge_ids: [...new Set(edges)],
+      review_required: true,
+    };
   }
   graph(actor: string, query: URLSearchParams) {
     this.refresh();

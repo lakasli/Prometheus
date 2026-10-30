@@ -14,6 +14,7 @@ import { Relationships } from "./relationships.ts";
 import { Schedule } from "./schedule-work.ts";
 import { Diary } from "./diary.ts";
 import { Profiles } from "./profiles.ts";
+import { ProfileModel } from "./profile-model.ts";
 
 export interface FeatureResult {
   data: unknown;
@@ -33,6 +34,7 @@ export class Features {
   readonly schedule: Schedule;
   readonly diary: Diary;
   readonly profiles: Profiles;
+  readonly profileModel: ProfileModel;
   constructor(
     readonly store: Store,
     readonly runtime: Runtime,
@@ -75,17 +77,30 @@ export class Features {
       },
     );
     this.profiles = new Profiles(store, runtime, this.knowledge, this.diary);
+    this.profileModel = new ProfileModel(
+      store,
+      runtime,
+      this.profiles,
+      this.knowledge,
+      allowLoopback,
+      () =>
+        this.automation.workClockTrusted &&
+        this.automation.restStatus().state.phase === "awake",
+    );
+    this.profiles.onModelInvalidated = () => this.profileModel.refresh();
     this.diary.onSourceInvalidated = (type, id, rev) =>
       this.profiles.invalidateSource(type, id, rev);
     this.diary.onPolicyInvalidated = (id) => this.profiles.invalidatePolicy(id);
     this.knowledge.onScopeInvalidated = (scope) => {
       this.diary.scopeChanged(scope);
       this.profiles.refresh();
+      this.profileModel.refresh();
     };
     this.automation.onScheduleTick = () => {
       this.diary.tick();
       this.schedule.tick();
       this.profiles.refresh();
+      this.profileModel.tick();
     };
     this.automation.onRestConsolidate = (cycle) =>
       this.diary.prepareRest(cycle);
@@ -286,6 +301,7 @@ export class Features {
     }
   }
   async stop() {
+    await this.profileModel.stop();
     await this.diary.stop();
     await this.schedule.stop();
     this.relationships.affinity.stop();
@@ -528,6 +544,33 @@ export class Features {
         };
       if (method === "GET" && plan[2])
         return { data: this.schedule.previewPlan(admin.id, plan[1]!) };
+    }
+    if (path === "/relationships/model-jobs" && method === "GET")
+      return { data: this.profileModel.list(admin.id, url.searchParams) };
+    if (path === "/relationships/model-jobs" && method === "POST")
+      return {
+        data: this.profileModel.enqueue(
+          admin.id,
+          revision(request.headers["if-match"]),
+          await readBody(),
+        ),
+        status: 202,
+      };
+    const profileJob =
+      /^\/relationships\/model-jobs\/([a-f0-9-]{36})(?:\/(cancel))?$/.exec(
+        path,
+      );
+    if (profileJob && method === "GET" && !profileJob[2])
+      return { data: this.profileModel.get(admin.id, profileJob[1]!) };
+    if (profileJob && method === "POST" && profileJob[2]) {
+      fields(await readBody(), []);
+      return {
+        data: this.profileModel.cancel(
+          admin.id,
+          profileJob[1]!,
+          revision(request.headers["if-match"]),
+        ),
+      };
     }
     if (path === "/relationships/profiles" && method === "GET")
       return { data: this.profiles.list(admin.id, url.searchParams) };
