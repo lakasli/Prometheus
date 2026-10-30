@@ -22,3 +22,32 @@ schema3新增prompt_snapshots、日志引用/状态/保留触发器及索引。s
 类型和前后端构建通过。针对性检查覆盖日志权限/过滤/游标、字面搜索、秘密隐藏、遗忘清理、视觉等待失效、预请求失败终态、20,000条保留、无定时器到期、续期起点与schema2升级；QQ覆盖取得token后到期/授权过期不得派发。浏览器覆盖历史恢复、日志正文/上下文和移动宽度。最终全量计数与固定制品证据在验证完成后追加。
 
 开发首轮严格类型发现可空owner/游标捕获，修复后通过；浏览器首轮日志select缺少独立可访问名称，补充aria-label后通过。截图关闭取样时的CSS过渡动画，避免记录侧栏移动中的中间帧；不修改生产动画或安全策略。
+
+## 固定Windows发布结果
+
+应用固定为 **`01f257d8cf3cce917b8c8bc691e74375f9162d6a`**，已推送origin并用ls-remote核实。上一可用Windows版本`9eb13b80bffd0231e4388a9fd973563411073a34`；本报告后续文档提交不是运行代码SHA。
+
+Windows11 Pro 10.0.26200 x64、Node24.22.1、npm12.2.1、PowerShell7.6.5。主机约31.6GiB总内存，切换前可用约12.6GiB；WSL研究实例仍独立运行，不作为Windows通过证据。
+
+| 检查         | 实际结果                                                                                                                                                                                                                               |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 本地全量     | 后端53项通过、0失败、0跳过，约31.9秒；类型、前后端构建、格式与本批diff检查通过。                                                                                                                                                       |
+| 本地浏览器   | 9项通过，约11.1秒；包括恢复历史和并发版本冲突、日志正文/上下文与移动布局。                                                                                                                                                             |
+| 固定制品构建 | package-windows.ps1使用本SHA的Git archive、锁文件安装、同SHA前后端构建和生产依赖安装，退出0；IncludeWorkerProbe仅编译既有探针。release.json的data_schema为3。                                                                          |
+| ZIP          | SHA256 `4bcba15262467c5f934b4109962708e77a374f913895989fdebec6727b369acb`。                                                                                                                                                            |
+| 固定包运行   | verify-release.mjs的18项通过，退出0。                                                                                                                                                                                                  |
+| 具名回归     | 绑定PROMETHEUS_RELEASE_ROOT后journal/channels/migration-logic三文件19项通过：其中18项使用固定runtime HTTP/进程内服务夹具，1项直接Store schema迁移夹具使用已检查的本地构建。未把后者冒记为固定包Store验收；固定包升级另有下述恢复演练。 |
+| 固定包浏览器 | 绑定同一runtime的9项通过，约10.9秒，退出0。截图已查看，移动页无横向溢出，正文预览不执行脚本。                                                                                                                                          |
+| worker       | 本批未重做隔离执行；此前阻断没有解除，所有执行入口继续禁用，不把编译成功计作隔离通过。                                                                                                                                                 |
+
+### 退出、完整备份和实际升级
+
+2026-10-31T02:03:59+08:00，核对PID26604、数据锁和9eb13b8健康SHA；无排队/在途Run、整理或投递，渠道关闭。向本轮前台会话发送Ctrl+C，日志为`Prometheus stopped`，Node退出、锁和8419端口释放。外层PowerShell终端退出1，单独保留，不记作退出0；这是空闲退出，不是正式实例的在途取消验收。
+
+02:04:21+08:00完整实例备份成功，4个用户数据文件含数据库和主密钥，integrity_check=ok，NTFS ACL通过：`.local/prometheus/backups/instance-2026-10-30T18-04-21-927Z-49b47bb2-d129-4f6b-bc90-0a24355f55c4`。没有覆盖旧备份或用户账户。
+
+02:05:37+08:00，备份逐文件哈希与两版制品哈希通过。完整恢复至独立目录`recovery-drills/5556553d-b248-41a3-84b7-c8e3b48de6a4`，实际新runtime在18469启动，将schema2升为3、生成schema2快照，身份/管理员和完整性保持。关闭后用旧9eb13b8的实际Store尝试打开该目录，被`Unsupported Prometheus schema`拒绝。再将同一完整schema2备份恢复至`recovery-drills/4e3a5d12-a23f-4cfa-8068-26ddec321501`，用旧runtime在18469成功ready，随后关闭。这些目录均在`.local/prometheus/`内，未覆盖正式数据或直接运行备份目录。
+
+02:05:42+08:00，新包内Start-Prometheus.ps1核对全部哈希后前台启动，Node PID22968，正式入口仍为`http://127.0.0.1:8419/admin/`。live/ready返回完整01f257d SHA与data_schema3，前端build.json同SHA。升级前后稳定身份、管理员1、资料/Run/消息/凭据0、配置/性格revision1与主密钥哈希一致；schema2自动快照与当前数据库均integrity_check=ok，NTFS ACL核对通过。7个匿名管理入口401，真实实例已有账户的登录页浏览器检查通过；没有使用用户密码登录或更改账户。
+
+本地证据位于`.local/prometheus/release-validation/reports/01f257d8cf3cce917b8c8bc691e74375f9162d6a.json`、`.local/prometheus/upgrade-evidence/01f257d/drill.json`及`production.json`；生产部署元数据位于实例deployment.json。真实模型/平台尚无配置，本批仍为合成模型和协议验收，未执行真实QQ/微信外发、外部模型、Windows worker、规模性能或长期运行验证。
