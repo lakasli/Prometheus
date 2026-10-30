@@ -39,11 +39,19 @@ const provider = createServer(async (request, response) => {
   const chunks = [];
   for await (const chunk of request) chunks.push(chunk);
   const input = JSON.parse(Buffer.concat(chunks));
+  const instruction = String(input.messages[0]?.content ?? "");
+  const generated = instruction.includes('"candidates"')
+    ? JSON.stringify({ candidates: [{ content: "有来源的固定制品合成事实" }] })
+    : null;
   response.writeHead(200, { "content-type": "application/json" });
   response.end(
     JSON.stringify({
       choices: [
-        { message: { content: `合成响应：${input.messages.at(-1).content}` } },
+        {
+          message: {
+            content: generated ?? `合成响应：${input.messages.at(-1).content}`,
+          },
+        },
       ],
     }),
   );
@@ -188,6 +196,86 @@ try {
   ])
     assert.equal((await call(path, "POST", {})).status, 503);
   results.push("worker-gates-denied");
+  const sourceMessages = (
+    await call(`/conversations/${conversation.id}/messages`)
+  ).data.items;
+  const job = (
+    await call("/knowledge/jobs", "POST", {
+      kind: "memory_candidates",
+      sources: [{ type: "message", id: sourceMessages[0].id }],
+      idempotency_key: "fixed-artifact-candidate",
+    })
+  ).data;
+  let ready;
+  for (let index = 0; index < 100; index++) {
+    ready = (await call(`/knowledge/jobs/${job.id}`)).data;
+    if (ready.status === "review_pending") break;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.equal(ready.status, "review_pending");
+  const reviewed = await call(
+    `/knowledge/jobs/${job.id}/review`,
+    "POST",
+    { approve: true },
+    { "if-match": `"${ready.revision}"` },
+  );
+  assert.equal(reviewed.status, 200);
+  assert.equal(reviewed.data.saved_ids.length, 1);
+  results.push("explicit-source-candidate-reviewed-private");
+  const trigger = (
+    await call("/automation/triggers", "POST", {
+      rule: { type: "once", after_seconds: 1 },
+      action: { type: "text", title: "制品提醒", content: "仅认证本地结果" },
+    })
+  ).data;
+  const preview = (await call(`/automation/triggers/${trigger.id}/preview`))
+    .data;
+  assert.equal(
+    (
+      await call(
+        `/automation/triggers/${trigger.id}/enable`,
+        "PUT",
+        { enabled: true, preview_digest: preview.digest },
+        { "if-match": '"1"' },
+      )
+    ).status,
+    200,
+  );
+  let firings;
+  for (let index = 0; index < 120; index++) {
+    firings = (await call("/automation/results")).data.items;
+    if (firings[0]?.status === "completed") break;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.equal(firings[0]?.result, "仅认证本地结果");
+  results.push("durable-trigger-preview-and-authenticated-result");
+  const asleep = await call(
+    "/rest/control",
+    "POST",
+    { action: "sleep", duration_seconds: 60, request_id: "release-sleep" },
+    { "if-match": '"0"' },
+  );
+  assert.equal(asleep.status, 200);
+  const rest = (await call("/rest/status")).data;
+  assert.equal(
+    (
+      await call(
+        "/rest/control",
+        "POST",
+        { action: "wake", request_id: "release-wake" },
+        { "if-match": `"${rest.state.revision}"` },
+      )
+    ).status,
+    200,
+  );
+  assert.equal((await call("/rest/status")).data.state.phase, "awake");
+  results.push("rest-sleep-wake-with-version");
+  assert.equal((await call("/qq/api/catalog")).data.operations.length, 77);
+  assert.equal((await call("/channels/status")).status, 200);
+  results.push("channel-control-and-77-operation-catalog");
+  assert.equal((await call("/context/policy")).status, 200);
+  assert.equal((await call("/media/policy")).data.value.vision_enabled, false);
+  results.push("context-and-opt-in-media-policy");
   const state = JSON.stringify((await call("/export")).data);
   assert.equal(state.includes("release-synthetic-key"), false);
   results.push("credential-free-export");
@@ -212,7 +300,8 @@ try {
     results,
     external_model: "not-executed",
     real_qq_weixin: "not-executed",
-    previous_verified_windows_version: null,
+    previous_verified_windows_version:
+      manifest.previous_verified_windows_version,
   };
   const reportPath = join(reportDir, `${manifest.commit}.json`);
   writeFileSync(reportPath, JSON.stringify(report, null, 2));

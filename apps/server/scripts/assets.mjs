@@ -8,6 +8,10 @@ copyFileSync(
   new URL("personality.json", output),
 );
 copyFileSync(
+  new URL("crates/dshd/qq-api-catalog.json", root),
+  new URL("qq-api-catalog.json", output),
+);
+copyFileSync(
   new URL("../src/schema.sql", import.meta.url),
   new URL("schema.sql", output),
 );

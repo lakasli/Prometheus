@@ -22,6 +22,8 @@ import { kind } from "./records.ts";
 import { Runtime } from "./runtime.ts";
 import { checkHostOrigin, networkOptions, now } from "./security.ts";
 import { Store } from "./store.ts";
+import { Features } from "./features.ts";
+import type { ChannelEndpoints } from "./channels.ts";
 
 export interface ServerOptions {
   dataDir: string;
@@ -31,6 +33,7 @@ export interface ServerOptions {
   origin: string;
   secureCookie: boolean;
   allowLoopbackModel?: boolean;
+  testChannelEndpoints?: ChannelEndpoints;
 }
 export const build = JSON.parse(
   readFileSync(new URL("./assets/build.json", import.meta.url), "utf8"),
@@ -43,25 +46,41 @@ export const capabilityStatus = {
   memory: { available: true, description: "显式资料、共享确认、纠正与遗忘" },
   diary: {
     available: true,
-    description: "人工日记、周期与来源引用；模型自动整理待迁移",
+    description: "人工日记、显式来源、分批模型整理、审核与来源撤销",
   },
-  schedule: { available: true, description: "人工日程与进度；自主执行待迁移" },
+  schedule: {
+    available: true,
+    description: "人工日程、持久文字触发、隔离模型任务与有界文本阅读",
+  },
   relationships: {
     available: true,
-    description: "人工审核的人物和有向关系；好感规则待迁移",
+    description: "人工审核的人物和有向关系、相处事件好感与衰减、同域合并",
   },
   skills: {
     available: true,
     description: "显式选择的文字方法；不授予执行权限",
   },
-  qq: { available: false, description: "QQ 协议与投递迁移待完成" },
-  weixin: { available: false, description: "微信扫码和投递迁移待完成" },
+  qq: {
+    available: true,
+    description:
+      "签名 Webhook / WebSocket、持久去重、文本批次、逐段投递；真实平台待验收",
+  },
+  weixin: {
+    available: true,
+    description: "iLink 扫码、本人绑定、原子游标与持久文字收发；真实手机待验收",
+  },
   speech: {
     available: false,
     description: "Breeze / Piper worker 的 Windows 隔离待验证",
   },
-  vision: { available: false, description: "图片理解与媒体来源门禁待迁移" },
-  rest: { available: false, description: "作息与多批整理待迁移" },
+  vision: {
+    available: true,
+    description: "有界PNG、来源绑定、视觉描述与显式生图；须先配置对应模型",
+  },
+  rest: {
+    available: true,
+    description: "来源控制许可、定时睡眠、原期限恢复、队列暂停与有界整理",
+  },
   plugins: {
     available: false,
     description: "独立 worker 权限、资源限制及退出验证待完成",
@@ -69,6 +88,13 @@ export const capabilityStatus = {
   harness: { available: false, description: "Windows 隔离与权限桥待完成" },
 };
 const prefix = "/api/admin/v1";
+function operatorRunOwner(store: Store, id: string, actor: string): string {
+  const row = store.get(
+    "SELECT owner_id FROM runs WHERE id=? AND (owner_id LIKE 'qq:%' OR owner_id LIKE 'weixin:%') AND NOT EXISTS(SELECT 1 FROM admins a WHERE a.id=runs.owner_id)",
+    id,
+  );
+  return row ? String(row.owner_id) : actor;
+}
 function json(response: ServerResponse, value: unknown, status = 200) {
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -76,19 +102,22 @@ function json(response: ServerResponse, value: unknown, status = 200) {
   });
   response.end(JSON.stringify(value));
 }
-async function body(request: IncomingMessage): Promise<unknown> {
+async function body(
+  request: IncomingMessage,
+  maxBytes = 128 * 1024,
+): Promise<unknown> {
   if (
     !/^application\/json(?:\s*;|$)/i.test(request.headers["content-type"] ?? "")
   )
     throw new ApiError(415, "json_required", "请使用 application/json");
   const length = Number(request.headers["content-length"] ?? 0);
-  if (!Number.isSafeInteger(length) || length > 128 * 1024)
+  if (!Number.isSafeInteger(length) || length > maxBytes)
     throw new ApiError(413, "body_too_large", "请求正文过大");
   let size = 0;
   const chunks: Buffer[] = [];
   for await (const chunk of request) {
     size += Buffer.byteLength(chunk);
-    if (size > 128 * 1024)
+    if (size > maxBytes)
       throw new ApiError(413, "body_too_large", "请求正文过大");
     chunks.push(Buffer.from(chunk));
   }
@@ -119,6 +148,12 @@ export async function startServer(options: ServerOptions) {
     runtime = new Runtime(store, options.allowLoopbackModel),
     auth = new Authentication(store, options.secureCookie),
     started = Date.now();
+  const features = new Features(
+    store,
+    runtime,
+    options.allowLoopbackModel,
+    options.testChannelEndpoints,
+  );
   let checking = false;
   const connectionChecks = new Set<AbortController>();
   const server = createServer(async (request, response) => {
@@ -132,6 +167,10 @@ export async function startServer(options: ServerOptions) {
     try {
       const method = request.method ?? "GET",
         mutation = !["GET", "HEAD"].includes(method);
+      if (request.url === "/webhooks/qq" && method === "POST") {
+        checkHostOrigin(request.headers, network, false);
+        return json(response, await features.webhook(request));
+      }
       checkHostOrigin(request.headers, network, mutation);
       const url = new URL(request.url ?? "/", network.origin),
         path = url.pathname;
@@ -155,6 +194,36 @@ export async function startServer(options: ServerOptions) {
         const admin = auth.require(request, mutation),
           apiPath = path.slice(prefix.length);
         if (!path.startsWith(`${prefix}/`)) throw missing();
+        if (features.matches(apiPath)) {
+          const result = await features.route(
+            apiPath,
+            method,
+            admin,
+            request,
+            url,
+            () =>
+              body(
+                request,
+                apiPath.startsWith("/media/") ? 2 * 1024 * 1024 : 128 * 1024,
+              ),
+          );
+          if (result.raw) {
+            if (result.preview) {
+              response.setHeader("x-frame-options", "SAMEORIGIN");
+              response.setHeader(
+                "content-security-policy",
+                "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox",
+              );
+            }
+            response.writeHead(result.status ?? 200, {
+              "content-type": result.contentType ?? "application/octet-stream",
+              "cache-control": "no-store",
+            });
+            response.end(result.data);
+            return;
+          }
+          return json(response, result.data, result.status);
+        }
         if (apiPath === "/auth/me" && method === "GET")
           return json(response, {
             user: { id: admin.id, username: admin.username, role: admin.role },
@@ -391,9 +460,15 @@ export async function startServer(options: ServerOptions) {
         }
         const run = /^\/runs\/([a-f0-9-]{36})$/.exec(apiPath);
         if (run && method === "GET")
-          return json(response, runtime.getRun(run[1]!, admin.id));
+          return json(
+            response,
+            runtime.getRun(run[1]!, operatorRunOwner(store, run[1]!, admin.id)),
+          );
         if (run && method === "DELETE")
-          return json(response, runtime.cancel(run[1]!, admin.id));
+          return json(
+            response,
+            runtime.cancel(run[1]!, operatorRunOwner(store, run[1]!, admin.id)),
+          );
         if (apiPath === "/runs" && method === "GET")
           return json(response, {
             items: store.all(
@@ -450,7 +525,7 @@ export async function startServer(options: ServerOptions) {
             Number.MAX_SAFE_INTEGER,
           );
           const rows = store.all(
-            "SELECT * FROM audit_events WHERE owner_id=? AND id<? ORDER BY id DESC LIMIT 51",
+            "SELECT * FROM audit_events WHERE (owner_id=? OR ((owner_id LIKE 'qq:%' OR owner_id LIKE 'weixin:%') AND NOT EXISTS(SELECT 1 FROM admins a WHERE a.id=audit_events.owner_id))) AND id<? ORDER BY id DESC LIMIT 51",
             admin.id,
             cursor,
           );
@@ -463,7 +538,7 @@ export async function startServer(options: ServerOptions) {
         if (apiPath === "/export" && method === "GET")
           return json(response, {
             name: "Prometheus",
-            schema: 1,
+            schema: 2,
             assistant_id: store.assistantId,
             exported_at: now(),
             config: store.config(),
@@ -560,6 +635,7 @@ export async function startServer(options: ServerOptions) {
   server.maxHeadersCount = 100;
   try {
     await runtime.start();
+    features.start();
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
       server.listen(network.port, network.host, () => {
@@ -568,6 +644,7 @@ export async function startServer(options: ServerOptions) {
       });
     });
   } catch (error) {
+    await features.stop();
     await runtime.stop();
     store.close();
     throw error;
@@ -577,6 +654,7 @@ export async function startServer(options: ServerOptions) {
     server,
     store,
     runtime,
+    features,
     async close() {
       if (closed) return;
       closed = true;
@@ -585,6 +663,7 @@ export async function startServer(options: ServerOptions) {
       );
       server.closeIdleConnections();
       for (const controller of connectionChecks) controller.abort();
+      await features.stop();
       await runtime.stop();
       await closing;
       store.close();

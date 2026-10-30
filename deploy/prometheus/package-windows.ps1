@@ -1,6 +1,7 @@
 #requires -Version 7.0
 param(
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$Commit,
+    [ValidatePattern('^[0-9a-f]{40}$')][string]$PreviousVerifiedCommit,
     [string]$ReleaseRoot = '.local/prometheus/releases'
 )
 $ErrorActionPreference = 'Stop'
@@ -14,6 +15,12 @@ if (-not ($taskRemote | Where-Object { ($_ -split '\s+')[0] -eq $Commit })) { th
 $taskBase = [IO.Path]::GetFullPath((Join-Path $taskRepo $ReleaseRoot))
 $taskBoundary = $taskRepo.TrimEnd('\') + '\'
 if (-not $taskBase.StartsWith($taskBoundary, [StringComparison]::OrdinalIgnoreCase)) { throw 'ReleaseRoot must stay inside this repository.' }
+if ($PreviousVerifiedCommit) {
+    $taskPriorManifest = Join-Path $taskBase ($PreviousVerifiedCommit + '/runtime/release.json')
+    if (-not (Test-Path -LiteralPath $taskPriorManifest)) { throw 'Previous Windows artifact was not found.' }
+    $taskPrior = Get-Content -LiteralPath $taskPriorManifest -Raw | ConvertFrom-Json
+    if ($taskPrior.commit -ne $PreviousVerifiedCommit) { throw 'Previous Windows artifact SHA does not match.' }
+}
 $taskRelease = Join-Path $taskBase $Commit
 if (Test-Path -LiteralPath $taskRelease) { throw 'Release directory already exists; preserve it and choose a new commit.' }
 $taskSource = Join-Path $taskRelease 'source'
@@ -58,7 +65,7 @@ try {
     $taskManifest = [ordered]@{
         name = 'Prometheus'; version = '0.1.0'; commit = $Commit; built_at = (Get-Date).ToString('o');
         platform = [ordered]@{ os = [Environment]::OSVersion.VersionString; architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString(); node = (& $taskNode --version); node_executable = $taskNode };
-        previous_verified_windows_version = $null; files = $taskFiles;
+        previous_verified_windows_version = $(if ($PreviousVerifiedCommit) { $PreviousVerifiedCommit } else { $null }); files = $taskFiles;
         data = 'Outside this release directory; no historical DSH database is imported.'
     }
     $taskManifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $taskRuntime 'release.json') -Encoding utf8

@@ -168,7 +168,10 @@ const item = (row: Row): RecordItem => ({
 export class Records {
   constructor(
     private store: Store,
-    private invalidate: (owner: string) => void,
+    private invalidate: (
+      owner: string,
+      change?: { action: string; id: string },
+    ) => void,
   ) {}
   get(type: RecordKind, id: string, owner: string): RecordItem {
     const row = this.store.get(
@@ -268,6 +271,7 @@ export class Records {
         visibility === "shared" || current?.visibility === "shared"
           ? "*"
           : owner,
+        { action: current ? "corrected" : "created", id: recordId },
       );
       return this.get(type, recordId, owner);
     });
@@ -284,7 +288,7 @@ export class Records {
         "资料已遗忘，依赖的派生资料已失效",
         id,
       );
-      this.invalidate("*");
+      this.invalidate("*", { action: "forgotten", id });
       return {
         id,
         deleted: true,

@@ -2,6 +2,35 @@ import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+const provider = createServer(async (request, response) => {
+  let raw = "";
+  for await (const chunk of request) raw += chunk;
+  const input = JSON.parse(raw);
+  const system = String(input.messages?.[0]?.content ?? "");
+  let content = "合成浏览器回复。";
+  if (system.includes('"candidates"'))
+    content = JSON.stringify({
+      candidates: [{ content: "浏览器选中的来源中可以核实的合成事实。" }],
+    });
+  else if (system.includes('"html"'))
+    content = JSON.stringify({
+      html: '<!doctype html><html><body><h1>合成插画</h1><script>parent.document.body.dataset.unsafe="executed"</script></body></html>',
+    });
+  else if (system.includes('"summary"'))
+    content = JSON.stringify({ summary: "合成会话摘要。" });
+  else if (system.includes('"rule"'))
+    content = JSON.stringify({
+      title: "合成规划提醒",
+      rule: { type: "once", after_seconds: 60 },
+      action: { type: "text", content: "待单独启用的提醒" },
+      enabled: false,
+    });
+  response.writeHead(200, { "content-type": "application/json" });
+  response.end(JSON.stringify({ choices: [{ message: { content } }] }));
+});
+await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve));
+const modelUrl = `http://127.0.0.1:${provider.address().port}`;
 const root = resolve(process.env.PROMETHEUS_RELEASE_ROOT ?? ".");
 const { startServer } = await import(
   pathToFileURL(resolve(root, "apps/server/dist/server.js")).href
@@ -27,6 +56,7 @@ writeFileSync(
   JSON.stringify({
     dataDir,
     tokenFile,
+    modelUrl,
     commit: JSON.parse(
       readFileSync(resolve(root, "apps/server/dist/assets/build.json"), "utf8"),
     ).commit,
@@ -34,6 +64,10 @@ writeFileSync(
 );
 const close = async () => {
   await app.close();
+  await new Promise((resolve) => {
+    provider.closeAllConnections();
+    provider.close(resolve);
+  });
   process.exitCode = 0;
 };
 process.once("SIGINT", close);

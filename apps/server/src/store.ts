@@ -47,17 +47,41 @@ export class Store {
       const version = this.database
         .prepare("SELECT value FROM metadata WHERE key='prometheus.schema'")
         .get()?.value;
-      if (version !== "1") {
+      if (version !== "1" && version !== "2") {
         this.database.close();
         throw new Error("Unsupported Prometheus schema; do not downgrade");
       }
     }
+    if (
+      tables.length &&
+      this.database
+        .prepare("SELECT value FROM metadata WHERE key='prometheus.schema'")
+        .get()?.value === "1"
+    ) {
+      const backupDir = privateDirectory(join(path, "backups"));
+      const target = join(
+        backupDir,
+        `schema1-${Date.now()}-${randomUUID()}.db`,
+      );
+      this.database.exec(`VACUUM INTO '${target.replace(/'/g, "''")}'`);
+    }
+    const schema = readFileSync(
+      new URL("./assets/schema.sql", import.meta.url),
+      "utf8",
+    ).split(/\r?\n/);
     this.database.exec(
-      readFileSync(new URL("./assets/schema.sql", import.meta.url), "utf8"),
+      schema
+        .filter((line) => line.trimStart().startsWith("PRAGMA "))
+        .join("\n"),
     );
     this.transaction(() => {
+      this.database.exec(
+        schema
+          .filter((line) => !line.trimStart().startsWith("PRAGMA "))
+          .join("\n"),
+      );
       this.run(
-        "INSERT OR IGNORE INTO metadata(key,value) VALUES('prometheus.schema','1')",
+        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','2') ON CONFLICT(key) DO UPDATE SET value='2'",
       );
       this.run(
         "INSERT OR IGNORE INTO metadata(key,value) VALUES('assistant.identity',?)",
@@ -93,6 +117,17 @@ export class Store {
         now(),
       );
       this.run("DELETE FROM sessions WHERE expires_at<=?", now());
+      this.run(
+        "UPDATE operator_calls SET outcome='unknown' WHERE outcome='requesting'",
+      );
+      this.run(
+        "UPDATE delivery_parts SET status='unknown',error='进程退出时发送结果未知',updated_at=? WHERE status='sending'",
+        now(),
+      );
+      this.run(
+        "UPDATE model_jobs SET status='interrupted',error='请求中断，需人工重试',updated_at=? WHERE status='running'",
+        now(),
+      );
     });
     this.assistantId = String(
       this.get("SELECT value FROM metadata WHERE key='assistant.identity'")!
@@ -108,16 +143,53 @@ export class Store {
   run(sql: string, ...params: SQLInputValue[]) {
     return this.database.prepare(sql).run(...params);
   }
+  private transactionDepth = 0;
+  private transactionSequence = 0;
   transaction<T>(operation: () => T): T {
-    this.database.exec("BEGIN IMMEDIATE");
+    const nested = this.transactionDepth > 0,
+      name = `prometheus_${++this.transactionSequence}`;
+    this.database.exec(nested ? `SAVEPOINT ${name}` : "BEGIN IMMEDIATE");
+    this.transactionDepth++;
     try {
       const value = operation();
-      this.database.exec("COMMIT");
+      if (value instanceof Promise)
+        throw new Error(
+          "Database transactions must not cross asynchronous work",
+        );
+      this.database.exec(nested ? `RELEASE SAVEPOINT ${name}` : "COMMIT");
       return value;
     } catch (error) {
-      this.database.exec("ROLLBACK");
+      this.database.exec(
+        nested
+          ? `ROLLBACK TO SAVEPOINT ${name}; RELEASE SAVEPOINT ${name}`
+          : "ROLLBACK",
+      );
       throw error;
+    } finally {
+      this.transactionDepth--;
     }
+  }
+  seal(value: unknown): string {
+    const nonce = randomBytes(12),
+      cipher = createCipheriv("aes-256-gcm", this.key, nonce);
+    const encrypted = Buffer.concat([
+      cipher.update(JSON.stringify(value), "utf8"),
+      cipher.final(),
+    ]);
+    return Buffer.concat([nonce, cipher.getAuthTag(), encrypted]).toString(
+      "base64",
+    );
+  }
+  unseal<T>(value: string): T {
+    const bytes = Buffer.from(value, "base64"),
+      cipher = createDecipheriv("aes-256-gcm", this.key, bytes.subarray(0, 12));
+    cipher.setAuthTag(bytes.subarray(12, 28));
+    return JSON.parse(
+      Buffer.concat([
+        cipher.update(bytes.subarray(28)),
+        cipher.final(),
+      ]).toString("utf8"),
+    ) as T;
   }
   config(): { revision: number; applied_revision: number; config: Config } {
     const row = this.get(
@@ -150,6 +222,17 @@ export class Store {
     });
   }
   checkCredentials(config: Config): void {
+    if (
+      config.qq.enabled &&
+      (!/^[a-zA-Z0-9_]{1,128}$/.test(config.qq.app_id) ||
+        !config.qq.credential_ref)
+    )
+      throw bad("启用 QQ 前须配置有效 App ID 和凭据");
+    if (
+      config.weixin.enabled &&
+      !this.get("SELECT 1 FROM channel_state WHERE channel='weixin'")
+    )
+      throw bad("请先完成微信扫码绑定");
     for (const [reference, kind] of [
       [config.model.credential_ref, "model_api_key"],
       [config.qq.credential_ref, "qq_app_secret"],
@@ -263,6 +346,23 @@ export class Store {
   }
   removeSecret(id: string, owner: string) {
     if (!this.get("SELECT id FROM secrets WHERE id=?", id)) throw missing();
+    if (
+      this.get(
+        "SELECT id FROM channel_events WHERE credential_ref=? AND status='queued'",
+        id,
+      ) ||
+      this.all("SELECT value_json FROM channel_state").some((row) => {
+        try {
+          return (
+            this.unseal<Record<string, unknown>>(String(row.value_json))
+              .credential_ref === id
+          );
+        } catch {
+          return true;
+        }
+      })
+    )
+      throw new ApiError(409, "credential_in_use", "凭据仍被渠道引用");
     if (
       this.all("SELECT config_json FROM config_revisions").some((row) =>
         String(row.config_json).includes(id),

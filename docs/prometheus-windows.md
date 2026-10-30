@@ -25,6 +25,8 @@ npm.cmd start
 
 ```powershell
 pwsh -File deploy/prometheus/package-windows.ps1 -Commit <40位SHA>
+# 后续升级记录确已验收的上一版制品
+pwsh -File deploy/prometheus/package-windows.ps1 -Commit <新SHA> -PreviousVerifiedCommit <上一可用SHA>
 ```
 
 脚本验证远端分支tip，从 Git archive 构建，前后端写入同一SHA；输出 `.local/prometheus/releases/<SHA>/source`、`runtime`、ZIP及逐文件SHA-256。已有发布目录不会覆盖。首次 previous_verified_windows_version 为null；后续切换须单独记录当前已验证版本，不能把首次状态沿用为回退证明。
@@ -56,3 +58,13 @@ pwsh -File <runtime路径>/Start-Prometheus.ps1 -DataDir D:/DSH/.local/prometheu
 旧项目备份：`node deploy/prometheus/backup-legacy.mjs`。数据库使用SQLite backup API并核对integrity_check；Git bundle和差异可在另一个目录恢复，现有文件不删除。第三方运行库和原始素材保留原位。
 
 Prometheus日常备份需在正常退出后复制完整数据目录，包含数据库、secrets和master.key；仅数据库无法解密凭据。恢复前核验目录与ACL，不覆盖现有实例。切换旧制品须独立验证schema兼容性、配置及数据恢复路径；代码回退不等于数据恢复。
+
+先正常退出运行版本，核实PID、端口和数据锁均已释放，再执行完整实例备份：
+
+```powershell
+node deploy/prometheus/backup-instance.mjs --data-dir D:/DSH/.local/prometheus/instance --source-commit <正在替换的完整SHA>
+```
+
+脚本取得与服务相同的原子数据锁，复制主密钥等全部文件、生成SQLite一致性快照并检查integrity_check，保存私有清单与逐文件哈希。拒绝符号链接及数据目录内的目标；已有锁时失败，不杀进程。备份位于.local/prometheus/backups/instance-*，不输出秘密。
+
+schema2不能由schema1制品打开。回退先保留schema2目录，向新私有目录恢复完整schema1快照，再用上一版固定SHA启动和复验；不能覆盖运行数据或遗漏主密钥。

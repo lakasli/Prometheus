@@ -86,8 +86,7 @@ export function validateConfig(value: unknown, allowLoopback = false): Config {
   const baseUrl = string(model.base_url, "模型地址", 2048, 1);
   modelUrl(baseUrl, allowLoopback);
   const qqEnabled = boolean(qq.enabled, "QQ 开关");
-  if (qqEnabled) throw unavailable("QQ 接收与投递");
-  if (boolean(weixin.enabled, "微信开关")) throw unavailable("微信接收与投递");
+  const weixinEnabled = boolean(weixin.enabled, "微信开关");
   if (boolean(speech.enabled, "语音开关")) throw unavailable("隔离语音 worker");
   const transport = string(qq.transport, "QQ 连接方式", 20);
   if (transport !== "webhook" && transport !== "websocket")
@@ -114,12 +113,12 @@ export function validateConfig(value: unknown, allowLoopback = false): Config {
       ),
     },
     qq: {
-      enabled: false,
+      enabled: qqEnabled,
       app_id: string(qq.app_id, "QQ App ID", 128),
       credential_ref: ref(qq.credential_ref),
       transport,
     },
-    weixin: { enabled: false },
+    weixin: { enabled: weixinEnabled },
     speech: { enabled: false },
   };
 }

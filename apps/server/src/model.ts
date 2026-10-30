@@ -60,14 +60,20 @@ export function requestJson(
   headers: Record<string, string>,
   signal: AbortSignal,
   allowLoopback = false,
+  options: {
+    method?: string;
+    maxResponseBytes?: number;
+    maxRequestBytes?: number;
+  } = {},
 ): Promise<unknown> {
   const hostname = url.hostname.replace(/^\[|\]$/g, "");
   if (isIP(hostname) && !allowedAddress(hostname, allowLoopback))
     return Promise.reject(
       new ApiError(400, "private_model_address", "模型地址解析到受保护的网络"),
     );
-  const payload = Buffer.from(JSON.stringify(body));
-  if (payload.length > 128 * 1024)
+  const payload =
+    body === undefined ? Buffer.alloc(0) : Buffer.from(JSON.stringify(body));
+  if (payload.length > (options.maxRequestBytes ?? 128 * 1024))
     return Promise.reject(
       new ApiError(413, "context_too_large", "模型请求超过字节预算"),
     );
@@ -84,7 +90,7 @@ export function requestJson(
     const request = (url.protocol === "https:" ? https : http).request(
       url,
       {
-        method: "POST",
+        method: options.method ?? "POST",
         signal,
         agent: false,
         headers: {
@@ -126,7 +132,7 @@ export function requestJson(
         let size = 0;
         response.on("data", (chunk: Buffer) => {
           size += chunk.length;
-          if (size > 1024 * 1024)
+          if (size > (options.maxResponseBytes ?? 1024 * 1024))
             response.destroy(new Error("response_too_large"));
           else chunks.push(chunk);
         });
@@ -137,7 +143,18 @@ export function requestJson(
         });
         response.on("end", () => {
           try {
-            resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+            resolve(
+              JSON.parse(
+                Buffer.concat(chunks).toString("utf8"),
+                (_key, value, context?: { source: string }) =>
+                  typeof value === "number" &&
+                  !Number.isSafeInteger(value) &&
+                  context?.source &&
+                  /^\d+$/.test(context.source)
+                    ? context.source
+                    : value,
+              ),
+            );
           } catch {
             reject(
               new ApiError(
@@ -166,12 +183,18 @@ export async function complete(
   messages: ModelMessage[],
   signal: AbortSignal,
   allowLoopback = false,
+  maxTokens = 4096,
 ): Promise<string> {
   const base = modelUrl(config.model.base_url, allowLoopback);
   base.pathname = `${base.pathname.replace(/\/+$/, "")}/chat/completions`;
   const response = (await requestJson(
     base,
-    { model: config.model.model, messages, max_tokens: 4096, stream: false },
+    {
+      model: config.model.model,
+      messages,
+      max_tokens: maxTokens,
+      stream: false,
+    },
     { authorization: `Bearer ${key}` },
     signal,
     allowLoopback,

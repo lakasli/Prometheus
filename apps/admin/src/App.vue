@@ -1,6 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { api, ApiError, setCsrf } from "./api";
+import ChannelsPanel from "./components/ChannelsPanel.vue";
+import KnowledgePanel from "./components/KnowledgePanel.vue";
+import AutomationPanel from "./components/AutomationPanel.vue";
+import RestPanel from "./components/RestPanel.vue";
+import MediaPanel from "./components/MediaPanel.vue";
+import PluginsPanel from "./components/PluginsPanel.vue";
+import ArtworkPanel from "./components/ArtworkPanel.vue";
+import CalendarPanel from "./components/CalendarPanel.vue";
+import ContextPanel from "./components/ContextPanel.vue";
+import PlanningPanel from "./components/PlanningPanel.vue";
+import AffinityPanel from "./components/AffinityPanel.vue";
 import type {
   Capability,
   ConfigState,
@@ -1226,6 +1237,17 @@ onUnmounted(() => {
             加载更多
           </button>
         </section>
+        <ChannelsPanel v-if="page === 'channels'" @error="failure" />
+        <MediaPanel v-if="page === 'channels'" @error="failure" />
+        <KnowledgePanel v-if="page === 'diary'" @error="failure" />
+        <AutomationPanel v-if="page === 'schedule'" @error="failure" />
+        <RestPanel v-if="page === 'models'" @error="failure" />
+        <PluginsPanel v-if="page === 'plugins'" @error="failure" />
+        <ArtworkPanel v-if="page === 'skills'" @error="failure" />
+        <CalendarPanel v-if="page === 'schedule'" @error="failure" />
+        <PlanningPanel v-if="page === 'schedule'" @error="failure" />
+        <AffinityPanel v-if="page === 'relationships'" @error="failure" />
+        <ContextPanel v-if="page === 'models'" @error="failure" />
         <footer class="content-footer">
           <span
             >Prometheus

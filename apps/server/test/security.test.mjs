@@ -253,7 +253,6 @@ test("configuration conflicts, immutable history, rollback and fail-closed capab
     "/speech/synthesize",
     "/weixin/login",
     "/qq/send",
-    "/rest/sleep",
   ])
     assert.equal((await app.call(route, "POST", {})).status, 503, route);
   state.config.qq.enabled = true;
@@ -266,7 +265,7 @@ test("configuration conflicts, immutable history, rollback and fail-closed capab
         { headers: { "if-match": '"3"' } },
       )
     ).status,
-    503,
+    400,
   );
   state.config.qq.enabled = false;
   state.config.runtime.max_concurrent_runs = 3;
