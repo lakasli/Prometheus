@@ -829,6 +829,24 @@ label > small {
 }
 .log-row > div {
   flex: 1;
+  min-width: 0;
+}
+.journal-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+  align-items: end;
+}
+.journal-detail {
+  margin-top: 10px;
+}
+.journal-detail pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 400px;
+  overflow: auto;
+  font-size: 12px;
 }
 .log-row strong {
   font-size: 12px;

@@ -706,17 +706,37 @@ export class Channels {
       let platformId: string;
       if (row.channel === "qq") {
         const token = await this.qqToken(config);
+        const admitted =
+          !this.canDeliver || this.canDeliver(String(row.run_id));
         const current = this.store.config().config;
+        const latest = this.store.get(
+          "SELECT r.status,r.context_epoch,c.context_epoch AS current_epoch FROM runs r JOIN conversations c ON c.id=r.conversation_id WHERE r.id=?",
+          String(row.run_id),
+        );
         if (
+          Number(row.deadline) <= now() ||
           !current.qq.enabled ||
           current.qq.app_id !== row.account_id ||
           current.qq.credential_ref !== row.credential_ref ||
+          !latest ||
+          latest.status !== "completed" ||
+          latest.context_epoch !== latest.current_epoch ||
           this.store.get(
-            "SELECT context_epoch FROM conversations WHERE id=?",
-            String(row.conversation_id),
-          )!.context_epoch !== row.context_epoch
+            "SELECT state FROM run_publications WHERE run_id=?",
+            String(row.run_id),
+          )?.state === "suppressed"
         )
           throw new ApiError(409, "delivery_revoked", "发送授权已撤销");
+        if (!admitted || latest.context_epoch !== row.context_epoch) {
+          // No message POST has begun. Sleep may rebind this still-valid pending
+          // reply to a new epoch; preserve it for fresh admission after waking.
+          this.store.run(
+            "UPDATE delivery_parts SET status='queued',error=NULL,updated_at=? WHERE id=? AND status='sending'",
+            now(),
+            String(row.id),
+          );
+          return;
+        }
         const path =
           target.kind === "c2c"
             ? `/v2/users/${target.target}/messages`

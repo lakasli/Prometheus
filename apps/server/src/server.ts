@@ -10,7 +10,6 @@ import {
   ApiError,
   bad,
   fields,
-  integer,
   missing,
   revision,
   string,
@@ -23,6 +22,7 @@ import { Runtime } from "./runtime.ts";
 import { checkHostOrigin, networkOptions, now } from "./security.ts";
 import { Store } from "./store.ts";
 import { Features } from "./features.ts";
+import { Journal } from "./journal.ts";
 import type { ChannelEndpoints } from "./channels.ts";
 
 export interface ServerOptions {
@@ -194,6 +194,7 @@ export async function startServer(options: ServerOptions) {
         const admin = auth.require(request, mutation),
           apiPath = path.slice(prefix.length);
         if (!path.startsWith(`${prefix}/`)) throw missing();
+        features.knowledge.expireGrants();
         if (features.matches(apiPath)) {
           const result = await features.route(
             apiPath,
@@ -517,28 +518,15 @@ export async function startServer(options: ServerOptions) {
               ),
             );
         }
-        if (apiPath === "/runtime-logs" && method === "GET") {
-          const cursor = integer(
-            Number(url.searchParams.get("cursor") ?? Number.MAX_SAFE_INTEGER),
-            "日志游标",
-            1,
-            Number.MAX_SAFE_INTEGER,
+        if (apiPath === "/runtime-logs" && method === "GET")
+          return json(
+            response,
+            new Journal(store).list(admin.id, url.searchParams),
           );
-          const rows = store.all(
-            "SELECT * FROM audit_events WHERE (owner_id=? OR ((owner_id LIKE 'qq:%' OR owner_id LIKE 'weixin:%') AND NOT EXISTS(SELECT 1 FROM admins a WHERE a.id=audit_events.owner_id))) AND id<? ORDER BY id DESC LIMIT 51",
-            admin.id,
-            cursor,
-          );
-          return json(response, {
-            items: rows.slice(0, 50),
-            next_cursor: rows.length > 50 ? rows[49]!.id : null,
-            retention: { days: 30, max_events: 10000 },
-          });
-        }
         if (apiPath === "/export" && method === "GET")
           return json(response, {
             name: "Prometheus",
-            schema: 2,
+            schema: 3,
             assistant_id: store.assistantId,
             exported_at: now(),
             config: store.config(),

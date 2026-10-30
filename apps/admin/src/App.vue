@@ -12,6 +12,7 @@ import CalendarPanel from "./components/CalendarPanel.vue";
 import ContextPanel from "./components/ContextPanel.vue";
 import PlanningPanel from "./components/PlanningPanel.vue";
 import AffinityPanel from "./components/AffinityPanel.vue";
+import PersonalityHistory from "./components/PersonalityHistory.vue";
 import type {
   Capability,
   ConfigState,
@@ -172,6 +173,14 @@ const records = ref<RecordItem[]>([]),
 const logs = ref<Log[]>([]),
   nextLog = ref<number | null>(null),
   runDetail = ref<Record<string, unknown> | null>(null);
+const logFilters = reactive({ kind: "", status: "", run_id: "", q: "" });
+let appliedLogFilters = { ...logFilters };
+const logKinds = ref<string[]>([]);
+function logPath(cursor?: number, filters = appliedLogFilters) {
+  const params = new URLSearchParams({ ...filters, limit: "50" });
+  if (cursor) params.set("cursor", String(cursor));
+  return `/runtime-logs?${params}`;
+}
 const editing = ref<RecordItem | null>(null),
   editor = ref(false),
   publish = ref(false),
@@ -230,6 +239,27 @@ const labels: Record<string, string> = {
   people: "人物",
   relationships: "关系",
   skills: "Skill",
+  input: "收到消息",
+  output: "生成候选",
+  context: "模型上下文",
+  delivery: "渠道投递",
+  system: "系统",
+  rest: "作息",
+  memory_candidates: "记忆候选",
+  summary: "摘要",
+  drawing_html: "绘画",
+  schedule_plan: "日程规划",
+  trigger_draft: "触发草稿",
+  plugin: "插件",
+  tool: "能力调用",
+  tts: "语音合成",
+  asr: "语音识别",
+  subagent: "子任务",
+  vision: "图像理解",
+  recorded: "已记录",
+  sent: "已发送",
+  unknown: "结果未知",
+  received: "已接收",
 };
 const date = (value: number) =>
   new Date(value * 1000).toLocaleString("zh-CN", {
@@ -405,11 +435,17 @@ async function loadPage() {
       await api<{ capabilities: Record<string, Capability> }>("/capabilities")
     ).capabilities;
   } else if (page.value === "logs") {
-    const result = await api<{ items: Log[]; next_cursor: number | null }>(
-      "/runtime-logs",
-    );
+    const filters = { ...logFilters };
+    const result = await api<{
+      items: Log[];
+      next_cursor: number | null;
+      filters: { kinds: string[] };
+    }>(logPath(undefined, filters));
+    if (version !== epoch || disposed) return;
+    appliedLogFilters = filters;
     logs.value = result.items;
     nextLog.value = result.next_cursor;
+    logKinds.value = result.filters.kinds;
   } else if (isRecords.value) {
     const params = new URLSearchParams({
       q: query.value,
@@ -514,6 +550,12 @@ async function savePersonality() {
     notice.value = "性格已保存并生效，用于下一次运行。";
   });
 }
+function restorePersonality(saved: PersonalityState) {
+  personalityState.value = saved;
+  Object.assign(personality, saved.personality);
+  baseline.value = JSON.stringify(personality);
+  notice.value = "历史性格已恢复为新版本，用于下一次运行。";
+}
 async function saveModel() {
   await task(async () => {
     const saved = await api<ConfigState>(
@@ -568,19 +610,29 @@ async function rollback(rev: number) {
   });
 }
 async function loadMoreLogs() {
-  if (!nextLog.value) return;
+  const cursor = nextLog.value;
+  if (!cursor) return;
   await task(async () => {
     const result = await api<{ items: Log[]; next_cursor: number | null }>(
-      `/runtime-logs?cursor=${nextLog.value}`,
+      logPath(cursor),
     );
     logs.value.push(...result.items);
     nextLog.value = result.next_cursor;
   });
 }
 async function inspect(log: Log) {
-  if (log.kind === "run" && log.resource_id)
+  if (log.kind === "run" && log.run_id)
     await task(async () => {
-      runDetail.value = await api(`/runs/${log.resource_id}`);
+      const result = await api<{ items: Log[] }>(
+        `/runtime-logs?kind=run&limit=1&run_id=${encodeURIComponent(log.run_id!)}`,
+      );
+      const current = result.items[0];
+      if (!current) throw new Error("运行记录已清理或不可访问");
+      runDetail.value = {
+        id: current.run_id,
+        status: current.details.run_status ?? current.status,
+        response: current.content,
+      };
     });
 }
 async function exportData() {
@@ -985,6 +1037,14 @@ onUnmounted(() => {
               ></label
             ><button class="primary" :disabled="busy">保存并生效</button>
           </form>
+          <PersonalityHistory
+            v-if="personalityState"
+            :current="personalityState"
+            :dirty="dirty"
+            :disabled="busy"
+            @restored="restorePersonality"
+            @error="failure"
+          />
         </section>
         <template v-if="isRecords"
           ><div class="record-toolbar">
@@ -1274,9 +1334,60 @@ onUnmounted(() => {
           <div class="section-heading">
             <div>
               <h2>运行记录</h2>
-              <p>保留30天，最多10,000条。消息与运行按账户隔离。</p>
+              <p>
+                保留30天，最多20,000条。消息与上下文按来源权限读取；失效内容不再展示。
+              </p>
             </div>
           </div>
+          <form class="journal-filters" @submit.prevent="task(loadPage)">
+            <label
+              >日志类型<select v-model="logFilters.kind" aria-label="日志类型">
+                <option value="">全部类型</option>
+                <option v-for="kind in logKinds" :key="kind" :value="kind">
+                  {{ labels[kind] || kind }}
+                </option>
+              </select></label
+            >
+            <label
+              >日志状态<select
+                v-model="logFilters.status"
+                aria-label="日志状态"
+              >
+                <option value="">全部状态</option>
+                <option
+                  v-for="state in [
+                    'recorded',
+                    'queued',
+                    'running',
+                    'completed',
+                    'sent',
+                    'unknown',
+                    'failed',
+                    'cancelled',
+                    'interrupted',
+                    'received',
+                  ]"
+                  :key="state"
+                  :value="state"
+                >
+                  {{ labels[state] }}
+                </option>
+              </select></label
+            >
+            <label
+              >运行标识<input
+                v-model="logFilters.run_id"
+                maxlength="128"
+                placeholder="可选"
+            /></label>
+            <label
+              >搜索日志<input
+                v-model="logFilters.q"
+                maxlength="200"
+                placeholder="搜索可见内容…"
+            /></label>
+            <button class="secondary" :disabled="busy">筛选日志</button>
+          </form>
           <div v-if="!logs.length" class="empty">还没有日志记录。</div>
           <div v-for="log in logs" :key="log.id" class="log-row">
             <span class="log-icon">{{ log.kind === "run" ? "ϟ" : "·" }}</span>
@@ -1284,8 +1395,16 @@ onUnmounted(() => {
               <strong>{{ log.title }}</strong
               ><small
                 >{{ date(log.created_at) }} ·
-                {{ labels[log.kind] || log.kind }}</small
+                {{ labels[log.kind] || log.kind }} ·
+                {{
+                  { web: "网页", qq: "QQ", weixin: "微信" }[log.source]
+                }}</small
               >
+              <details v-if="log.content" class="journal-detail">
+                <summary>查看内容</summary>
+                <pre>{{ log.content }}</pre>
+                <small v-if="log.truncated">内容已按显示上限截断。</small>
+              </details>
             </div>
             <span class="badge">{{ labels[log.status] || log.status }}</span
             ><button

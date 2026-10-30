@@ -73,6 +73,8 @@ try {
         previous_verified_windows_version = $(if ($PreviousVerifiedCommit) { $PreviousVerifiedCommit } else { $null }); files = $taskFiles;
         data = 'Outside this release directory; no historical DSH database is imported.'
     }
+    $taskServerBuild = Get-Content -LiteralPath (Join-Path $taskRuntime 'apps/server/dist/assets/build.json') -Raw | ConvertFrom-Json
+    if ($taskServerBuild.PSObject.Properties.Name -contains 'data_schema') { $taskManifest['data_schema'] = $taskServerBuild.data_schema }
     $taskManifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $taskRuntime 'release.json') -Encoding utf8
     Compress-Archive -LiteralPath $taskRuntime -DestinationPath (Join-Path $taskRelease 'prometheus-windows.zip')
     Write-Output ('Prometheus release: ' + $taskRuntime)

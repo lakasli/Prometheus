@@ -53,6 +53,12 @@ export interface Log {
   title: string;
   resource_id: string | null;
   created_at: number;
+  run_id: string | null;
+  conversation_id: string | null;
+  source: "web" | "qq" | "weixin";
+  content: string;
+  truncated: boolean;
+  details: Record<string, unknown>;
 }
 export interface Status {
   name: string;

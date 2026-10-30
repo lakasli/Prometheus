@@ -162,6 +162,144 @@ test("signed QQ webhook persists, deduplicates, batches texts and records only c
     "webhook",
   );
 });
+for (const revoke of ["deadline", "grant", "sleep"])
+  test(`QQ rechecks ${revoke} after token acquisition before dispatching a passive reply`, async (t) => {
+    let tokenStarted = false,
+      releaseToken;
+    const remote = await service(t, async (call) => {
+      if (call.path === "/app/getAppAccessToken") {
+        tokenStarted = true;
+        await new Promise((resolve) => {
+          releaseToken = resolve;
+        });
+        return { access_token: "synthetic-delayed-token", expires_in: 7200 };
+      }
+      return { id: "synthetic-after-wake" };
+    });
+    const app = await fixture({
+      testChannelEndpoints: { qq: remote.url, weixin: remote.url },
+    });
+    t.after(() => releaseToken?.());
+    t.after(() => app.close());
+    await app.bootstrap();
+    await qqConfig(app, remote.url);
+    const owner = "qq:123456:c2c:revocation-test",
+      conversation = app.runtime.createConversation(owner, "待发回复复核");
+    app.store.run(
+      "UPDATE conversations SET source_key=? WHERE id=?",
+      owner,
+      conversation.id,
+    );
+    const expiration = now() + 2;
+    if (revoke === "grant") {
+      const actor = (await app.call("/auth/me")).data.user.id;
+      app.features.knowledge.setGrant(actor, owner, 0, {
+        capture: true,
+        allow_model: true,
+        can_sleep: false,
+        can_wake: false,
+        expires_at: expiration,
+      });
+      await app.features.knowledge.stop();
+    }
+    const config = app.store.config().config;
+    const run = randomUUID(),
+      epoch = app.store.get(
+        "SELECT context_epoch FROM conversations WHERE id=?",
+        conversation.id,
+      ).context_epoch;
+    app.store.run(
+      "INSERT INTO runs(id,conversation_id,owner_id,client_message_id,input,config_json,context_epoch,status,response,created_at,updated_at) VALUES(?,?,?,?,?,'{}',?,'completed','不得过期发送',?,?)",
+      run,
+      conversation.id,
+      owner,
+      randomUUID(),
+      "source",
+      epoch,
+      now(),
+      now(),
+    );
+    app.store.run(
+      "INSERT INTO run_targets VALUES(?,'qq',?,?,?,?)",
+      run,
+      app.store.seal({
+        kind: "c2c",
+        target: "synthetic",
+        message_id: "source",
+        sender: "synthetic",
+      }),
+      config.qq.credential_ref,
+      revoke === "deadline" ? expiration : now() + 60,
+      config.qq.app_id,
+    );
+    await until(() => Promise.resolve(tokenStarted), Boolean);
+    if (revoke === "sleep") {
+      const actor = (await app.call("/auth/me")).data.user.id;
+      app.features.automation.restControl(
+        actor,
+        { action: "sleep", duration_seconds: 60, request_id: randomUUID() },
+        Number(app.features.automation.restStatus().state.revision),
+      );
+      await until(
+        () => Promise.resolve(app.features.automation.restStatus().state.phase),
+        (phase) => phase === "asleep",
+      );
+      releaseToken();
+      await until(
+        () =>
+          Promise.resolve(
+            app.store.get(
+              "SELECT status FROM delivery_parts WHERE run_id=?",
+              run,
+            )?.status,
+          ),
+        (status) => status === "queued",
+      );
+      assert.equal(
+        remote.calls.filter((call) => call.path.startsWith("/v2/")).length,
+        0,
+      );
+      app.features.automation.restControl(
+        actor,
+        { action: "wake", request_id: randomUUID() },
+        Number(app.features.automation.restStatus().state.revision),
+      );
+      await until(
+        () =>
+          Promise.resolve(
+            app.store.get(
+              "SELECT status FROM delivery_parts WHERE run_id=?",
+              run,
+            )?.status,
+          ),
+        (status) => status === "sent",
+      );
+      assert.equal(
+        remote.calls.filter((call) => call.path.startsWith("/v2/")).length,
+        1,
+      );
+      return;
+    }
+    await until(
+      () => Promise.resolve(now()),
+      (value) => value >= expiration,
+      4000,
+    );
+    releaseToken();
+    await until(
+      () =>
+        Promise.resolve(
+          app.store.get("SELECT status FROM delivery_parts WHERE run_id=?", run)
+            ?.status,
+        ),
+      (status) => status === "failed",
+    );
+    assert.equal(
+      remote.calls.filter((call) => call.path.startsWith("/v2/")).length,
+      0,
+    );
+  });
+
 test("QQ WebSocket performs Windows identify, receives events, and exits on configuration revocation", async (t) => {
   let wsUrl = "",
     identified;

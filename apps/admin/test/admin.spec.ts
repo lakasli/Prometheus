@@ -161,6 +161,54 @@ test("personality changes persist, configuration conflicts are shown, and gated 
     .fill("浏览器验收的合成性格资料。");
   await page.getByRole("button", { name: "保存并生效", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("性格已保存并生效");
+  const beforeRestore = await (
+    await page.request.get("/api/admin/v1/assistant/personality")
+  ).json();
+  await page.getByText("性格版本与恢复", { exact: true }).click();
+  await page.getByLabel("历史性格版本").selectOption("1");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "恢复此版本", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "历史性格已恢复为新版本",
+  );
+  const afterRestore = await (
+    await page.request.get("/api/admin/v1/assistant/personality")
+  ).json();
+  expect(afterRestore.revision).toBe(beforeRestore.revision + 1);
+  expect(afterRestore.personality.description).not.toBe(
+    "浏览器验收的合成性格资料。",
+  );
+  const restoreSession = await (
+    await page.request.get("/api/admin/v1/auth/me")
+  ).json();
+  const newer = {
+    ...afterRestore.personality,
+    description: "另一个窗口保存的性格版本",
+  };
+  expect(
+    (
+      await page.request.put("/api/admin/v1/assistant/personality", {
+        headers: {
+          origin: "http://127.0.0.1:18449",
+          "x-csrf-token": restoreSession.csrf_token,
+          "if-match": `"${afterRestore.revision}"`,
+        },
+        data: { personality: newer },
+      })
+    ).status(),
+  ).toBe(200);
+  await page.getByLabel("历史性格版本").selectOption("1");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "恢复此版本", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("版本已变化");
+  expect(
+    (
+      await (
+        await page.request.get("/api/admin/v1/assistant/personality")
+      ).json()
+    ).personality.description,
+  ).toBe(newer.description);
+  await page.getByRole("button", { name: "↻ 刷新", exact: true }).click();
   await page
     .getByRole("navigation")
     .getByRole("button", { name: "模型与运行", exact: true })
@@ -504,4 +552,77 @@ test("reviewed model diaries display their actual provenance", async ({
   await expect(
     page.locator(".record-card").filter({ hasText: "来源明确的模型日记" }),
   ).toContainText("模型整理 · 已人工审核");
+});
+
+test("journal filters show authorized input and actual context with responsive safe previews", async ({
+  page,
+}) => {
+  const me = await (await page.request.get("/api/admin/v1/auth/me")).json();
+  const headers = {
+    origin: "http://127.0.0.1:18449",
+    "x-csrf-token": me.csrf_token,
+  };
+  const conversation = await (
+    await page.request.post("/api/admin/v1/conversations", {
+      headers,
+      data: { title: "日志浏览器来源" },
+    })
+  ).json();
+  const run = await (
+    await page.request.post(
+      `/api/admin/v1/conversations/${conversation.id}/messages`,
+      {
+        headers,
+        data: {
+          content: "浏览器日志唯一来源 synthetic-diary-browser-key",
+          client_message_id: "browser-journal",
+        },
+      },
+    )
+  ).json();
+  await expect
+    .poll(
+      async () =>
+        (
+          await (
+            await page.request.get(`/api/admin/v1/runs/${run.run_id}`)
+          ).json()
+        ).status,
+    )
+    .toBe("completed");
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "日志记录", exact: true })
+    .click();
+  await page.getByLabel("日志类型", { exact: true }).selectOption("input");
+  await page.getByLabel("运行标识", { exact: true }).fill(run.run_id);
+  await page.getByLabel("搜索日志", { exact: true }).fill("浏览器日志唯一来源");
+  await page.getByRole("button", { name: "筛选日志", exact: true }).click();
+  await expect(page.locator(".log-row")).toHaveCount(1);
+  await page.locator(".log-row summary").click();
+  await expect(page.locator(".log-row pre")).toContainText(
+    "浏览器日志唯一来源",
+  );
+  await expect(page.locator(".log-row pre")).not.toContainText(
+    "synthetic-diary-browser-key",
+  );
+  await page.getByLabel("日志类型", { exact: true }).selectOption("context");
+  await page.getByRole("button", { name: "筛选日志", exact: true }).click();
+  await expect(page.locator(".log-row")).toHaveCount(1);
+  await expect(page.locator(".log-row strong")).toHaveText("模型请求上下文");
+  await page.locator(".log-row summary").click();
+  await expect(page.locator(".log-row pre")).toContainText('"role":"system"');
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page
+      .locator("body")
+      .evaluate((node) => node.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await page.screenshot({
+    path: resolve(
+      "../../.local/prometheus/screenshots/logs-filtered-mobile.png",
+    ),
+    fullPage: true,
+    animations: "disabled",
+  });
 });

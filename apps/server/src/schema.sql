@@ -51,4 +51,12 @@ CREATE TABLE IF NOT EXISTS operator_calls(id TEXT PRIMARY KEY,owner_id TEXT NOT 
 CREATE TABLE IF NOT EXISTS affinity_events(id TEXT PRIMARY KEY,owner_id TEXT NOT NULL,person_id TEXT NOT NULL REFERENCES records(id),delta REAL NOT NULL,reason TEXT,created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS person_aliases(alias_id TEXT PRIMARY KEY,person_id TEXT NOT NULL REFERENCES records(id),owner_id TEXT NOT NULL,created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS run_publications(run_id TEXT PRIMARY KEY REFERENCES runs(id),state TEXT NOT NULL,reason TEXT NOT NULL,updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS prompt_snapshots(run_id TEXT PRIMARY KEY REFERENCES runs(id),owner_id TEXT NOT NULL,context_epoch INTEGER NOT NULL,messages_json TEXT NOT NULL,created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS prompt_snapshot_expiry ON prompt_snapshots(created_at);
+CREATE INDEX IF NOT EXISTS audit_filters ON audit_events(owner_id,kind,status,id);
+CREATE INDEX IF NOT EXISTS audit_expiry ON audit_events(created_at);
+CREATE TRIGGER IF NOT EXISTS journal_messages AFTER INSERT ON messages BEGIN INSERT INTO audit_events(owner_id,kind,status,title,resource_id,created_at) SELECT r.owner_id,CASE new.role WHEN 'user' THEN 'input' ELSE 'output' END,'recorded',CASE new.role WHEN 'user' THEN '收到消息' ELSE '生成候选' END,new.id,new.created_at FROM runs r WHERE r.id=new.run_id; END;
+CREATE TRIGGER IF NOT EXISTS journal_run_status AFTER UPDATE OF status ON runs WHEN old.status<>new.status BEGIN INSERT INTO audit_events(owner_id,kind,status,title,resource_id,created_at) VALUES(new.owner_id,'run',new.status,CASE new.status WHEN 'running' THEN '正在生成回复' WHEN 'completed' THEN '回复已生成并保存' WHEN 'cancelled' THEN '运行已取消' WHEN 'failed' THEN '运行失败' WHEN 'interrupted' THEN '运行已中断' ELSE '运行状态已更新' END,new.id,CAST(strftime('%s','now') AS INTEGER)); END;
+CREATE TRIGGER IF NOT EXISTS journal_retention AFTER INSERT ON audit_events BEGIN DELETE FROM audit_events WHERE id<=new.id-20000 OR created_at<CAST(strftime('%s','now') AS INTEGER)-2592000; DELETE FROM prompt_snapshots WHERE created_at<CAST(strftime('%s','now') AS INTEGER)-2592000; END;
+CREATE TRIGGER IF NOT EXISTS journal_context_removed AFTER DELETE ON audit_events WHEN old.kind='context' BEGIN DELETE FROM prompt_snapshots WHERE run_id=old.resource_id; END;
 INSERT INTO record_fts(record_fts,rank) VALUES('secure-delete',1);

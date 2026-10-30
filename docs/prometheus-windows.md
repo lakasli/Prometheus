@@ -69,7 +69,7 @@ node deploy/prometheus/backup-instance.mjs --data-dir D:/DSH/.local/prometheus/i
 
 脚本取得与服务相同的原子数据锁，复制主密钥等全部文件、生成SQLite一致性快照并检查integrity_check，保存私有清单与逐文件哈希。拒绝符号链接及数据目录内的目标；已有锁时失败，不杀进程。备份位于.local/prometheus/backups/instance-*，不输出秘密。
 
-schema2不能由schema1制品打开。回退先保留schema2目录，向新私有目录恢复完整schema1快照，再用上一版固定SHA启动和复验；不能覆盖运行数据或遗漏主密钥。
+当前schema3不能由schema1/2制品打开。升级前自动创建原schema数据库快照，正式升级另备份完整实例；回退先保留新目录，向另一个私有目录恢复匹配旧制品的完整快照（含主密钥），再用上一版固定SHA启动和复验。不能覆盖运行数据或仅切换代码。
 
 ## 隔离工作器前置检查
 
@@ -78,3 +78,5 @@ schema2不能由schema1制品打开。回退先保留schema2目录，向新私�
 `node deploy/prometheus/verify-worker.mjs <runtime绝对目录>`核对探针哈希并写入独立私有报告；阻塞退出2，不计为应用或隔离通过。当前主机已记录签名策略4551/CodeIntegrity事件及子进程0xC0000142初始化失败，权限和完整生命周期尚未验收，不调整安全策略。详见[迁移审查](prometheus-migration-audit.md)。
 
 针对本批逻辑的固定制品回归可设置`PROMETHEUS_RELEASE_ROOT`后执行`node --test apps/server/test/migration-logic.test.mjs`；测试数据仍放在工作区忽略目录，不写入制品。
+
+日志筛选和来源即时失效的HTTP回归可同样执行`node --test apps/server/test/journal.test.mjs`。其中schema升级的直接Store夹具检查本地构建，HTTP夹具绑定固定runtime；两者在报告中分别说明。性格历史恢复仍使用当前If-Match另存新版本，不覆盖历史版本或稳定身份。

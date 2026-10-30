@@ -43,25 +43,22 @@ export class Store {
       this.database.close();
       throw new Error("Unrecognized database; refusing schema changes");
     }
+    const previousSchema = tables.length
+      ? this.database
+          .prepare("SELECT value FROM metadata WHERE key='prometheus.schema'")
+          .get()?.value
+      : undefined;
     if (tables.length) {
-      const version = this.database
-        .prepare("SELECT value FROM metadata WHERE key='prometheus.schema'")
-        .get()?.value;
-      if (version !== "1" && version !== "2") {
+      if (!["1", "2", "3"].includes(String(previousSchema))) {
         this.database.close();
         throw new Error("Unsupported Prometheus schema; do not downgrade");
       }
     }
-    if (
-      tables.length &&
-      this.database
-        .prepare("SELECT value FROM metadata WHERE key='prometheus.schema'")
-        .get()?.value === "1"
-    ) {
+    if (tables.length && previousSchema !== "3") {
       const backupDir = privateDirectory(join(path, "backups"));
       const target = join(
         backupDir,
-        `schema1-${Date.now()}-${randomUUID()}.db`,
+        `schema${previousSchema}-${Date.now()}-${randomUUID()}.db`,
       );
       this.database.exec(`VACUUM INTO '${target.replace(/'/g, "''")}'`);
     }
@@ -81,7 +78,7 @@ export class Store {
           .join("\n"),
       );
       this.run(
-        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','2') ON CONFLICT(key) DO UPDATE SET value='2'",
+        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','3') ON CONFLICT(key) DO UPDATE SET value='3'",
       );
       this.run(
         "INSERT OR IGNORE INTO metadata(key,value) VALUES('assistant.identity',?)",
@@ -108,6 +105,15 @@ export class Store {
           now(),
         );
       }
+      if (
+        !this.get("SELECT value FROM metadata WHERE key='journal.backfill.v1'")
+      ) {
+        this.run(
+          "INSERT INTO audit_events(owner_id,kind,status,title,resource_id,created_at) SELECT r.owner_id,CASE m.role WHEN 'user' THEN 'input' ELSE 'output' END,'recorded',CASE m.role WHEN 'user' THEN '历史消息输入' ELSE '历史生成候选' END,m.id,m.created_at FROM (SELECT * FROM messages WHERE created_at>=? ORDER BY rowid DESC LIMIT 20000) m JOIN runs r ON r.id=m.run_id ORDER BY m.created_at",
+          now() - 30 * 86400,
+        );
+        this.run("INSERT INTO metadata VALUES('journal.backfill.v1','1')");
+      }
       this.run(
         "UPDATE runs SET status='interrupted',error='服务在请求完成前退出，未自动重放',updated_at=? WHERE status='running'",
         now(),
@@ -127,6 +133,10 @@ export class Store {
       this.run(
         "UPDATE model_jobs SET status='interrupted',error='请求中断，需人工重试',updated_at=? WHERE status='running'",
         now(),
+      );
+      this.run(
+        "DELETE FROM prompt_snapshots WHERE created_at<?",
+        now() - 30 * 86400,
       );
     });
     this.assistantId = String(
@@ -288,7 +298,7 @@ export class Store {
       now(),
     );
     this.run(
-      "DELETE FROM audit_events WHERE created_at<? OR id<(SELECT coalesce(max(id),0)-10000 FROM audit_events)",
+      "DELETE FROM audit_events WHERE created_at<? OR id<=(SELECT coalesce(max(id),0)-20000 FROM audit_events)",
       now() - 30 * 86400,
     );
   }
@@ -385,16 +395,23 @@ export class Store {
     return { ok: true };
   }
   redact(text: string): string {
-    let value = text;
+    return this.redactor()(text);
+  }
+  redactor(): (text: string) => string {
+    const known: string[] = [];
     for (const row of this.all("SELECT id,kind FROM secrets")) {
       try {
         const secret = this.secret(String(row.id), String(row.kind));
-        value = value.split(secret).join("[凭据已隐藏]");
+        known.push(secret);
       } catch {
         /* Never expose secret-store errors. */
       }
     }
-    return value;
+    return (text) =>
+      known.reduce(
+        (value, secret) => value.split(secret).join("[凭据已隐藏]"),
+        text,
+      );
   }
   close() {
     this.database.exec("PRAGMA wal_checkpoint(TRUNCATE)");

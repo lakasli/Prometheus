@@ -123,7 +123,9 @@ export class Knowledge {
         +sleep,
         +wake,
         expiry,
-        Number(current?.capture) === 1 && capture
+        Number(current?.capture) === 1 &&
+          capture &&
+          (current?.expires_at === null || Number(current?.expires_at) > now())
           ? Number(current!.enabled_after)
           : Number(
               this.store.get(
@@ -691,24 +693,27 @@ export class Knowledge {
       if (this.active?.id === String(row.id)) this.active.abort.abort();
     }
   }
+  expireGrants() {
+    for (const grant of this.store.all(
+      "SELECT source_key,revision FROM source_grants WHERE expires_at IS NOT NULL AND expires_at<=?",
+      now(),
+    )) {
+      const marker = `grant_expired:${hash(String(grant.source_key))}:${grant.revision}`;
+      if (this.store.get("SELECT value FROM metadata WHERE key=?", marker))
+        continue;
+      this.invalidateScope(String(grant.source_key));
+      const source = this.store.get(
+        "SELECT owner_id FROM conversations WHERE coalesce(source_key,id)=?",
+        String(grant.source_key),
+      );
+      if (source) this.runtime.invalidate(String(source.owner_id));
+      this.store.run("INSERT INTO metadata VALUES(?,?)", marker, "1");
+    }
+  }
   private tick = () => {
     if (this.stopped) return;
     try {
-      for (const grant of this.store.all(
-        "SELECT source_key,revision FROM source_grants WHERE expires_at IS NOT NULL AND expires_at<=?",
-        now(),
-      )) {
-        const marker = `grant_expired:${hash(String(grant.source_key))}:${grant.revision}`;
-        if (this.store.get("SELECT value FROM metadata WHERE key=?", marker))
-          continue;
-        this.invalidateScope(String(grant.source_key));
-        const source = this.store.get(
-          "SELECT owner_id FROM conversations WHERE coalesce(source_key,id)=?",
-          String(grant.source_key),
-        );
-        if (source) this.runtime.invalidate(String(source.owner_id));
-        this.store.run("INSERT INTO metadata VALUES(?,?)", marker, "1");
-      }
+      this.expireGrants();
       if (!this.active) {
         const row = this.store
           .all(

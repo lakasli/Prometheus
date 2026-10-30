@@ -49,13 +49,18 @@ export class Features {
       if (change?.action === "forgotten") this.relationships.forget(change.id);
     };
     runtime.getSummary = (conversation) => this.knowledge.summary(conversation);
+    runtime.refreshSourceGrants = () => this.knowledge.expireGrants();
     runtime.localCommand = (content, owner, conversation, clientId) =>
       this.localCommand(content, owner, conversation, clientId);
-    this.channels.canDeliver = (run) =>
-      this.automation.restStatus().state.phase === "awake" ||
-      (!!run &&
-        this.store.get("SELECT kind FROM local_runs WHERE run_id=?", run)
-          ?.kind === "rest");
+    this.channels.canDeliver = (run) => {
+      this.knowledge.expireGrants();
+      return (
+        this.automation.restStatus().state.phase === "awake" ||
+        (!!run &&
+          this.store.get("SELECT kind FROM local_runs WHERE run_id=?", run)
+            ?.kind === "rest")
+      );
+    };
     this.knowledge.canRun = (row) => {
       const state = this.automation.restStatus().state;
       return (
