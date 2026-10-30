@@ -73,7 +73,7 @@ QQ / 微信等不同 owner 的同一真实人通过独立 identity group 关联�
 
 ## 验证与运行
 
-本地检查：`cargo test -p dshd relationships`；前端 `npm run typecheck`、`npx vitest run tests/relationships.test.ts`。远端构建、固定 SHA、健康 / 鉴权、真实模型与浏览器验收由主发布流程记录。单测覆盖同名分离、跨域拒绝、待审与字段冲突、生日精度、有向边、来源遗忘、当前会话金丝雀、跨账号组的字段和节点隔离、策略版本、停机补算与重放等。
+本地检查：`cargo test -p dshd relationships`；前端 `npm run typecheck`、`npx vitest run tests/relationships.test.ts`。2026-10-30 起按 [Windows 发布流程](development-workflow.md) 记录目标 Windows 构建、固定 SHA、健康 / 鉴权、真实模型与浏览器验收；旧 Linux 结果保留为历史。单测覆盖同名分离、跨域拒绝、待审与字段冲突、生日精度、有向边、来源遗忘、当前会话金丝雀、跨账号组的字段和节点隔离、策略版本、停机补算与重放等。
 
 数据库与删除水位沿用整库一致性备份。含人物 / 来源派生信息的数据库只能回到声明理解对应 reader 能力的版本；不得用旧程序绕过字段权限或删除水位。代码切换与数据恢复分别记录。
 

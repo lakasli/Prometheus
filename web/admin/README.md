@@ -41,7 +41,7 @@ npm run build
 
 登录会话使用后端 HttpOnly Cookie。CSRF token 只在页面内存中保存，刷新后从已认证的 `/auth/me` 恢复；不使用浏览器持久存储保存凭证。替换密钥先写入后端 secret store，配置草稿只携带返回的引用，表单不读取原始密钥。
 
-开发使用 `npm run dev` 时，Vite 将 `/api` 代理到本机 `127.0.0.1:8419`；后端的允许 Origin 必须与实际 Vite 地址一致。远端正式访问遵循仓库中的 SSH 隧道或 HTTPS 反向代理流程。
+开发使用 `npm run dev` 时，Vite 将 `/api` 代理到本机 `127.0.0.1:8419`；后端的允许 Origin 必须与实际 Vite 地址一致。2026-10-30 起正式目标改为 Windows：构建后的页面由本机 Rust 服务提供，默认访问 `http://127.0.0.1:8419/admin/`，不再依赖树莓派或 SSH。其他设备访问使用受保护的 HTTPS 反向代理，详见 [Windows 开发与部署流程](../../docs/development-workflow.md)。
 
 ## 隔离浏览器验证
 

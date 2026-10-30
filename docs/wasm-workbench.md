@@ -1,6 +1,8 @@
 # 开发诊断：纯整数WAT原型
 
-用户2026-10-24确认阶段验证页不得作为产品主导航。现有纯整数WAT原型移入“任务与诊断 → 开发诊断”默认折叠区域；入口迁移已通过 [本轮浏览器与远端验收](conversation-images-validation.md)，历史实现的测试结论仍以 [原型验收记录](wasm-workbench-validation.md) 为准。
+2026-10-30 起正式目标为 Windows，不再部署到树莓派。现有纯整数 WAT 原型只有 Linux worker 门禁，Windows 执行保持不可用，不能为迁移而绕过门禁。当前流程见 [Windows 开发与部署](development-workflow.md)。
+
+用户2026-10-24确认阶段验证页不得作为产品主导航；当时移入“任务与诊断 → 开发诊断”的迁移结果见 [历史浏览器与远端验收](conversation-images-validation.md)。2026-10-26 起已撤掉整个管理页入口，遵循 [当前界面契约](assistant-runtime-logs.md)，不因 Windows 目标调整恢复。历史测试结论仍以 [原型验收记录](wasm-workbench-validation.md) 为准。
 
 这个原型只验证“生成WAT → 测试 → 人工按哈希批准 → 手动纯整数执行”。它偏离并缩减了 [原架构](architecture.md#11-ai-自制功能插件) 的Rust模板、WIT / Wasmtime Component、受控host imports、工具注册、激活与回滚链路，不是完整M5插件工厂，也不替代原目标。后续不得为扩大原型而自行改写架构；重大偏离需先说明并由用户确认。
 
@@ -14,7 +16,7 @@
 
 ## 实际执行门禁
 
-正式主机为`192.168.189.191`现有Ubuntu 24.04.4 LTS / aarch64。服务端启动时先检查固定worker运行方式；不可用时关闭该诊断原型，普通聊天继续运行。Windows不提供该运行门禁。Linux使用精确UUID命名的用户级systemd服务，以当前发布的同一可执行文件运行隐藏的同步`wasm-worker --require-cgroup`入口，不创建Tokio线程池。
+历史 Linux 主机为 `192.168.189.191` 的 Ubuntu 24.04.4 LTS / aarch64，不再是正式目标。服务端启动时先检查固定worker运行方式；不可用时关闭该诊断原型，普通聊天继续运行。现有 Windows 代码不提供该运行门禁，后续须单独适配和验收。以下 Linux 实现使用精确UUID命名的用户级systemd服务，以发布的同一可执行文件运行隐藏的同步`wasm-worker --require-cgroup`入口，不创建Tokio线程池。
 
 每次worker使用清空的环境和固定参数，设置MemoryMax=128MiB、MemorySwapMax=0、TasksMax=1、RuntimeMaxSec=5、TimeoutStopSec=1、KillMode=control-group及NoNewPrivileges。父进程核对systemd实际属性，子进程读取自身cgroup的实际文件并核对限额，之后才读取不可信程序。只有受限ABI和解释器参与执行，不依赖本机缺失的网络或挂载命名空间。它不为通用Harness内置工具提供隔离证明。
 

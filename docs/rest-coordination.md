@@ -1,5 +1,7 @@
 # 睡眠存储、控制与整理检查点契约
 
+> 2026-10-30 平台决定：正式目标改为 Windows，不再部署到树莓派。下文保留睡眠实现与历史集成阶段的边界，旧远端结果不计为 Windows 通过。现有 `rest_clock` 在非 Linux 使用进程级单调 epoch，重启后按连续性不明提前唤醒，尚不具备 Linux boot ID 的原期限恢复证据；Windows 时钟连续性、重启、调度与渠道恢复须另验。当前流程见 [Windows 开发与部署](development-workflow.md)。
+
 本页对应架构书 9.6–9.7。当前 `codex/rest-runtime` 工作树已接入管理 API / 页面、宿主时钟、统一 worker / scheduler、三种发送领取链路和有界日记整理；尚未提交、固定 SHA 部署或执行生产睡眠。不得把本地集成和 loopback 测试写成真实平台、真实 provider 整理或完整睡眠交付。实际证据与未测范围见 [本地集成记录](rest-runtime-validation.md)，整理执行边界见 [整理契约](rest-consolidation.md)。
 
 ## 历史准备与当前集成
@@ -42,7 +44,7 @@ Awake → SleepPending → Consolidating → Sleeping → Waking → Awake
 
 `sleep_in(db, requester, expected_generation, key, request, clock)` 和 `wake_in(...)` 使用预期 generation。重复同一请求返回原操作，不延后唤醒；同键不同请求冲突。真实来源 Run 另有唯一操作约束，不能换一个幂等键重放旧消息来开启新周期。已经睡眠时的新普通请求不延长截止。
 
-`ClockSample::new(wall_at, monotonic_ms, continuity_id, trusted_for_new_sleep)` 由宿主采样，不能从外部请求接受。应使用跨进程重启稳定的系统 boot ID 和同一系统单调时钟，例如 Linux boot ID / uptime；不能把每轮的 `Instant::elapsed()` 当作相同时间轴。
+`ClockSample::new(wall_at, monotonic_ms, continuity_id, trusted_for_new_sleep)` 由宿主采样，不能从外部请求接受。目标要求跨进程重启稳定的宿主启动身份和同一系统单调时钟；历史 Linux 使用 boot ID / uptime。Windows 现有实现仅供开发检查，使用进程级 epoch，重启不能当成同一连续时间轴；不可验证原期限时提前唤醒而不延长睡眠，正式连续性适配与验收仍待完成。
 
 `advance_in(db, clock)` 必须在调度器 NTP、磁盘空间及模型准入门禁之前独立调用。相同时间轴中，逻辑时间只前进，墙钟回拨时仍按单调时间到期，频繁亚秒轮询保留不足一秒的余量。前跳到原截止即进入唤醒。进程重启保持同 boot 时恢复原期限；单调连续性丢失则以 `clock_continuity_lost` 提前进入 Waking，避免不可信恢复延长睡眠。它不伪造丢失的停机观测。数据库写入失败仍须由上层显示错误，不能报告状态已经持久改变。
 

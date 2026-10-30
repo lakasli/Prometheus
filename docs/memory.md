@@ -55,13 +55,10 @@ python -S tools/memory-smoke.py --binary target/debug/dshd.exe --web-dir web/adm
 python -S -m unittest discover -s tools/tests -v
 ```
 
-真实模型验收仅在树莓派读取现有模型配置 / 凭证，在临时私有实例使用合成事实，不读取真实聊天，不修改正式数据库或发QQ消息：
+真实模型验收改在已配置模型且获授权的 Windows 实例读取配置 / 凭证，在临时私有实例使用合成事实，不读取真实聊天、不修改正式数据库或发 QQ 消息。先完成后端构建与数据 ACL 核验；下例来源目录为本机开发实例，不要求连接树莓派：
 
-```sh
-python3 tools/memory-live.py --binary /home/campanus/apps/dsh/current/bin/dshd \
-  --web-dir /home/campanus/apps/dsh/current/web \
-  --source-data-dir /home/campanus/apps/dsh/shared/data \
-  --report /home/campanus/apps/dsh/shared/logs/memory-live.json
+```powershell
+python -S tools/memory-live.py --binary target/debug/dshd.exe --web-dir web/admin/dist --source-data-dir .local/dev --report .local/memory-live-windows.json
 ```
 
-本地 / 远端、模拟 / 真实模型、模拟渠道域 / 真实QQ结果分别记录于 [验收记录](memory-validation.md)，不相互替代。
+Windows / 历史 Linux、模拟 / 真实模型、模拟渠道域 / 真实 QQ 结果分别记录，不相互替代。[既有验收记录](memory-validation.md) 保留历史事实，不改写为 Windows 通过；当前流程见 [Windows 开发与部署](development-workflow.md)。

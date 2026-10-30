@@ -1,6 +1,8 @@
 # Rust / WIT Component 插件工厂
 
-本功能推进 [目标架构第 11 节](architecture.md#11-ai-自制功能插件)，与“任务与诊断 → 开发诊断”中的 WAT / Wasmi 原型分别存在。工厂采用真实 Rust 源码、版本化 WIT、WASM Component 和 Wasmtime，不将整数 WAT 原型改名作为交付。部署和实际验收状态由独立验证记录及运行 SHA 确认；本文件本身不构成验收通过。
+> 2026-10-30 平台决定：正式目标改为 Windows，不再部署到树莓派。本文的 systemd / cgroup / Landlock / seccomp 门禁与实机命令描述历史 Linux 实现；Windows 隔离工作器尚未适配，对应构建、测试与执行维持不可用，不能移除门禁或改在主进程中执行。当前流程见 [Windows 开发与部署](development-workflow.md)。
+
+本功能推进 [目标架构第 11 节](architecture.md#11-ai-自制功能插件)，与没有管理页入口的 WAT / Wasmi 历史原型分别存在。工厂采用真实 Rust 源码、版本化 WIT、WASM Component 和 Wasmtime，不将整数 WAT 原型改名作为交付。部署和实际验收状态由独立验证记录及运行 SHA 确认；本文件本身不构成验收通过。
 
 当前可实现的权限策略为 **空权限、无状态、JSON 输入 / 输出工具**。网络、KV、私人记忆、消息发送、进程和任意文件能力没有向 Component 提供。完整受控 host imports / broker、天气 HTTP 工具、插件状态迁移、第三方包安装、依赖审查流程和模型自主选择工具的循环仍属于后续架构目标；当前纵切不能称为完整 M5。
 
@@ -35,7 +37,9 @@ world plugin {
 
 执行配置 `stateless-json-anonymous-memory-v1` 也绑定发布包摘要。每次调用使用新实例和匿名线性内存，关闭 Wasmtime COW 初始化映像；短生命周期工作器不复用映像，也不为此授予 `F_ADD_SEALS` 等额外 `fcntl` 权限。
 
-## 实际隔离门禁
+## 现有 Linux 隔离门禁与 Windows 待办
+
+下述门禁不是 Windows 实现。Windows 版本必须另行验证权限、文件与网络边界、资源限制、继承句柄、取消及精确进程树退出，并保留摘要审批、owner 与 broker 边界；仅编译成功或 Wasmtime 运行成功均不能替代这些检查。
 
 此策略与此前不可用的完整 Harness 沙箱相互独立。它不依靠用户级 `ProtectHome` / `PrivateNetwork` 属性来证明边界，也不开放 Harness 工具。完整 M3 的原有待办维持不变。
 
@@ -72,11 +76,11 @@ Component 运行采用空 `Linker`，没有 WASI、socket、环境、文件预�
 
 聊天工具入口为显式 `/plugin`：列当前聊天身份已启用的工具；`/plugin user.example <JSON>` 才执行对应工具。调用只返回不可信结果，由既有会话和 Outbox 链路记录与发送，插件本身没有消息发送权。管理账户、QQ、微信身份不会自动互相授予私人插件；没有可信身份绑定的渠道会显示该身份没有已启用工具。模型自动选择 / 调用的循环尚未交付。
 
-## 工具链与可重复检查
+## 历史 Linux 工具链与可重复检查
 
-远端使用现有 Rust 1.88.0，并单独安装 `wasm32-unknown-unknown` target。编译器默认定位该用户的固定 1.88.0 aarch64 工具链；操作系统部署者可使用进程配置 `DSH_PLUGIN_RUSTC` 指定已审查的绝对真实编译器路径，前端不能任意指定或执行系统命令。
+历史远端使用 Rust 1.88.0，并单独安装 `wasm32-unknown-unknown` target。现有编译器默认定位该用户的固定 1.88.0 aarch64 工具链，属于 Windows 适配待办；操作系统部署者可使用进程配置 `DSH_PLUGIN_RUSTC` 指定已审查的绝对真实编译器路径，但指定路径不等于 Windows 隔离已经通过。前端不能任意指定或执行系统命令。
 
-Wasmtime 固定 `36.0.19` LTS，兼容现有 Rust，并包含 2026-10-19 的安全修复；不用没有相应修复的旧 33.x。`wit-component / wit-parser` 固定 `0.228.0`，与本项目现有 parser 协调。正式构建使用提交中的 `Cargo.lock`，树莓派限制构建并发，前端仍本地构建后随固定 SHA 发布。
+Wasmtime 固定 `36.0.19` LTS，兼容现有 Rust，并包含 2026-10-19 的安全修复；不用没有相应修复的旧 33.x。`wit-component / wit-parser` 固定 `0.228.0`，与本项目现有 parser 协调。正式构建使用提交中的 `Cargo.lock`，前端随同一固定 SHA 发布；构建并发按目标 Windows 实际资源验证。下列命令仅保留为历史 Linux 检查参考，不作为当前自动部署步骤：
 
 ```sh
 python3 tools/plugin-factory-smoke.py \

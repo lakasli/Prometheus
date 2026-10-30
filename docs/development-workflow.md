@@ -1,167 +1,160 @@
-# 本地开发、Git 上传与远端部署测试流程
+# Windows 本地开发、Git 上传与部署测试流程
 
-本项目统一采用：**本地开发 → Git 提交和推送 → SSH 远端部署 → Linux 测试**。仓库级约束见 [AGENTS.md](../AGENTS.md)。
+用户于 **2026-10-30** 确认正式运行与部署目标改为 **Windows**，不再部署到树莓派。当前流程为：**本地开发 → 必要检查 → Git 提交推送 → Windows 固定 SHA 构建与部署 → Windows 运行测试 → 记录**。仓库级约束见 [AGENTS.md](../AGENTS.md)。仅修改文档或规则时只做静态检查、提交和推送，不启动或重启应用。
 
-## 环境与目标
+## 1. 当前目标与实际状态
 
-| 项目 | 约定 / 已验证状态 |
+| 项目 | 当前约定 / 已观察状态 |
 | --- | --- |
-| 本地仓库 | `D:\CodeProject\DSH` |
-| Git 远端 | `http://8.136.201.30:8418/Campanus/DSH.git` |
-| 目标硬件 | 树莓派 5，8GB 内存，aarch64；用户已确定的部署基线 |
-| 正式目标系统 | `192.168.189.191`现有Ubuntu 24.04.4 LTS / aarch64；用户2026-10-24明确确认，不再以Lite迁移为目标 |
-| 部署与测试主机 | `192.168.189.191` |
-| SSH 用户 | `campanus` |
-| SSH 端口 | `22` |
-| 登录命令 | `ssh campanus@192.168.189.191` |
-| 当前实测平台 | 2026-10-24：Raspberry Pi 5 Model B Rev 1.1，aarch64，约7.7 GiB内存，Ubuntu 24.04.4 LTS |
-| 系统决策 | 现有Ubuntu已成为正式基线，取代旧Lite最终目标；不重装、不为旧要求移除桌面或改变启动目标。历史曾记录graphical.target，该事实不作为本次变更项 |
-| 已验证用户目录 | `/home/campanus` |
-| Git | 当前 SSH 会话中可用，路径 `/usr/bin/git` |
-| Rust 工具链 | 本轮用户级安装 Rust / Cargo 1.88.0，路径 `/home/campanus/.cargo/bin` |
-| Node 工具链 | 本轮实测 Node 24.22.1、npm 11.19.1；M1静态前端运行不依赖Node服务 |
-| 当前应用部署状态 | 2026-10-27 通用安排与常用图片 `25ff608fba7e7a137f86ce0f31fa84382e4ec815` 已部署；门禁工具单独为 `8efb4b10f8e3593361ad28ddaa0a82ee0f0b645e`，见 [本轮验收](general-plans-images-validation.md)。正式 07:00／23:00 作息和日记边界保留，性格 revision4，固定抄诗设置已移除。真实 QQ 外发与最终自动化浏览器重载边界分别记录，配置 / 稳定身份 / 原数据保留 |
-| Web 管理方式 | 当前正式入口 `https://192.168.189.191:8086/admin/`，专用 CA 的局域网 HTTPS 代理；各设备导入根证书后使用原账户登录，见 [验收](lan-https-validation.md) |
+| 默认工作目录 | `D:\DSH`，其他电脑以实际仓库为准 |
+| Git 远端 | `http://8.136.201.30:8418/Campanus/DSH.git`，仅作为代码托管地址 |
+| 正式运行目标 | Windows 原生进程；当前电脑为首个适配与验证目标，无默认远端部署主机 |
+| 本次环境采样 | 2026-10-30：Windows 11 专业版，版本 `10.0.26200`，64 位；其他版本 / 架构需另验 |
+| Rust | 仓库 `rust-toolchain.toml` 固定 1.88.0；当前编译目标为 `x86_64-pc-windows-msvc` |
+| 构建依赖 | MSVC C/C++ Build Tools、Windows SDK、Node.js / npm；Python 验收脚本另需实际可用的解释器 |
+| 开发数据 | `.local/dev`，受 Git 忽略；启动前核验 NTFS ACL，不复用历史生产数据库做冒烟测试 |
+| 启动方式 | PowerShell 前台运行 `dshd.exe serve`；Windows 服务、自启动及自动发布 / 回滚尚未实现 |
+| 默认管理入口 | `http://127.0.0.1:8419/admin/`，Rust 同源提供静态页面与 API |
+| 本次前端结果 | `npm.cmd ci --prefix web/admin` 与 `npm.cmd run build --prefix web/admin` 成功 |
+| 本次后端结果 | `cargo build -p dshd --locked` 失败：执行 `wasm-encoder v0.228.0` 的构建程序时被 Windows 应用程序控制策略阻止，错误 4551；未成功启动服务 |
+| 首次尝试源码 | `79c561e798b5e44e92cb88491336e56b1757d2ab`；之后已同步 Git 远端新实现，本轮仅文档静态检查，未重新构建或启动新源码 |
+| 平台迁移边界 | 旧 Linux worker 隔离、Piper 运行依赖与自动部署方式均未完成 Windows 适配 / 验收 |
 
-SSH 密码使用用户已提供的会话凭证，不在本文件保存。后续可使用本地凭证管理器或 SSH key；不得把真实值写入脚本或提交记录。
+上述采样与首次尝试不是持续健康状态，也不是已发布的 Windows 版本。目标变更不会自动修复本机构建阻塞。由系统管理者核实可信构建程序的执行许可；Agent 不自动关闭、绕过或降低系统安全策略，不用切回树莓派替代 Windows 验收。
 
-本次只读SSH复核确认机型为Raspberry Pi 5 Model B Rev 1.1、系统Ubuntu 24.04.4 LTS、架构aarch64；MemTotal为8,318,562,304字节，采样时MemAvailable为6,726,705,152字节，swap为0。可用内存是2026-10-24本次采样值，不是固定应用配额；每次部署仍需重新核验。历史验收报告 / JSON不追改，其中“Ubuntu临时例外 / Lite最终目标”由本次用户决定取代。
+## 2. 开发前检查与本地启动
 
-## 1. 本地编写与检查
+开始前核对分支、origin 和未提交变更，保留用户内容，不做强制重置或无关清理。检查实际 Windows 版本、CPU 架构、可用内存、磁盘、工具链和原生依赖；不再固定套用 Pi 5 / 8GB / aarch64 的配置。
 
-开始前核对 `git status`、分支和 origin，更新对远端提交的了解；存在用户修改时保留其内容，不做强制重置。
-
-所有源代码修改、测试修复、依赖更新和部署脚本编写在本地完成。检查内容按实际文件确定：
-
-- Markdown：检查链接、代码块与配置示例。
-- Rust：执行当前Cargo workspace适用的格式、编译与测试命令。
-- 部署脚本：检查平台、路径、参数、退出码和秘密配置处理。
-- 依赖 Linux / aarch64 的行为：在远端执行最终验证，不以 Windows 上的静态检查代替。
-- 前端：本地或CI构建 `web/admin` 静态资源并执行相关检查，和Rust API / 制品使用同一发布版本；不将前端开发服务器作为生产服务。
-
-当前 M1 可执行命令见 README。测试区分 Rust 集成、浏览器、模拟 provider 和真实外部账号，不互相替代；对尚未执行的检查明确报告。
-
-功能和界面变更须对应 `docs/architecture.md` 中的目标与信息架构。2026-10-26 用户已明确确认单性格、运行日志与删除“任务与诊断”页，见 [当前契约](assistant-runtime-logs.md)；原型后台 API 保持权限边界，不再挂管理页入口。后续重大架构偏离仍须在实现前说明影响并由用户确认，不能事后改架构替实现背书。
-
-## 2. Git 提交与上传
-
-检查差异，只暂存本次相关文件；提交后推送到本次工作对应的远端分支，不默认覆盖其他分支。记录完整的 `git rev-parse HEAD` 结果，并确认远端分支包含该提交。
-
-一次部署关联一个明确 SHA。若测试后需要修复，产生新提交并再次推送，保留前一轮部署和测试记录。
-
-## 3. SSH 远端准备
-
-通过 `ssh campanus@192.168.189.191` 登录，先核验树莓派5机型、8GB内存对应的实际可用量、aarch64及`/etc/os-release`所示现有Ubuntu系统，再检查目录归属、磁盘空间、工具链与运行依赖。若实际系统与记录不同，先记录差异；本流程不授权重装系统、迁移Lite、移除桌面或改变现有启动目标。SSH连通不等于应用部署通过。
-
-本项目部署根目录为 `/home/campanus/apps/dsh`。每次执行部署脚本前核对目录归属及已有内容，遇到未管理的源代码、服务或修改立即停止，不能覆盖。
-
-建议目录布局：
-
-```text
-/home/campanus/apps/dsh/
-├── repo/                  # 获取已推送提交的 Git 仓库
-├── releases/<commit-sha>/ # 对应固定版本的源码或制品
-├── current                # 指向当前启用的 release
-└── shared/
-    ├── config/            # 真实配置与凭证，独立权限
-    ├── data/              # 数据库、记忆和附件
-    └── logs/              # 日志；也可使用系统日志服务
-```
-
-现有主机若已有 DSH 部署，应沿用并记录其实际目录，不能为了符合布局而迁移或覆盖已有数据。远端拉取 Git 时使用其已有授权；不能假设 Windows 本地的 Git 凭证已自动传递到 Linux。
-
-## 4. 按固定版本部署
-
-1. 记录当前可用 SHA、配置版本、服务状态和数据备份位置。
-2. 确认远端仓库 origin 与目标项目一致，工作区不存在未保存修改。
-3. 获取已经推送的目标提交，在独立 release 中检出该完整 SHA，并核对 `git rev-parse HEAD`。
-4. 在现有Ubuntu 24.04.4 LTS / aarch64目标环境构建，或取得经过验证的Linux aarch64制品及前端静态资源；使用锁定依赖，保存构建结果与SHA的关联。树莓派上构建限制并行度，避免与在线服务争抢内存。
-5. 将真实配置和数据通过独立路径提供，避免制品更新覆盖它们。
-6. 执行实际部署脚本规定的切换与启动，核对进程或健康信息显示的版本。
-7. 测试通过后，将其标记为当前可用版本；失败则按回滚步骤恢复。
-
-`current` 的切换与进程重启需要按实际运行方式协调；不能仅修改指针就报告进程已升级。没有部署脚本、服务名称或启动命令时，应先在本地补齐并上传这些内容，不能猜测后直接操作机器上的其他服务。
-
-## 5. 远端测试
-
-对每次涉及运行行为的改动，先跑对应自动化测试，再启动应用并验证健康状态与本次功能。根据改动范围覆盖渠道消息、记忆读写、Harness、插件或图像与语音链路，不必无目的重复所有高成本外部测试。
-
-Web 管理功能还需验证：远程登录、未登录访问被拒、配置保存与冲突处理、连接测试、应用 / 回退状态，以及密钥不回显。运行期间记录内存、worker 数量和队列状态，确认符合树莓派 5 / 8GB 基线。
-
-失败时获取脱敏日志与错误，回本地修复，再执行“提交 → 推送 → 按新 SHA 部署 → 测试”。远端不直接编辑受 Git 管理的源码、配置模板或测试文件。
-
-每轮报告至少包括：
-
-```text
-目标：campanus@192.168.189.191
-提交：<完整 commit SHA>
-时间：<带时区的部署 / 测试时间>
-源码 / 制品目录：<实际路径>
-构建：<执行命令、退出状态>
-部署：<启动方式、实际运行版本>
-测试：<执行命令、结果、未执行项>
-诊断：<必要日志位置，内容脱敏>
-回滚：<上一可用版本、是否执行、复验结果>
-```
-
-SSH 连通性检查不等于应用部署测试。当前实际部署命令如下，SHA与制品摘要从本地步骤获取，不能自行填入另一分支的移动头。
+在 PowerShell 中逐条执行；上一步成功后再继续：
 
 ```powershell
-# 本地代码通过检查并提交推送后：
-$deployCommit = (git rev-parse HEAD).Trim()
-./deploy/package-web.ps1 -Commit $deployCommit
-# 将输出的 .git/artifacts/admin-<SHA>.tar.gz 复制到远端用户私有缓存。
-scp .git/artifacts/admin-<SHA>.tar.gz campanus@192.168.189.191:/home/campanus/.cache/dsh/
+Set-Location D:\DSH
+git status --short --branch
+git remote -v
+rustc --version
+cargo --version
+node --version
+npm.cmd --version
+npm.cmd ci --prefix web/admin
+npm.cmd run build --prefix web/admin
+cargo build -p dshd --locked
 ```
 
-```sh
-# 远端 repo 首次不存在时先克隆；已有目录须先核验 origin 和工作区。
-mkdir -p /home/campanus/apps/dsh
-git clone http://8.136.201.30:8418/Campanus/DSH.git /home/campanus/apps/dsh/repo
-# 后续部署先fetch，并从目标SHA检出脚本到私有缓存后执行；不得运行未推送脚本。
-git -C /home/campanus/apps/dsh/repo fetch origin
-git -C /home/campanus/apps/dsh/repo show <SHA>:deploy/deploy.sh > /home/campanus/.cache/dsh/deploy.sh
-bash /home/campanus/.cache/dsh/deploy.sh <SHA> /home/campanus/.cache/dsh/admin-<SHA>.tar.gz <SHA256>
-systemctl --user status dsh.service
-journalctl --user -u dsh.service --no-pager -n 30
+先完成编译再生成 15 分钟有效的初始化凭证，避免首次构建耗时使其失效。首次创建管理账户前执行：
+
+```powershell
+& .\target\debug\dshd.exe bootstrap-token --data-dir .local/dev
 ```
 
-部署脚本检出独立 release、在树莓派限并行编译测试、校验前端SHA、切换用户级systemd并核对健康接口中的完整提交。`loginctl enable-linger campanus` 用于退出SSH后继续运行；本轮已开启。失败构建与测试日志保存在 `shared/logs/`；首次部署没有上一应用版本时不能声称已验证跨版本回滚。
+从本机私有的 `.local/dev/bootstrap-token.json` 读取一次性凭证，在浏览器创建管理账户；已有账户直接登录。不要把凭证值输出到日志、聊天、截图或 Git。Windows 管理账户与 DSH Web 管理账户相互独立，没有默认管理口令。
 
-官方 crates.io 连接不稳定时，可在部署命令前设置 `DSH_CARGO_MIRROR=rsproxy` 使用 HTTPS 镜像；仍以 `Cargo.lock` 和下载校验锁定依赖，不修改全局 Cargo 配置或源代码。默认不启用镜像。
+录入真实凭据前，核验数据、secret store、凭证文件与备份的 NTFS ACL，只允许授权运行账户及必要的系统管理主体访问。现有代码中的 Unix `0600` / `0700` 设置不表示 Windows ACL 已配置。
 
-当前 Wasmtime 发布缓存沿用 rsproxy 来源，2026-10-26 的正式 `ad9c13082f511a309db0124ddfffefad540b8ecc` 实际使用下面的单并发命令。继续部署该主机时保持来源一致，可避免重新获取另一注册表的大型依赖；不要把首次索引下载或 SSH 连通记作构建成功。
+启动开发服务：
 
-```sh
-DSH_BUILD_JOBS=1 DSH_CARGO_MIRROR=rsproxy bash /home/campanus/.cache/dsh/deploy.sh <SHA> /home/campanus/.cache/dsh/admin-<SHA>.tar.gz <SHA256>
+```powershell
+& .\target\debug\dshd.exe serve --data-dir .local/dev --listen 127.0.0.1:8419 --origin http://127.0.0.1:8419 --web-dir web/admin/dist
 ```
 
-在私有临时数据库执行黑盒验证：
+保持前台 PowerShell 运行，访问 `http://127.0.0.1:8419/admin/`；使用 `Ctrl+C` 请求正常退出。不要另启一个共用该数据目录的 daemon。生产页面由 Rust 提供，不使用常驻 Vite dev / preview 服务。
 
-```sh
-python3 /home/campanus/apps/dsh/current/source/tools/smoke.py \
-  --binary /home/campanus/apps/dsh/current/bin/dshd \
-  --web-dir /home/campanus/apps/dsh/current/web \
-  --report /home/campanus/apps/dsh/shared/logs/m1-smoke.json
+## 3. 按改动执行必要检查
+
+- 文档 / 规则：检查差异、Markdown 链接、代码块与命令的一致性，不为此重新部署程序。
+- Rust：执行适用的格式、编译与测试；区分 Windows 实际通过、平台专用跳过和失败，不以 Linux 结果填充 Windows 证据。
+- 前端：执行相关测试、类型检查与静态构建，前端资源和管理 API 属于同一版本。
+- 渠道 / 模型 / 媒体：在隔离数据中先做相关模拟检查，再按授权范围做真实集成；模拟平台与真实客户端结果分别记录。
+- 平台适配：检查路径、文件 ACL、原生库、进程树取消 / 退出、并发与资源占用。依赖 Linux 的功能在 Windows 适配通过前保持不可用。
+
+可用检查命令按本次范围选择，不要求文档变更运行全套测试：
+
+```powershell
+cargo fmt --all -- --check
+cargo test --workspace --locked
+npm.cmd test --prefix web/admin
+npm.cmd run build --prefix web/admin
+python -S tools/smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
+python -S tools/assistant-logs-smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
+python -S tools/memory-smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
+python -S tools/summary-smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
+python -S tools/task-triggers-smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
+python -S tools/tests/test_deploy_compatibility.py
 ```
 
-初始化正式管理账户时，在SSH中运行 `current/bin/dshd bootstrap-token --data-dir shared/data`（工作目录为部署根目录），从受限文件复制一次性凭证到Web页面；不要把凭证输出进部署日志或提交到仓库。
+Python 命令须指向实际安装的解释器，不能把 Windows 应用执行别名的存在当成解释器可用。上述检查使用临时私有数据库 / 合成资料；不能代替真实模型、渠道或尚未适配的隔离工作器验收。
 
-### Web 管理访问路径
+## 4. Git 交付与固定版本发布
 
-2026-10-27 用户选择局域网 HTTPS，正式入口为 **[https://192.168.189.191:8086/admin/](https://192.168.189.191:8086/admin/)**，Caddy 用户服务只绑定该私有 IPv4 / 8086，允许 `192.168.189.0/24`；Rust 仍只监听 `127.0.0.1:8419`，健康检查命令保持不变。应用采用精确 HTTPS Origin 与 Secure Cookie，仍须登录并通过原有 CSRF / 授权检查。
+只暂存本次相关文件，遵守当前提交策略，不绕过 Hook、不强推、不重写历史。正式部署前记录完整 `git rev-parse HEAD`，成功推送并核实目标 Git 分支包含该提交。Git 服务器保持原地址；它不要求同时部署到旧树莓派。
 
-从已推送的干净固定提交执行 `python3 deploy/lan_https.py --expected-script-commit <完整配置SHA>`，先跑临时库的真实 TLS / 认证预演，再安装项目专属的 `dsh-https.service` 与 `dsh.service.d/10-lan-https.conf`。配置、证书、备份均在 release 外；应用制品升级不会清除它们。此配置交付沿用已核验的应用二进制与静态资源，不把配置脚本 SHA 冒充重新构建的应用 SHA。
+开发启动可使用工作区版本，但须注明 `development`。正式发布须从干净、已提交且已推送的完整 SHA 构建，设置后端 `DSH_BUILD_SHA` 和前端 `VITE_BUILD_SHA`，分别构建 `cargo build -p dshd --release --locked` 与前端静态资源；完成后恢复本次修改的进程环境变量。前端 [打包脚本](../deploy/package-web.ps1) 可为当前已提交 SHA 构建压缩包与 SHA-256，它不负责部署 Windows 后端。
 
-各客户端首次导入公有根证书；私钥仅存树莓派。具体指纹、实际配置 SHA、测试、恢复路径见 [局域网 HTTPS 验收](lan-https-validation.md)。原 `http://127.0.0.1:18419/admin/` 隧道不是当前生产 Origin；恢复旧入口须同步恢复 Origin、Cookie 和代理配置。跨互联网访问仍优先 VPN 或受控入口，业务 Webhook 与管理入口分别配置。
+Windows 自动发布脚本尚未实现。实际发布前必须补齐并核验以下步骤，不能把建议布局当成已经安装的服务：
 
-## 6. 回滚与数据保留
+1. 核实目标目录归属、已有内容、运行账户、数据 ACL 和启动参数，记录上一可用 Windows SHA、配置版本与备份；首次没有已验证版本则明确标注。
+2. 在独立版本目录放置同一 SHA 的 `dshd.exe`、前端静态资源、发布能力清单及所需原生依赖，记录制品摘要。
+3. 真实配置、SQLite、附件、记忆、日志和模型运行库使用独立持久目录；发布不能覆盖或重建用户数据。
+4. 变更数据库语义前做 SQLite 一致性备份，校验目标 release 的 reader / capability 门禁。旧 Linux 部署脚本中的检查不能因迁移 Windows 而被省略。
+5. 正常停止已核实的本项目进程，按确认的 Windows 参数启动目标 `.exe`；不依靠修改目录指针就声称进程已切换版本。
+6. 验证健康接口的完整 SHA、前端 build ID、管理认证及相关功能；成功才记为可用版本，失败保留诊断并按兼容恢复路径处理。
 
-部署前准备上一可用 release 和恢复步骤。启动、健康检查或关键功能验证失败时，恢复上一版本及对应配置并复验，不删除失败版本的必要诊断记录。
+建议正式目录（规划，尚未创建）如下，使用前仍须核实实际位置：
 
-代码制品可按版本切换，数据库和附件不能随意覆盖。涉及数据迁移时先确定备份和恢复方式；不可逆迁移不能依赖切换旧制品解决。
+```text
+D:\DSH-runtime\
+├── releases\<完整 commit SHA>\  # dshd.exe、静态 web、能力清单与依赖
+└── shared\
+    ├── config\                # 受限真实配置与凭证引用
+    ├── data\                  # SQLite、记忆和附件
+    └── logs\                  # 私有运行与验收日志
+```
 
-保留用户数据、记忆、凭证和其他项目内容；清理只针对已确认属于本项目且允许删除的临时构建或旧制品。
+Windows 服务 / 自启动的注册、运行账户与恢复策略须以后续实际实现和测试为准。当前不虚构服务名称，也不把旧 systemd unit 直接转作 Windows 服务。
 
+## 5. 健康检查、浏览器与交付证据
 
-Wasmtime工厂版本首次构建可设置 `DSH_BUILD_JOBS=1`，降低树莓派8GB上的编译峰值；脚本只接受1或2，默认仍为2。Piper运行依赖由已推送release内的 `deploy/install-piper.sh` 安装到私有shared/speech目录，脚本和模型均固定摘要。工厂guest构建始终通过独立受限worker，不在管理API内执行任意Cargo或系统命令。
+在另一个 PowerShell 中验证：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8419/health/live
+Invoke-RestMethod http://127.0.0.1:8419/health/ready
+```
+
+开发构建可能报告 `commit=development`，不能据此声称正式固定 SHA 发布完成。正式发布核对完整 SHA 后，再验证 `/admin/`、首次设置 / 登录、未登录管理 API 被拒、相关配置生效与密钥不回显。页面变更补充浏览器检查；渠道、记忆、插件或媒体变更补充相应集成。健康通过不代表全部功能可用。
+
+本机直接访问管理地址，无需 SSH。其他设备访问使用受控 HTTPS 反向代理，保持前后端同源、后端 loopback，配置精确 `--origin https://<管理域名>` 和 `--secure-cookie`；管理与公开 Webhook 分别控制，不开放普通局域网 HTTP 管理端口。
+
+运行行为交付记录至少包含：
+
+```text
+目标：<实际 Windows 主机 / 系统版本 / CPU 架构>
+提交：<完整 commit SHA；开发启动注明 development>
+时间：<带时区的部署 / 测试时间>
+制品 / 数据 / 日志目录：<实际绝对路径>
+构建：<前端与后端命令、退出状态、SHA / 摘要>
+启动：<实际启动参数、进程与运行版本，不含秘密>
+测试：<健康 / 浏览器 / 功能结果，失败与未执行项>
+平台边界：<尚未适配或被门禁关闭的功能>
+回滚：<上一兼容 Windows 版本、备份位置、是否执行及复验结果>
+```
+
+构建、进程启动、健康通过和功能验收分开记录；出现策略拦截或测试失败时保留诊断，不能记成通过。按实际 Windows 可用资源压测，保留既有并发上限与空闲回收，不为历史会话常驻工作器。
+
+## 6. Windows 适配待办与历史 Linux 边界
+
+| 范围 | 当前边界 / 后续验证 |
+| --- | --- |
+| Rust 与静态管理页 | 前端本机构建成功；后端构建被策略阻止，启动、认证和相关功能待 Windows 实测 |
+| WAT / Wasmi 原型 | 现有 systemd / cgroup 门禁仅适用 Linux；Windows 执行保持不可用，且无管理页入口 |
+| Component 插件工厂 | 现有 systemd / Landlock / seccomp 隔离仅适用 Linux；Windows 工作器隔离、构建、测试、审批与调用须重新验收，不开放无隔离执行 |
+| 完整 Harness / Python 动作 | 原权限桥与安全边界继续保留为目标，不能通过切换平台自动启用 |
+| Piper TTS | 旧安装脚本及 lock 仅用于 Linux aarch64 / Python 3.12；Windows 解释器、依赖、路径、资源限制、取消和真实合成待适配，未通过时保留文字降级 |
+| 日程 / 日记 / 关系 / 睡眠 | 同步保留既有实现；须在 Windows 验证权限、调度、重启与恢复。`rest_clock` 非 Linux 仅使用进程级 epoch，重启连续性不明时提前唤醒，不计为 Linux 原期限恢复通过 |
+| 正式发布 / 回滚 | Windows 自动脚本与服务管理待实现；数据库 reader / capability、备份与恢复要求继续保留 |
+
+原树莓派 `campanus@192.168.189.191`、`/home/campanus/apps/dsh`、Ubuntu / aarch64、SSH 隧道和 rsproxy 单并发流程只属于历史环境，不再作为默认目标或自动执行步骤。`deploy/deploy.sh`、`deploy/rollback.sh`、`deploy/dsh.service.in`、`deploy/install-piper.sh` 与 `deploy/piper-aarch64-py312.lock` 保留原实现，历史报告与 `docs/validation/` 不改写为 Windows 结果。原部署文档可从 Git 历史查询；独立验收记录保留实际命令与证据。
+
+后续历史应用版本为 `25ff608fba7e7a137f86ce0f31fa84382e4ec815`，门禁工具单独固定 `8efb4b10f8e3593361ad28ddaa0a82ee0f0b645e`，见 [通用安排与图片验收](general-plans-images-validation.md)。2026-10-27 的 `https://192.168.189.191:8086/admin/`、Caddy、专用 CA 和配置恢复见 [历史 HTTPS 验收](lan-https-validation.md)；这些不是当前 Windows 的地址、证书或部署步骤，不自动迁移或复用。
+
+目标变更本身不授权连接、停止或清理旧主机，也不自动迁移历史数据库、附件或凭据。确需迁移数据时另行确认范围、做一致性备份、验证恢复与 Windows 文件权限。代码回滚与数据恢复分别处理；不能通过切换旧二进制、删除新表或降低 reader 标记来绕过兼容门禁。

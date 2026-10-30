@@ -1,12 +1,14 @@
-# DSH：树莓派上的 Rust AI 助手
+# DSH：Windows 上的 Rust AI 助手
 
-正式部署目标是 **`192.168.189.191` 现有树莓派 5、8GB、Ubuntu 24.04.4 LTS / aarch64**。已实现并部署 M0 核心验证和 M1 文本 / Web 管理基础：Rust 服务、真实 Cordis 生命周期、SQLite 持久任务、原生模型 API、QQ 官方接入，以及静态 Vue 管理控制台。
+**用户于 2026-10-30 将正式运行与部署目标改为 Windows，不再部署到树莓派。** 默认工作目录为 `D:\DSH`，使用 Windows 原生 Rust 服务和构建后的静态 Vue 管理页面。本次调整项目规则与部署说明，不代表 Windows 迁移或运行验收已完成。
 
-用户2026-10-24已确认现有Ubuntu为正式基线，不再要求迁移Raspberry Pi OS Lite，也不重装或改变当前主机环境。历史记录中的Lite目标及Ubuntu例外保留原事实，由本次决定取代。实际执行结果见 [M0 记录](docs/m0-validation.md) 和 [部署 / 开发流程](docs/development-workflow.md)。
+M0 核心验证和 M1 文本 / Web 管理基础已有历史 Linux 实现与部署：Rust 服务、Cordis 生命周期、SQLite 持久任务、原生模型 API、QQ 官方接入和静态管理台。历史树莓派 / Ubuntu / Lite 报告保留当时事实，不作为 Windows 测试通过的证据。当前命令、首次启动阻塞和平台适配范围见 [Windows 开发与部署流程](docs/development-workflow.md)。
 
 M0/M1原始部署与真实Harness / QQ联调已通过，历史证据见 [M0/M1验证记录](docs/m0-m1-validation.md)。历史角色卡M1.1的部署版本、回归与真实QQ验证独立记录在 [角色卡验收记录](docs/character-card-validation.md)，不将文档提交SHA当成运行版本。
 
 ## 当前功能范围
+
+以下列出仓库已有实现；相关验收链接记录历史平台结果。依赖 Linux 隔离的插件工厂 / WAT worker，以及 Piper 安装与运行环境，尚未完成 Windows 适配；对应能力在安全条件满足前维持不可用。普通服务、浏览器管理与渠道功能仍须在 Windows 逐项运行验证。
 
 - 作息与整理：配置中的独立作息策略、来源控制许可、定时 / 受控直接入睡与唤醒、接收不中断、原期限恢复、待发布结果复用及有界来源整理；默认关闭，单期超过 16 个来源仍明确 partial。固定部署、Linux / 单次真实模型 / 浏览器证据及未交付范围见 [睡眠发布验收](docs/rest-release-validation.md)。
 - 日程：月 / 周 / 日与议程、重复系列与例外、改期 / 暂停 / 取消、旧触发任务兼容、自主范围与模型预算、授权文本阅读和跨时段续读。视频理解、主动投递与未注册动作保持明确阻断，见 [日程契约](docs/schedule-system.md)。
@@ -48,21 +50,27 @@ CLI 使用 `dshd chat --message "你好"`，或用 `--conversation <ID>` 续接�
 
 在“助手记忆”中管理属于助手的经历与事实；共享条目需明确确认，可跨Web / CLI / QQ使用，私有条目仅在来源账号域内使用，无需把人的跨平台账号绑定。私聊或Web可用 `/memory remember <内容>`、`/memory list`、`/memory show <ID>`、`/memory correct <ID>@<版本> <新内容>`、`/memory forget <ID>@<版本>`；命令不调用模型，群聊和频道只读，角色草稿测试会话不写记忆。遗忘会清空记忆正文 / 旧版 / 索引并停止后续上下文使用相关旧历史，原始聊天消息和离线备份按独立策略保留。详见 [记忆使用与边界](docs/memory.md)。
 
-## 本地运行
+## Windows 本地运行
 
-需要 Rust 1.88、C 编译工具链、Node.js 和 npm。前端只在构建阶段需要 Node，生产静态页面由 Rust 提供。
+需要仓库锁定的 Rust 1.88.0、MSVC C/C++ 编译工具链与 Windows SDK、Node.js 和 npm。前端只在构建阶段需要 Node，生产静态页面由 Rust 提供。在 PowerShell 中执行：
 
 ```powershell
+Set-Location D:\DSH
 npm.cmd ci --prefix web/admin
 npm.cmd run build --prefix web/admin
-cargo test --workspace --locked
-cargo run -p dshd -- bootstrap-token --data-dir .local/dev
-cargo run -p dshd -- serve --data-dir .local/dev --origin http://127.0.0.1:8419
+cargo build -p dshd --locked
+# 以上每步成功后再继续；首次创建管理账户前生成一次性凭证。
+& .\target\debug\dshd.exe bootstrap-token --data-dir .local/dev
+& .\target\debug\dshd.exe serve --data-dir .local/dev --listen 127.0.0.1:8419 --origin http://127.0.0.1:8419 --web-dir web/admin/dist
 ```
 
-打开 `http://127.0.0.1:8419/admin/`，在本地私有的 `.local/dev/bootstrap-token.json` 中读取 15 分钟有效的一次性初始化凭证，创建管理账户。它不使用 Linux SSH 密码，也没有默认管理口令。然后录入自己的模型 API key，保存草稿、校验、连接测试并应用。
+打开 `http://127.0.0.1:8419/admin/`，在本机私有的 `.local/dev/bootstrap-token.json` 中读取 15 分钟有效的一次性初始化凭证，创建管理账户。已有账户直接登录；管理账户独立于 Windows 登录账户，没有默认口令。然后录入自己的模型 API key，保存草稿、校验、连接测试并应用。
 
-凭证文件只供本机用户读取，不要将其上传、粘贴进日志或提交到 Git。模型地址默认要求 HTTPS，拒绝私网地址；本地模拟模型测试显式使用 `--allow-private-model`，生产部署不开启该例外。
+录入真实凭据前核验 `.local/dev` 与凭证文件的 NTFS ACL，只允许授权运行账户及必要的系统管理主体访问；Unix 权限设置不能替代 Windows ACL。凭证不要上传、粘贴进日志或提交到 Git。模型地址默认要求 HTTPS，拒绝私网地址；本地模拟模型测试显式使用 `--allow-private-model`，生产部署不开启该例外。
+
+2026-10-30 在原本地源码 `79c561e` 的首次尝试中，前端已构建成功，后端在执行 `wasm-encoder` 构建程序时被 Windows 应用程序控制策略阻止（错误 4551），服务尚未启动。之后同步的远端新实现尚未重新构建。需由系统管理者处理可信构建程序的执行许可后再验证，不自动关闭或绕过策略，也不回退到树莓派部署。
+
+服务启动后，在另一个 PowerShell 中检查 `Invoke-RestMethod http://127.0.0.1:8419/health/live` 和 `Invoke-RestMethod http://127.0.0.1:8419/health/ready`。前台窗口保持运行，使用 `Ctrl+C` 停止服务。
 
 ## 检查与验收
 
@@ -78,17 +86,19 @@ python -S tools/task-triggers-smoke.py --binary target/debug/dshd.exe --web-dir 
 python -S tools/tests/test_deploy_compatibility.py
 ```
 
-`tools/smoke.py` 会启动真实 Rust 进程、临时数据库和隔离的模拟模型，验证认证、配置、对话去重及重启恢复；它不会使用生产数据或凭证，不能代替真实 DeepSeek / QQ 联调。Linux 将 binary 参数改为实际可执行文件路径。
+`tools/smoke.py` 会启动真实 Rust 进程、临时数据库和隔离的模拟模型，验证认证、配置、对话去重及重启恢复；它不会使用生产数据或凭证，不能代替真实 DeepSeek / QQ 联调。检查须使用实际 Windows `.exe`，Linux 历史通过结果另列。
 
-## 树莓派部署和远程访问
+## Windows 发布与浏览器访问
 
-遵循 [AGENTS.md](AGENTS.md)：本地编写 → 检查 → Git 提交推送 → 固定 SHA 部署 → 远端测试。
+遵循 [AGENTS.md](AGENTS.md)：本地编写 → 检查 → Git 提交推送 → Windows 固定 SHA 构建与部署 → Windows 运行测试 → 记录。仅修改文档时执行静态检查与 Git 交付，不启动或重启应用。
 
-- 部署脚本：[deploy/deploy.sh](deploy/deploy.sh)，使用用户级 systemd，数据与 release 分离。
-- 前端打包：[deploy/package-web.ps1](deploy/package-web.ps1)，为已提交 SHA 构建静态制品并输出 SHA256。
-- 回滚：[deploy/rollback.sh](deploy/rollback.sh)，只切换已有应用 release，不还原数据库或外部动作。
-- 操作步骤及真实部署信息：[开发与部署流程](docs/development-workflow.md)。
+- 当前 Windows 启动方式为上述 PowerShell 前台命令；Windows 服务、自启动和自动发布 / 回滚脚本尚未实现。
+- 正式发布须分离代码制品与持久配置 / 数据 / 日志，绑定前后端完整 SHA 并验证数据库兼容性，详见 [开发与部署流程](docs/development-workflow.md)。
+- [前端打包脚本](deploy/package-web.ps1) 可为已提交 SHA 生成静态资源压缩包；它本身不会部署或启动 Windows 后端。
+- `deploy/deploy.sh`、`deploy/rollback.sh`、systemd 模板及 aarch64 Piper 安装文件保留为历史 Linux 实现，不再是默认执行步骤。
 
-正式局域网入口为 **[https://192.168.189.191:8086/admin/](https://192.168.189.191:8086/admin/)**。各设备首次使用需导入经 SSH 取得的专用根证书，再使用原管理账户登录。证书摘要、安装方法、访问范围与实际检查见 [HTTPS 8086 验收](docs/lan-https-validation.md)。Rust 后端仍仅监听本机 8419；原 18419 HTTP 隧道不再是正式管理 Origin，开发默认值保留。
+本机直接访问 `http://127.0.0.1:8419/admin/`，无需 SSH。其他设备访问时使用受控 HTTPS 反向代理，保持前后端同源，配置对应 `--origin https://<管理域名>` 和 `--secure-cookie`，后端继续监听 loopback；不要将管理端口直接暴露为普通局域网 HTTP。
 
-QQ 按 [最新官方指南](https://bot.q.qq.com/wiki/) 设置连接方式：个人树莓派默认选择 WebSocket，在页面录入 AppID / AppSecret，按实际账号权限订阅和测试；Webhook 才需要额外配置公网 HTTPS 回调。
+旧树莓派的 HTTPS / 8086 入口与证书安装记录仅保留为 [历史验收](docs/lan-https-validation.md)，不是 Windows 默认访问地址；本次不迁移该主机的证书、配置或用户数据。
+
+QQ 按 [最新官方指南](https://bot.q.qq.com/wiki/) 设置连接方式：Windows 个人部署默认选择 WebSocket，在页面录入 AppID / AppSecret，按实际账号权限订阅和测试；Webhook 才需要额外配置公网 HTTPS 回调。

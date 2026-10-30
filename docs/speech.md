@@ -1,5 +1,7 @@
 # Piper 本地语音合成
 
+> 2026-10-30 起正式目标为 Windows，不再部署到树莓派。下述 Piper 安装脚本、aarch64 lock、默认 `venv/bin/python` 路径和 Unix 资源限制属于现有 Linux 实现。Windows 解释器、锁定依赖、路径、资源限制、取消与真实中文合成须另行适配和验收；未通过时保持语音不可用并保留文字降级。流程见 [Windows 开发与部署](development-workflow.md)。
+
 本文描述本次实现契约；部署 SHA、中文合成实测和 QQ 客户端结果以本轮独立验收记录为准，不由本文代替验收。语音识别与实时通话未随本切片交付。
 
 ## 数据与执行路径
@@ -38,9 +40,9 @@ Web 不提供任意可执行路径、模型路径或 shell 参数。部署级 `D
 | `GET /api/admin/v1/speech/assets/{id}` | 仅制品 owner 读取 WAV；跨 owner、过期或失效为 404 |
 | `DELETE /api/admin/v1/speech/assets/{id}` | owner 清理音频，需既有 Origin / CSRF 校验 |
 
-## 依赖与部署
+## 历史 Linux 依赖与部署
 
-`deploy/install-piper.sh` 仅支持已确认目标 Linux aarch64 / Python 3.12，安装到 `/home/campanus/apps/dsh/shared/speech`，不修改应用配置、源代码或既有数据，不要求 sudo。执行前先提交推送，并从固定 SHA release 运行：
+`deploy/install-piper.sh` 仅支持历史 Linux aarch64 / Python 3.12，安装到 `/home/campanus/apps/dsh/shared/speech`，不修改应用配置、源代码或既有数据，不要求 sudo。它不适用 Windows，不再作为当前默认安装步骤；以下命令仅记录当时从已推送固定 SHA release 安装的方式：
 
 ```sh
 bash /home/campanus/apps/dsh/releases/<SHA>/source/deploy/install-piper.sh
@@ -56,10 +58,10 @@ Piper 引擎标记为 GPL-3.0-or-later；中文 huayan 模型卡将训练数据�
 
 无模型时可验证禁用、鉴权、CSRF、字段约束、配置冲突和缺失运行时：
 
-```sh
-python3 tools/speech-smoke.py --binary <dshd> --web-dir <web> --report <private-report.json>
+```powershell
+python -S tools/speech-smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist --report .local/speech-smoke-windows.json
 ```
 
-实机中文合成增加 `--runtime-root /home/campanus/apps/dsh/shared/speech/piper-1.8.0`。脚本使用独立临时数据库和合成验收文字，不读取生产会话或平台凭据；覆盖实际 WAV、摘要与时长、跨 owner 拒绝、无原文日志、worker 退出、显式清理与过期剪枝。它不代替 QQ 真实上传与客户端播放验收。
+历史 Linux 中文合成检查增加 `--runtime-root /home/campanus/apps/dsh/shared/speech/piper-1.8.0`，不能直接照搬到 Windows。完成 Windows 运行时适配后再更新并执行真实合成命令。脚本使用独立临时数据库和合成验收文字，不读取生产会话或平台凭据；覆盖实际 WAV、摘要与时长、跨 owner 拒绝、无原文日志、worker 退出、显式清理与过期剪枝。它不代替 QQ 真实上传与客户端播放验收。
 
 参考： [Piper 官方 CLI](https://github.com/OHF-Voice/piper1-gpl/blob/v1.8.0/docs/CLI.md)、[官方 Python API](https://github.com/OHF-Voice/piper1-gpl/blob/v1.8.0/docs/API_PYTHON.md)、[引擎许可元数据](https://github.com/OHF-Voice/piper1-gpl/blob/v1.8.0/setup.py)、[固定声音模型卡](https://huggingface.co/rhasspy/piper-voices/blob/5041a7a49ae5b3a0f30e6837769eb03fdbb231bd/zh/zh_CN/huayan/medium/MODEL_CARD)、[QQ 当前富媒体消息说明](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/rich-media.html)。
