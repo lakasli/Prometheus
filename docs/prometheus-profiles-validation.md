@@ -21,3 +21,30 @@
 首轮专项发现字段/边 INSERT 占位符数量错误，已修正并复测；联系许可创建采用实际 revision1，避免用只接受正整数的 If-Match 发送0。开发测试还修正了异步密码散列夹具和旧记忆更新使用 PUT 的契约。浏览器首轮下拉框标签定位超时，补充明确的 aria-label 后14项通过，移动截图已查看。失败记录分别保存在忽略目录测试日志，不删除或计为通过。
 
 **人物逻辑仍未全部迁移。** 从显式日记生成字段/关系候选的专用持久作业、受来源证明的真实互动好感、来源撤销后的分段账本重放、自动归因和好友观察仍待办。已有通用模型人物草稿只保留旧审核能力，不等于这些专用流程。正式实例没有真实模型/渠道配置；合成模型、协议与数据库夹具不证明真实 QQ/微信身份核对、外发、外部模型、规模或长期运行。Windows worker 原阻塞保留，语音/Harness/Python/Component 执行继续禁用。
+
+## 固定 Windows 交付
+
+最终应用 **`9b65f076f29d978adf947a01b193140119631da6`**，已提交、推送并由 `git ls-remote --heads origin codex/prometheus-typescript` 核实完整 SHA。基础实现 `dc0617cbfd13c48b1426a0230e19d0128290c1b5` 先通过固定检查并运行；最终复核补上图和版本历史读取时的即时到期检查，按新 SHA 重新打包、测试、完整备份和切换。没有修改已生成的制品。后续文档提交只保存证据，不改变运行 SHA。
+
+05:46:30+08:00 核验 Windows11 Pro 10.0.26200 x64、Core Ultra7 155H/22逻辑CPU、总内存31.6GiB/可用11.7GiB、D盘可用409.4GiB，Node24.22.1/npm12.2.1/PowerShell7.6.5。此批只构建 Node 应用，没有重做原生 worker 编译或运行，不将历史探针结果记为本批隔离通过。
+
+| 阶段       | 实际命令与结果                                                                                                                                                                                                                                                                                                                                                          |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 本地       | 类型检查、前后端构建、Prettier与diff静态检查通过。全量114项及浏览器14项通过；即时到期修复后人物专项12项通过。没有把新增用例后的完整115项报告为已执行。                                                                                                                                                                                                                  |
+| 固定包     | `pwsh -NoProfile -File deploy/prometheus/package-windows.ps1 -Commit 9b65f076f29d978adf947a01b193140119631da6 -PreviousVerifiedCommit dc0617cbfd13c48b1426a0230e19d0128290c1b5` 退出0；Git archive、锁定依赖、同SHA前后端和生产依赖通过，manifest标schema8。ZIP SHA256：`4a481f456e4e7f0f65d6eb3986121c7a2e5aabff73b5f56b7f5098f436663f03`。                            |
+| 发布检查   | `node deploy/prometheus/verify-release.mjs <最终runtime>` 18项通过，退出0；合成模型往返不记为外部模型。                                                                                                                                                                                                                                                                 |
+| 固定回归   | 设置 `PROMETHEUS_RELEASE_ROOT=<最终runtime>`，运行 `node --test --test-concurrency=1 apps/server/test/profiles.test.mjs apps/server/test/diary.test.mjs apps/server/test/affinity.test.mjs`：36项通过、0失败/跳过，约15.3秒，退出0。35项通过固定服务HTTP/进程内夹具，1项民用时间纯函数使用本地dist；安全/ACL/严格JSON辅助和少量构造场景的直接方法仍来自本地，分别记账。 |
+| 固定浏览器 | 同一环境变量下 `npm run test:e2e --workspace @prometheus/admin`：14项通过，约19.2秒，退出0，使用实际固定前后端。                                                                                                                                                                                                                                                        |
+| 正式访问   | 05:51:30+08:00 包内 `Start-Prometheus.ps1 -DataDir D:/DSH/.local/prometheus/instance` 核对制品后前台启动，Node PID9372；live/ready与前端build.json均为最终SHA/schema8。14个匿名管理API均401，包括图、人物及字段/边历史。既有账户登录页无JavaScript错误；未索取用户密码、未代登录。                                                                                      |
+
+### 完整备份、升级与恢复
+
+05:47:32+08:00，schema7运行版b8c4708无在途Run/整理/投递，渠道关闭。Ctrl+C打印 `Prometheus stopped`；Node PID10032、锁及8419监听消失，外层PowerShell退出1，保留实际退出状态。完整备份9文件至 `.local/prometheus/backups/instance-2026-10-30T21-47-33-088Z-b7bb86c7-cdba-4b1d-aa1b-f5b4b7455850`，含数据库、主密钥和已有快照，integrity_check=ok。
+
+最终SHA在独立私有目录 `.local/prometheus/recovery-drills/bd5c6bdb-20ef-4b04-a318-a05591f01b93` 恢复这份完整schema7备份；仅在此副本通过旧版加入合成凭据、草稿、人物/分值49.125/固定点余数321、记忆、日程及真实schema7日记事件/周期。实际新包18469 ready并升级8，原正文/版本、规则账本、草稿和凭据解密均保留，不推测建立已核实字段或账号绑定。自动schema7快照integrity_check=ok，旧b8c4708 Store拒绝schema8。在另一私有目录 `recovery-drills/61ab945d-2047-4c8d-b9c9-7dead5ad6c6b` 恢复未加合成内容的完整schema7备份，旧b8c4708实际ready后关闭。以上步骤退出0。
+
+05:51:25+08:00，切换最终修复前再次核对中间版dc0617c/PID16612的命令行和空闲状态，正常退出并确认PID/锁/端口消失；完整schema8备份10文件至 `.local/prometheus/backups/instance-2026-10-30T21-51-25-549Z-f03cd30f-fca3-4299-a320-2c8d38709ebe`。将其完整恢复至 `recovery-drills/fad1b9fa-42e8-49c8-9f49-027d60d292a3`，实际上一版dc0617c在18469 ready，schema8/稳定身份/管理员/主密钥哈希及integrity_check通过后正常关闭，退出0。最终包在正式目录同schema8切换，没有覆盖或恢复正式数据库。
+
+两轮备份、恢复和正式实例均通过原生NTFS ACL检查。切换前后稳定身份、管理员1、records/Run/消息/凭据0、配置/性格revision1、渠道关闭与主密钥哈希一致；人物新增表为空，正式实例没有合成资料进入，现有日记采集/模型许可未扩大。05:51:44+08:00复核正式ready与本机WSL旧Rust `df6429cbceb8f16504efe9464c1abbbdb4a67e29` 的18439 ready；WSL仅用于对照，不代替Windows验收。
+
+私有证据：`.local/prometheus/release-validation/reports/9b65f076f29d978adf947a01b193140119631da6.json`、`.local/prometheus/upgrade-evidence/9b65f07/drill.json`、`production.json`、`.local/prometheus/profiles-schema8-rollback.json`，以及该SHA的package/回归/浏览器日志。正式 `deployment.json` 保存最终SHA、上一运行版dc0617c、最新完整备份和恢复目录。旧schema7升级演练与schema8上一版恢复分开记录。
