@@ -191,6 +191,9 @@ function validateAction(value: unknown): Json {
   };
 }
 export class Automation {
+  onRestConsolidate?: (cycle: string) => void;
+  diaryRestPending?: (cycle: string) => boolean;
+  onRestEnd?: (cycle: string) => void;
   onScheduleTick?: () => void;
   get workClockTrusted() {
     return this.clockTrusted && !this.stopped;
@@ -498,6 +501,7 @@ export class Automation {
       if (action === "wake") {
         if (status.state.id)
           this.knowledge.stopCycle(`rest:${status.state.id}:`);
+        if (status.state.id) this.onRestEnd?.(String(status.state.id));
         if (status.state.id)
           this.store.run(
             "UPDATE rest_cycles SET phase='awake',revision=revision+1,completed_at=?,result='已唤醒' WHERE id=?",
@@ -575,6 +579,7 @@ export class Automation {
     if (current) {
       if (Number(current.wake_at) <= now()) {
         this.knowledge.stopCycle(`rest:${current.id}:`);
+        this.onRestEnd?.(String(current.id));
         this.store.run(
           "UPDATE rest_cycles SET phase='awake',revision=revision+1,completed_at=?,result='按原期限唤醒' WHERE id=?",
           now(),
@@ -601,8 +606,12 @@ export class Automation {
           "SELECT id FROM model_jobs WHERE idempotency_key LIKE ? AND status IN ('queued','running')",
           `rest:${current.id}:%`,
         );
-        if (!pending || Number(current.drain_until) <= now()) {
+        if (
+          (!pending && !this.diaryRestPending?.(String(current.id))) ||
+          Number(current.drain_until) <= now()
+        ) {
           this.knowledge.stopCycle(`rest:${current.id}:`);
+          this.onRestEnd?.(String(current.id));
           this.store.run(
             "UPDATE rest_cycles SET phase='asleep',revision=revision+1 WHERE id=?",
             String(current.id),
@@ -646,6 +655,10 @@ export class Automation {
     }
   }
   private consolidateRest(cycle: string) {
+    if (this.onRestConsolidate) {
+      this.onRestConsolidate(cycle);
+      return;
+    }
     const actor = this.store.get(
       "SELECT id FROM admins ORDER BY created_at LIMIT 1",
     )?.id;

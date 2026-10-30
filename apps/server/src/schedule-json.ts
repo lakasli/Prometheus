@@ -3,7 +3,7 @@ import { bad } from "./errors.ts";
 export function strictModelJson(input: string): unknown {
   let text = input.trim();
   if (text.startsWith("```")) {
-    const match = /^```json\s*\r?\n([\s\S]*?)\r?\n```$/.exec(text);
+    const match = /^```(?:json)?[\t ]*\r?\n([\s\S]*?)\r?\n```$/i.exec(text);
     if (!match) throw bad("规划输出不是完整JSON", "planning_invalid_json");
     text = match[1]!.trim();
   }

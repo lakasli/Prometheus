@@ -12,6 +12,7 @@ import { hash } from "./security.ts";
 import { ConversationContext } from "./context.ts";
 import { Relationships } from "./relationships.ts";
 import { Schedule } from "./schedule-work.ts";
+import { Diary } from "./diary.ts";
 
 export interface FeatureResult {
   data: unknown;
@@ -29,6 +30,7 @@ export class Features {
   readonly conversationContext: ConversationContext;
   readonly relationships: Relationships;
   readonly schedule: Schedule;
+  readonly diary: Diary;
   constructor(
     readonly store: Store,
     readonly runtime: Runtime,
@@ -55,11 +57,43 @@ export class Features {
         this.automation.workClockTrusted &&
         this.automation.restStatus().state.phase === "awake",
     );
-    this.automation.onScheduleTick = () => this.schedule.tick();
+    this.diary = new Diary(
+      store,
+      runtime,
+      this.knowledge,
+      allowLoopback,
+      () => this.automation.workClockTrusted,
+      (task) => {
+        const state = this.automation.restStatus().state;
+        return (
+          state.phase === "awake" ||
+          (state.phase === "draining" && task.state === "running") ||
+          (state.phase === "consolidating" && task.cycle_id === state.id)
+        );
+      },
+    );
+    this.knowledge.onScopeInvalidated = (scope) =>
+      this.diary.scopeChanged(scope);
+    this.automation.onScheduleTick = () => {
+      this.diary.tick();
+      this.schedule.tick();
+    };
+    this.automation.onRestConsolidate = (cycle) =>
+      this.diary.prepareRest(cycle);
+    this.automation.diaryRestPending = (cycle) => this.diary.restPending(cycle);
+    this.automation.onRestEnd = (cycle) => this.diary.stopCycle(cycle);
+    runtime.records.protectMutation = (id) => {
+      if (store.get("SELECT id FROM diary_entries WHERE id=?", id))
+        throw bad(
+          "此日记由来源账本管理，请在日记周期入口更正或遗忘",
+          "canonical_diary_action_required",
+        );
+    };
     runtime.records.validateSchedule = (owner, data, id) =>
       this.schedule.checkSimple(owner, data, id);
     runtime.onInvalidation = (owner, change) => {
       this.knowledge.invalidateOwner(owner, change);
+      this.diary.sourceChanged(owner, change);
       if (change?.action === "forgotten") this.relationships.forget(change.id);
       if (change?.action === "created") this.relationships.created(change.id);
     };
@@ -233,6 +267,7 @@ export class Features {
     }
   }
   async stop() {
+    await this.diary.stop();
     await this.schedule.stop();
     this.relationships.affinity.stop();
     this.media.stop();
@@ -241,7 +276,7 @@ export class Features {
     await this.knowledge.stop();
   }
   matches(path: string) {
-    return /^\/(schedule|channels|knowledge|automation|context|rest|media|plugins|relationships|qq\/api)(?:\/|$)/.test(
+    return /^\/(diary|schedule|channels|knowledge|automation|context|rest|media|plugins|relationships|qq\/api)(?:\/|$)/.test(
       path,
     );
   }
@@ -253,6 +288,68 @@ export class Features {
     url: URL,
     readBody: () => Promise<unknown>,
   ): Promise<FeatureResult> {
+    if (path === "/diary/status" && method === "GET")
+      return { data: this.diary.status(admin.id) };
+    if (path === "/diary/export" && method === "GET")
+      return { data: this.diary.export(admin.id, url.searchParams) };
+    if (path === "/diary/policies" && method === "GET")
+      return { data: this.diary.policies(admin.id) };
+    if (path === "/diary/policies" && method === "POST")
+      return {
+        status: 201,
+        data: this.diary.savePolicy(admin.id, await readBody()),
+      };
+    const diaryPolicy = /^\/diary\/policies\/([a-f0-9-]{36})$/.exec(path);
+    if (diaryPolicy && method === "PATCH")
+      return {
+        data: this.diary.savePolicy(
+          admin.id,
+          await readBody(),
+          diaryPolicy[1]!,
+          revision(request.headers["if-match"]),
+        ),
+      };
+    if (path === "/diary/events" && method === "GET")
+      return { data: this.diary.events(admin.id, url.searchParams) };
+    if (path === "/diary/events" && method === "POST")
+      return {
+        status: 201,
+        data: this.diary.createEvent(
+          admin.id,
+          await readBody(),
+          request.headers["idempotency-key"],
+        ),
+      };
+    const diaryEvent = /^\/diary\/events\/([a-f0-9-]{36})$/.exec(path);
+    if (diaryEvent && method === "GET")
+      return { data: this.diary.eventDetail(admin.id, diaryEvent[1]!) };
+    if (diaryEvent && ["PATCH", "DELETE"].includes(method))
+      return {
+        data: this.diary.changeEvent(
+          admin.id,
+          diaryEvent[1]!,
+          revision(request.headers["if-match"]),
+          method === "DELETE" ? {} : await readBody(),
+          method === "DELETE",
+        ),
+      };
+    if (path === "/diary/entries" && method === "GET")
+      return { data: this.diary.entries(admin.id, url.searchParams) };
+    if (path === "/diary/consolidate" && method === "POST")
+      return { data: this.diary.consolidate(admin.id, await readBody()) };
+    const diaryEntry = /^\/diary\/entries\/([a-f0-9-]{36})$/.exec(path);
+    if (diaryEntry && method === "GET")
+      return { data: this.diary.entry(admin.id, diaryEntry[1]!) };
+    if (diaryEntry && ["PATCH", "DELETE"].includes(method))
+      return {
+        data: this.diary.changeEntry(
+          admin.id,
+          diaryEntry[1]!,
+          revision(request.headers["if-match"]),
+          method === "DELETE" ? {} : await readBody(),
+          method === "DELETE",
+        ),
+      };
     if (path === "/schedule/calendar" && method === "GET")
       return { data: this.schedule.calendar(admin.id, url.searchParams) };
     if (path === "/schedule/activities" && method === "GET")

@@ -495,7 +495,10 @@ export class Runtime {
         now(),
         id,
       );
-      const memory = isolated ? "" : this.records.context(owner);
+      const selectedRecords = isolated
+        ? { text: "", refs: [], diary_json_bytes: 0 }
+        : this.records.nativeContext(owner, String(row.input));
+      const memory = selectedRecords.text;
       const summary = isolated ? "" : (this.getSummary?.(conversation) ?? "");
       const visual =
         (await this.describeMedia?.(id, config, controller.signal)) ?? "";
@@ -632,6 +635,8 @@ export class Runtime {
             input_bytes: Buffer.byteLength(JSON.stringify(messages)),
             history_messages: turns.length,
             memory_included: !!memory,
+            record_sources: selectedRecords.refs,
+            diary_json_bytes: selectedRecords.diary_json_bytes,
             summary_included: !!summary,
             isolated: !!isolated,
           }),

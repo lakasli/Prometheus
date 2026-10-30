@@ -9,7 +9,12 @@ const provider = createServer(async (request, response) => {
   const input = JSON.parse(raw);
   const system = String(input.messages?.[0]?.content ?? "");
   let content = "合成浏览器回复。";
-  if (system.includes('"candidates"'))
+  if (system.startsWith("PROMETHEUS_DIARY_GENERATOR_V2"))
+    content = JSON.stringify({
+      facts: "浏览器固定来源的完整日记归并。",
+      feelings: "独立的合成感受。",
+    });
+  else if (system.includes('"candidates"'))
     content = JSON.stringify({
       candidates: [{ content: "浏览器选中的来源中可以核实的合成事实。" }],
     });

@@ -10,7 +10,9 @@ import {
   object,
   string,
 } from "./errors.ts";
-import { complete } from "./model.ts";
+import { completeWithMetadata } from "./model.ts";
+import { strictModelJson } from "./schedule-json.ts";
+import { diaryBounds, diaryDate } from "./diary-time.ts";
 import { hash, now } from "./security.ts";
 import type { Config } from "./config.ts";
 import type { Runtime } from "./runtime.ts";
@@ -48,6 +50,10 @@ export class Knowledge {
   private lastCapture = 0;
   canRun?: (row: Row) => boolean;
   saveTriggerDraft?: (owner: string, output: Json) => string;
+  onScopeInvalidated?: (scope: string) => void;
+  invalidateRecord(id: string) {
+    this.invalidateDerived("record", id);
+  }
   constructor(
     readonly store: Store,
     readonly runtime: Runtime,
@@ -197,6 +203,16 @@ export class Knowledge {
         id,
       );
       if (!row) throw missing();
+      if (
+        this.store.get(
+          "SELECT id FROM diary_events WHERE origin_kind='message' AND origin_id=? AND (deleted_at IS NOT NULL OR revision>1) LIMIT 1",
+          id,
+        )
+      )
+        throw bad(
+          "该原文已由日记更正、遗忘或撤权，保留原聊天仅供核对",
+          "source_invalidated",
+        );
       if (
         this.store.get(
           "SELECT run_id FROM local_runs WHERE run_id=?",
@@ -354,6 +370,18 @@ export class Knowledge {
     if (new Set(sources.map((ref) => ref.owner)).size > 1)
       throw bad("不同私有来源不能混合整理，请分别创建任务");
     const options = object(input.options ?? {});
+    if (kind === "diary") {
+      fields(options, ["date", "period"]);
+      const bounds = diaryBounds(
+        options.period ?? "day",
+        options.date ?? diaryDate(now(), "Asia/Shanghai"),
+        "Asia/Shanghai",
+      );
+      if (bounds.date > diaryDate(now(), "Asia/Shanghai"))
+        throw bad("不能整理未来经历");
+      options.date = bounds.date;
+      options.period = bounds.period;
+    }
     if (Buffer.byteLength(JSON.stringify(options)) > 16000)
       throw bad("整理选项过长");
     if (
@@ -509,7 +537,7 @@ export class Knowledge {
             { data },
             undefined,
             undefined,
-            kind === "diary" ? "model_reviewed" : "manual",
+            kind === "diary" || kind === "memory" ? "model_reviewed" : "manual",
           );
           saved.push(record.id);
           for (const ref of refs) {
@@ -654,6 +682,7 @@ export class Knowledge {
       }
     }
     this.invalidateDerived("grant", scope);
+    this.onScopeInvalidated?.(scope);
     this.store.run(
       "DELETE FROM summaries WHERE conversation_id IN (SELECT id FROM conversations WHERE coalesce(source_key,id)=?)",
       scope,
@@ -746,11 +775,7 @@ export class Knowledge {
       automatic_summary: false,
       max_daily_calls: 32,
     });
-    if (
-      policy.value.automatic_diary !== true &&
-      policy.value.automatic_summary !== true
-    )
-      return;
+    if (policy.value.automatic_summary !== true) return;
     const actor = this.store.get(
       "SELECT id FROM admins ORDER BY created_at LIMIT 1",
     )?.id;
@@ -778,7 +803,7 @@ export class Knowledge {
         )
         .reverse();
       if (rows.length < 4) continue;
-      for (const kind of ["summary", "diary"].filter(
+      for (const kind of ["summary"].filter(
         (kind) =>
           policy.value[
             kind === "summary" ? "automatic_summary" : "automatic_diary"
@@ -893,7 +918,7 @@ export class Knowledge {
         String(row.kind),
         state.options ?? {},
       );
-      const response = await complete(
+      const response = await completeWithMetadata(
         config,
         this.store.secret(config.model.credential_ref!, "model_api_key"),
         [
@@ -917,9 +942,19 @@ export class Knowledge {
         ]),
         this.loopback,
       );
+      if (
+        row.kind === "diary" &&
+        !["stop", "missing"].includes(response.finish_reason)
+      )
+        throw bad(
+          response.finish_reason === "length"
+            ? "模型日记已截断，未保存推测结果"
+            : "模型日记未正常结束",
+          "diary_output_incomplete",
+        );
       const output = this.validateOutput(
         String(row.kind),
-        this.store.redact(response),
+        this.store.redact(response.content),
         state.options ?? {},
       );
       if (
@@ -1021,9 +1056,7 @@ export class Knowledge {
   private validateOutput(kind: string, response: string, options: Json): Json {
     let value: Json;
     try {
-      value = object(
-        JSON.parse(response.replace(/^```(?:json)?\s*|\s*```$/g, "")),
-      ) as Json;
+      value = object(strictModelJson(response)) as Json;
     } catch {
       throw bad("模型返回的整理JSON无效");
     }
@@ -1039,6 +1072,12 @@ export class Knowledge {
       };
     }
     if (kind === "diary") {
+      fields(value, ["title", "date", "period", "facts", "feelings"]);
+      if (
+        [...String(value.facts ?? "")].length > 900 ||
+        [...String(value.feelings ?? "")].length > 160
+      )
+        throw bad("模型日记输出超过字符预算");
       const period = String(options.period ?? value.period ?? "day");
       if (!["day", "week", "month"].includes(period)) throw bad("日记周期无效");
       return {

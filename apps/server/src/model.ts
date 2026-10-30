@@ -179,14 +179,16 @@ export function requestJson(
     request.end(payload);
   });
 }
-export async function complete(
+export type ModelFinishReason =
+  "stop" | "length" | "tool_calls" | "content_filter" | "missing" | "other";
+export async function completeWithMetadata(
   config: Config,
   key: string,
   messages: ModelMessage[],
   signal: AbortSignal,
   allowLoopback = false,
   maxTokens = 4096,
-): Promise<string> {
+): Promise<{ content: string; finish_reason: ModelFinishReason }> {
   const base = modelUrl(config.model.base_url, allowLoopback);
   base.pathname = `${base.pathname.replace(/\/+$/, "")}/chat/completions`;
   const response = (await requestJson(
@@ -201,7 +203,10 @@ export async function complete(
     signal,
     allowLoopback,
   )) as {
-    choices?: { message?: { content?: unknown; tool_calls?: unknown } }[];
+    choices?: {
+      message?: { content?: unknown; tool_calls?: unknown };
+      finish_reason?: unknown;
+    }[];
   };
   const message = response?.choices?.[0]?.message;
   if (
@@ -215,5 +220,31 @@ export async function complete(
       "invalid_model_response",
       "模型未返回有效的文字回复",
     );
-  return message.content;
+  const raw = response.choices?.[0]?.finish_reason;
+  const finish_reason: ModelFinishReason =
+    raw == null
+      ? "missing"
+      : ["stop", "length", "tool_calls", "content_filter"].includes(String(raw))
+        ? (raw as ModelFinishReason)
+        : "other";
+  return { content: message.content, finish_reason };
+}
+export async function complete(
+  config: Config,
+  key: string,
+  messages: ModelMessage[],
+  signal: AbortSignal,
+  allowLoopback = false,
+  maxTokens = 4096,
+): Promise<string> {
+  return (
+    await completeWithMetadata(
+      config,
+      key,
+      messages,
+      signal,
+      allowLoopback,
+      maxTokens,
+    )
+  ).content;
 }

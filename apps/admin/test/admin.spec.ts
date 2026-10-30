@@ -1000,3 +1000,142 @@ test("civil calendar, scoped edits, authorized reading and work goals operate th
   expect(revoked.notes).toHaveLength(0);
   expect(revoked.progress).toBeNull();
 });
+
+test("diary events, immutable period coverage, explicit model permission and recursive forgetting work in management pages", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.getByRole("button", { name: "日记", exact: true }).click();
+  const ledger = page.locator(".diary-ledger");
+  await expect(
+    ledger.getByRole("heading", { name: "日记周期与来源覆盖", exact: true }),
+  ).toBeVisible();
+  await ledger
+    .getByLabel("发生的民用时间", { exact: true })
+    .fill("2026-09-15T12:00");
+  await ledger
+    .getByLabel("事件正文", { exact: true })
+    .fill("浏览器明确保存并核对的九月事件。");
+  await ledger
+    .getByRole("button", { name: "保存明确事件", exact: true })
+    .click();
+  await expect(ledger.getByRole("status")).toContainText("事件已保存");
+  await ledger.getByLabel("整理日期", { exact: true }).fill("2026-09-15");
+  await ledger
+    .getByRole("button", { name: "准备这个日记周期", exact: true })
+    .click();
+  const detail = ledger.locator(".diary-detail");
+  await expect(detail).toContainText("浏览器明确保存并核对的九月事件");
+  await expect(detail).toContainText("1条真实来源");
+  let p: any, entry: any;
+  const state = await (
+    await page.request.get("/api/admin/v1/diary/policies")
+  ).json();
+  p = state.items.find(
+    (p: any) => p.source_key.startsWith("self:") && p.visibility === "private",
+  );
+  entry = (
+    await (
+      await page.request.get(
+        `/api/admin/v1/diary/entries?policy_id=${p.id}&date=2026-09-15&period=day`,
+      )
+    ).json()
+  ).items[0];
+  expect(entry.version.generator).toBe("evidence_excerpt_v1");
+  await ledger.getByText("日期整理与模型许可", { exact: true }).click();
+  await ledger
+    .getByLabel("允许本分区的资料发送给模型整理", { exact: true })
+    .check();
+  await ledger
+    .getByRole("button", { name: "保存日期分区许可", exact: true })
+    .click();
+  await expect(ledger.getByRole("status")).toContainText("分区范围已保存");
+  await ledger
+    .getByLabel("同时请求已获授权的模型整理", { exact: true })
+    .check();
+  await ledger
+    .getByRole("button", { name: "准备这个日记周期", exact: true })
+    .click();
+  await expect
+    .poll(async () => {
+      entry = await (
+        await page.request.get(`/api/admin/v1/diary/entries/${entry.id}`)
+      ).json();
+      return entry.task.state;
+    })
+    .toBe("completed");
+  await detail
+    .getByRole("button", { name: "刷新所选周期状态", exact: true })
+    .click();
+  await expect(detail).toContainText("浏览器固定来源的完整日记归并");
+  expect(entry.coverage.complete_raw).toBe(true);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page
+      .locator("body")
+      .evaluate((node) => node.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await detail.screenshot({
+    path: resolve(
+      "../../.local/prometheus/screenshots/diary-coverage-mobile.png",
+    ),
+    animations: "disabled",
+  });
+  await ledger
+    .getByRole("button", { name: "更正这条事件", exact: true })
+    .filter({ visible: true })
+    .first()
+    .click();
+  await ledger
+    .getByLabel("事件正文", { exact: true })
+    .fill("浏览器人工更正后的九月事件。");
+  await ledger
+    .getByRole("button", { name: "保存事件更正", exact: true })
+    .click();
+  await expect(ledger.getByRole("status")).toContainText("事件已保存");
+  const invalid = await (
+    await page.request.get(`/api/admin/v1/diary/entries/${entry.id}`)
+  ).json();
+  expect(invalid.state).toBe("invalidated");
+  expect(
+    invalid.versions.every((v: any) => v.facts === null && v.feelings === null),
+  ).toBe(true);
+  await ledger
+    .getByRole("button", { name: "准备这个日记周期", exact: true })
+    .click();
+  await expect
+    .poll(async () => {
+      const r = await (
+        await page.request.get(`/api/admin/v1/diary/entries/${entry.id}`)
+      ).json();
+      return r.task.state;
+    })
+    .toBe("completed");
+  page.once("dialog", (dialog) => dialog.accept());
+  await ledger
+    .locator(".job-card")
+    .filter({ hasText: "浏览器人工更正后的九月事件。" })
+    .getByRole("button", { name: "遗忘这条事件", exact: true })
+    .click();
+  await expect(ledger.getByRole("status")).toContainText("事件已遗忘");
+  const forgotten = await (
+    await page.request.get(`/api/admin/v1/diary/entries/${entry.id}`)
+  ).json();
+  expect(forgotten.state).toBe("invalidated");
+  expect(forgotten.version.facts).toBeNull();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await ledger
+    .getByLabel("事件正文", { exact: true })
+    .fill("不会保存的临时草稿");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "运行总览", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "运行总览", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "日记", exact: true }).click();
+  await expect(
+    page.locator(".diary-ledger").getByLabel("事件正文", { exact: true }),
+  ).toHaveValue("");
+  expect(errors).toEqual([]);
+});

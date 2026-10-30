@@ -69,6 +69,13 @@ function payload(
         throw bad("日记日期无效");
       if (!["day", "week", "month"].includes(String(period)))
         throw bad("日记周期无效");
+      if (
+        date >
+        new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(
+          new Date(),
+        )
+      )
+        throw bad("不能保存未来经历的日记");
       const sources = data.sources ?? [];
       if (!Array.isArray(sources) || sources.length > 128)
         throw bad("日记来源最多128条");
@@ -166,6 +173,10 @@ const item = (row: Row): RecordItem => ({
   updated_at: Number(row.updated_at),
 });
 export class Records {
+  protectMutation?: (id: string) => void;
+  invalidateDependents(id: string) {
+    this.clearDependents(id, false);
+  }
   validateSchedule?: (
     owner: string,
     data: Record<string, unknown>,
@@ -261,6 +272,8 @@ export class Records {
       throw bad("共享资料须显式确认发布");
     const data = payload(type, body.data, this.store, owner);
     if (type === "diary") data.generator = provenance;
+    if (type === "memory" && provenance === "model_reviewed")
+      data.generator = provenance;
     if (
       visibility === "shared" &&
       ["diary", "relationships", "skills", "schedule", "people"].includes(type)
@@ -268,6 +281,7 @@ export class Records {
       throw bad("此类资料当前仅支持私有保存");
     return this.store.transaction(() => {
       const current = id ? this.get(type, id, owner) : null;
+      if (id) this.protectMutation?.(id);
       if (current && current.revision !== expected) throw conflict();
       if (type === "schedule") this.validateSchedule?.(owner, data, id);
       const count = Number(
@@ -320,6 +334,7 @@ export class Records {
   forget(type: RecordKind, id: string, owner: string, expected: number) {
     return this.store.transaction(() => {
       const current = this.get(type, id, owner);
+      this.protectMutation?.(id);
       if (current.revision !== expected) throw conflict();
       if (
         type === "people" &&
@@ -393,18 +408,96 @@ export class Records {
         );
   }
   context(owner: string): string {
+    return this.nativeContext(owner, "").text;
+  }
+  nativeContext(owner: string, query: string) {
     const rows = this.store.all(
       "SELECT * FROM records WHERE deleted_at IS NULL AND kind='memory' AND (owner_id=? OR visibility='shared') ORDER BY updated_at DESC LIMIT 20",
       owner,
     );
     const selected: string[] = [];
+    const refs: {
+      id: string;
+      revision: number;
+      kind: string;
+      selection_reason: string;
+    }[] = [];
     let bytes = 0;
     for (const row of rows) {
       const line = `[来源 ${String(row.id)}；${String(row.visibility)}] ${String(object(JSON.parse(String(row.payload))).content)}`;
       if (bytes + Buffer.byteLength(line) > 20000) break;
       selected.push(line);
+      refs.push({
+        id: String(row.id),
+        revision: Number(row.revision),
+        kind: "memory",
+        selection_reason: "recent_explicit_memory",
+      });
       bytes += Buffer.byteLength(line);
     }
-    return selected.join("\n");
+    const prefix = (value: string, limit: number) => {
+      let text = "",
+        bytes = 0;
+      for (const char of value) {
+        bytes += Buffer.byteLength(char);
+        if (bytes > limit) break;
+        text += char;
+      }
+      return text;
+    };
+    const phrase = prefix(query.trim(), 200),
+      token = '"' + phrase.replaceAll('"', '""') + '"';
+    let diaries =
+      phrase && [...phrase].length >= 3
+        ? this.store.all(
+            "SELECT * FROM records WHERE kind='diary' AND deleted_at IS NULL AND (owner_id=? OR visibility='shared') AND rowid IN (SELECT rowid FROM record_fts WHERE record_fts MATCH ?) ORDER BY updated_at DESC,rowid DESC LIMIT 4",
+            owner,
+            token,
+          )
+        : [];
+    const reason = diaries.length ? "lexical_match" : "recent_visible_day";
+    if (!diaries.length)
+      diaries = this.store.all(
+        "SELECT * FROM records WHERE kind='diary' AND deleted_at IS NULL AND (owner_id=? OR visibility='shared') AND json_extract(payload,'$.period')='day' ORDER BY json_extract(payload,'$.date') DESC,updated_at DESC,rowid DESC LIMIT 4",
+        owner,
+      );
+    const snapshots: Record<string, unknown>[] = [];
+    for (const row of diaries) {
+      const data = object(JSON.parse(String(row.payload))),
+        facts = String(data.content ?? ""),
+        feelings = String(data.feelings ?? ""),
+        item = {
+          id: String(row.id),
+          revision: Number(row.revision),
+          visibility: String(row.visibility),
+          date: data.date,
+          period: data.period,
+          generator: data.generator,
+          selection_reason: reason,
+          period_closed: data.period_closed ?? null,
+          coverage_complete: data.coverage_complete ?? null,
+          facts: prefix(facts, 1100),
+          feelings: prefix(feelings, 240),
+          facts_truncated: Buffer.byteLength(facts) > 1100,
+          feelings_truncated: Buffer.byteLength(feelings) > 240,
+        };
+      if (Buffer.byteLength(JSON.stringify([...snapshots, item])) > 8000) break;
+      snapshots.push(item);
+      refs.push({
+        id: String(row.id),
+        revision: Number(row.revision),
+        kind: "diary",
+        selection_reason: reason,
+      });
+    }
+    if (snapshots.length)
+      selected.push(
+        `[有来源的日记；事实与主观感受分开；recent_visible_day仅表示近期可见资料，不能称为问题命中] ${JSON.stringify(snapshots)}`,
+      );
+    return {
+      text: selected.join("\n"),
+      refs,
+      diary_json_bytes: Buffer.byteLength(JSON.stringify(snapshots)),
+    };
   }
 }

@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { api, ApiError, setCsrf } from "./api";
 import ChannelsPanel from "./components/ChannelsPanel.vue";
 import KnowledgePanel from "./components/KnowledgePanel.vue";
+import DiaryPanel from "./components/DiaryPanel.vue";
 import AutomationPanel from "./components/AutomationPanel.vue";
 import RestPanel from "./components/RestPanel.vue";
 import MediaPanel from "./components/MediaPanel.vue";
@@ -195,13 +196,15 @@ const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const baseline = ref("");
 const draftWorking = ref(false);
 const scheduleDirty = ref(false),
-  workDirty = ref(false);
+  workDirty = ref(false),
+  diaryDirty = ref(false);
 const scheduleCalendar = ref<InstanceType<typeof CalendarPanel>>();
 const dirty = computed(
   () =>
     draftWorking.value ||
     scheduleDirty.value ||
     workDirty.value ||
+    diaryDirty.value ||
     editor.value ||
     (page.value === "personality" &&
       baseline.value !== JSON.stringify(personality)) ||
@@ -402,6 +405,7 @@ async function navigate(next: Page) {
     return;
   editor.value = false;
   page.value = next;
+  scheduleDirty.value = workDirty.value = diaryDirty.value = false;
   menuOpen.value = false;
   error.value = "";
   notice.value = "";
@@ -1137,13 +1141,15 @@ onUnmounted(() => {
                 感受：{{ item.data.feelings }}
               </p>
               <small v-if="item.kind === 'diary'" class="muted">{{
-                item.data.generator === "model_reviewed"
-                  ? "模型整理 · 已人工审核（来源见整理记录）"
-                  : `人工记录 · ${item.data.sources.length} 条资料引用`
+                item.data.canonical_diary
+                  ? `${item.data.generator.startsWith("model:") ? "模型全量归并" : item.data.generator === "manual" ? "人工修订" : "宿主来源记录"} · ${item.data.source_count} 条来源 · ${item.data.coverage_complete ? "覆盖完成" : "覆盖未完成"}`
+                  : item.data.generator === "model_reviewed"
+                    ? "模型整理 · 已人工审核（来源见整理记录）"
+                    : `人工记录 · ${item.data.sources.length} 条资料引用`
               }}</small>
               <footer>
                 <small>{{ date(item.updated_at) }}</small>
-                <div>
+                <div v-if="!item.data.canonical_diary">
                   <button class="text-button" @click="openEditor(item)">
                     编辑</button
                   ><button class="text-button danger" @click="forget(item)">
@@ -1460,6 +1466,12 @@ onUnmounted(() => {
         </section>
         <ChannelsPanel v-if="page === 'channels'" @error="failure" />
         <MediaPanel v-if="page === 'channels'" @error="failure" />
+        <DiaryPanel
+          v-if="page === 'diary'"
+          @error="failure"
+          @dirty="diaryDirty = $event"
+          @changed="task(loadPage)"
+        />
         <KnowledgePanel v-if="page === 'diary'" @error="failure" />
         <AutomationPanel v-if="page === 'schedule'" @error="failure" />
         <RestPanel v-if="page === 'models'" @error="failure" />

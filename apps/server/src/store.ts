@@ -49,12 +49,14 @@ export class Store {
           .get()?.value
       : undefined;
     if (tables.length) {
-      if (!["1", "2", "3", "4", "5", "6"].includes(String(previousSchema))) {
+      if (
+        !["1", "2", "3", "4", "5", "6", "7"].includes(String(previousSchema))
+      ) {
         this.database.close();
         throw new Error("Unsupported Prometheus schema; do not downgrade");
       }
     }
-    if (tables.length && previousSchema !== "6") {
+    if (tables.length && previousSchema !== "7") {
       const backupDir = privateDirectory(join(path, "backups"));
       const target = join(
         backupDir,
@@ -102,7 +104,7 @@ export class Store {
         now(),
       );
       this.run(
-        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','6') ON CONFLICT(key) DO UPDATE SET value='6'",
+        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','7') ON CONFLICT(key) DO UPDATE SET value='7'",
       );
       if (
         previousSchema &&
@@ -118,6 +120,15 @@ export class Store {
       );
       this.run(
         "UPDATE schedule_occurrences SET status='partial',block_reason='restart_checkpoint',fence=NULL WHERE status='running'",
+      );
+      this.run(
+        "UPDATE diary_attempts SET status='interrupted',config_json=NULL,error_code='service_restarted',finished_at=? WHERE finished_at IS NULL",
+        now(),
+      );
+      this.run(
+        "UPDATE diary_tasks SET state=CASE WHEN failures+1>=3 THEN 'failed' ELSE 'queued' END,failures=failures+1,next_at=?,error_code='restart_checkpoint',updated_at=? WHERE state='running' OR state='interrupted' AND cycle_id IS NULL",
+        now() + 60,
+        now(),
       );
       this.run(
         "INSERT OR IGNORE INTO metadata(key,value) VALUES('assistant.identity',?)",
@@ -430,6 +441,10 @@ export class Store {
       ) ||
       this.get(
         "SELECT id FROM schedule_attempts WHERE config_json IS NOT NULL AND instr(config_json,?)>0",
+        id,
+      ) ||
+      this.get(
+        "SELECT id FROM diary_attempts WHERE config_json IS NOT NULL AND instr(config_json,?)>0",
         id,
       )
     )
