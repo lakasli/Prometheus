@@ -20,3 +20,30 @@ schema5新增affinity_states、affinity_policy_history、affinity_event_details�
 开发首轮新增合并选择框缺独立可访问名称，补充aria-label后浏览器11项通过（约12.5秒），截图已查看，390px无横向溢出。从根目录运行旧恢复用例还发现依赖cwd的路径，改为相对import.meta.url解析，不改变备份约束。停机用例遇到真实秒边界的正常衰减，初次精确常量断言失败42.999989≠43；改为按恢复实际时间核对固定点精确公式，并保留重复离线区间不再扣减的独立断言。首次格式器对Vue文件返回UNKNOWN写入失败，同一原路径重试及格式检查通过，未变更系统策略。最终后端与固定部署计数完成后追加。
 
 最终开发后端67项通过、0失败/跳过，约35.2秒；类型、前后端构建、格式和本批diff检查通过。固定制品与正式实例验收另行记录。
+
+## 固定Windows发布结果
+
+应用固定 **`782a9828e15985b4d0df4437085ccd8a5b40d263`**，已推送origin/codex/prometheus-typescript并由ls-remote核实。上一可用Windows版本`52b3f2013a87962f92c3c9f5bad7319aab01e59e`。本报告后续提交只保存证据，不代表另一运行版本。
+
+Windows11 Pro 10.0.26200 x64、Intel Core Ultra7 155H/22逻辑CPU、约31.6GiB内存，切换前可用约12.0GiB；Node24.22.1、npm12.2.1、PowerShell7.6.5。固定探针使用MSVC14.44.35207/SDK10.0.26100.0，仅编译，未重做隔离执行，原阻塞和执行门禁保留。
+
+| 检查         | 结果                                                                                                                                                                                                                       |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 固定源码构建 | 本SHA Git archive、锁文件安装、同SHA前后端及探针编译、生产依赖安装通过，退出0；release.json记录data_schema5。                                                                                                              |
+| ZIP          | SHA256 `876eee1dd9474168afb12dd1fcab55766083f7181a2062428a6ff677024eb522`。                                                                                                                                                |
+| 固定包       | verify-release.mjs的18项通过，退出0。                                                                                                                                                                                      |
+| 针对性回归   | PROMETHEUS_RELEASE_ROOT绑定runtime，affinity/configuration两文件14项通过，约3.9秒。13项通过固定服务HTTP/进程内夹具，1项schema3直接Store夹具使用本地构建；不混记。affinity的schema4夹具通过固定服务升级，另有完整恢复演练。 |
+| 固定包浏览器 | 11项通过，约12.6秒，退出0；涵盖人工调整、保留账本的合并/拆分、规则历史和移动布局。                                                                                                                                         |
+| 正式访问     | live/ready均完整SHA与schema5，前端build.json同SHA；10个匿名管理API均401，含人物、规则及历史。既有账户登录页无JavaScript错误，没有使用用户密码或代登录。                                                                    |
+
+### 停机、完整恢复与实际切换
+
+2026-10-31T03:08:34+08:00核对旧PID25568、命令行、数据锁与52b3f20健康SHA；无Run/整理/投递在途，渠道关闭。Ctrl+C前台退出记录为`Prometheus stopped`，Node、锁和8419监听消失。外层PowerShell退出1，保留为实际退出状态；不将空闲退出计作正式在途取消证明。
+
+03:08:43+08:00完整备份6个文件成功，含数据库、主密钥、旧快照与部署元数据，integrity_check=ok；路径`.local/prometheus/backups/instance-2026-10-30T19-08-43-836Z-76b6dd72-8e2b-4d19-9b99-678d3add221b`。备份与恢复目录NTFS ACL通过，没有覆盖既有备份或正式数据。
+
+03:08:45+08:00，两版制品与备份逐文件哈希通过。在独立私有目录`recovery-drills/4033c1e3-07f9-4539-b533-3a4fcb6a2d19`恢复完整schema4实例，仅向这个副本加入合成未应用草稿与人物（自定义策略revision3、初值10和旧调整+2）。实际新包18469 ready并升级5；草稿基准/内容/创建时间、人物资料和分值12、自定义规则revision3均保留，自动schema4快照仍可读。随后实际旧52b3f20 Store拒绝schema5。向另一私有目录`recovery-drills/7d1d520e-122c-419b-9cae-fbd5f6bc0969`恢复未加合成数据的完整schema4备份，旧包在18469 ready并关闭。所有目录均位于`.local/prometheus/`内。
+
+03:08:54+08:00正式包内Start-Prometheus.ps1核对全部制品哈希后前台启动，Node PID25844，入口`http://127.0.0.1:8419/admin/`。升级前后稳定身份、管理员1、资料/Run/消息/凭据0、配置/性格revision1及主密钥哈希一致；人物/账本/草稿/操作均无合成资料进入正式实例。当前库、自动schema4快照integrity_check=ok，NTFS ACL通过。
+
+私有证据位于`.local/prometheus/release-validation/reports/782a9828e15985b4d0df4437085ccd8a5b40d263.json`、`.local/prometheus/upgrade-evidence/782a982/drill.json`与`production.json`，正式deployment.json记录本SHA、上一版、备份及验收。WSL原Rust的df6429c在18439仍ready，仅供对照。无真实模型/渠道配置，本批仍为合成模型/协议与隔离数据验证；没有真实互动来源、QQ/微信外发、外部模型、Windows worker、规模或长期运行的通过结论。
