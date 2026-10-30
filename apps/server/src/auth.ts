@@ -27,6 +27,25 @@ export interface Admin {
   csrf_token: string;
 }
 const cookieName = "prometheus_session";
+function readBootstrap(path: string): { token: string; expires_at: number } {
+  try {
+    const record = JSON.parse(readFileSync(path, "utf8"));
+    if (
+      !record ||
+      typeof record.token !== "string" ||
+      !/^[0-9a-f]{64}$/.test(record.token) ||
+      !Number.isSafeInteger(record.expires_at)
+    )
+      throw new Error();
+    return { token: record.token, expires_at: record.expires_at };
+  } catch {
+    throw new ApiError(
+      403,
+      "bootstrap_invalid",
+      "当前实例的初始化凭证文件无效，请按页面命令重新生成",
+    );
+  }
+}
 export function bootstrapToken(dataDir: string): string {
   privateDirectory(dataDir);
   const path = join(dataDir, "bootstrap-token.json"),
@@ -53,11 +72,33 @@ export class Authentication {
   }
   status() {
     const initialized = !!this.store.get("SELECT id FROM admins LIMIT 1");
+    const path = join(this.store.dataDir, "bootstrap-token.json");
+    let state: "missing" | "invalid" | "expired" | "ready" = "missing",
+      expires: number | null = null;
+    if (!initialized && existsSync(path)) {
+      try {
+        const record = readBootstrap(path);
+        expires = record.expires_at;
+        state = expires <= now() ? "expired" : "ready";
+      } catch {
+        state = "invalid";
+      }
+    }
     return {
       initialized,
       bootstrap_required: !initialized,
       name: "Prometheus",
       version: "0.1.0",
+      ...(!initialized
+        ? {
+            bootstrap_hint: {
+              file_path: path,
+              generate_command: `npm.cmd run bootstrap -- --data-dir '${this.store.dataDir.replaceAll("'", "''")}'`,
+              state,
+              expires_at: expires,
+            },
+          }
+        : {}),
     };
   }
   require(request: IncomingMessage, mutation = false): Admin {
@@ -124,30 +165,32 @@ export class Authentication {
       throw new ApiError(
         403,
         "bootstrap_required",
-        "请先在本机终端生成一次性初始化凭证",
+        "当前实例还没有初始化凭证，请按页面命令在本机生成",
       );
-    const record = JSON.parse(readFileSync(path, "utf8")) as {
-      token: string;
-      expires_at: number;
-    };
+    const record = readBootstrap(path);
+    if (record.expires_at <= now())
+      throw new ApiError(
+        403,
+        "bootstrap_expired",
+        "当前实例的初始化凭证已过期，请按页面命令重新生成",
+      );
     if (
-      !Number.isSafeInteger(record.expires_at) ||
-      record.expires_at <= now() ||
       !secureEqual(
         record.token,
         string(body.bootstrap_token, "初始化凭证", 64, 64),
       )
     )
-      throw new ApiError(403, "bootstrap_forbidden", "初始化凭证错误或已过期");
+      throw new ApiError(
+        403,
+        "bootstrap_forbidden",
+        "初始化凭证与当前运行实例不匹配，请使用页面显示文件中的token字段",
+      );
     const encoded = await passwordHash(password),
       id = randomUUID();
     this.store.transaction(() => {
       if (this.status().initialized)
         throw new ApiError(409, "already_initialized", "实例已初始化，请登录");
-      const current = JSON.parse(readFileSync(path, "utf8")) as {
-        token: string;
-        expires_at: number;
-      };
+      const current = readBootstrap(path);
       if (current.token !== record.token || current.expires_at <= now())
         throw new ApiError(
           403,

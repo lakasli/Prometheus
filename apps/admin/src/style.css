@@ -957,6 +957,24 @@ label > small {
   text-align: center;
   margin-top: 25px;
 }
+.bootstrap-help {
+  margin: 8px 0 20px;
+  padding: 14px;
+  background: var(--color-bg, #f7f8f2);
+  border: 1px solid #e5e5d9;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.65;
+}
+.bootstrap-help p {
+  margin: 5px 0;
+}
+.bootstrap-help code {
+  display: block;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-size: 11px;
+}
 @media (min-width: 1700px) {
   .content {
     padding-top: 45px;

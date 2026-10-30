@@ -160,6 +160,81 @@ test("authentication, exact Host/Origin, CSRF, bootstrap expiry and cookie prope
     200,
   );
 });
+test("bootstrap guidance binds to the active instance, distinguishes mismatch and expiry, and exposes no token", async (t) => {
+  const app = await fixture();
+  t.after(() => app.close());
+  const initial = (await app.call("/auth/status")).data;
+  assert.equal(initial.bootstrap_hint.state, "missing");
+  assert.equal(
+    initial.bootstrap_hint.file_path,
+    join(app.dataDir, "bootstrap-token.json"),
+  );
+  assert.ok(
+    initial.bootstrap_hint.generate_command.includes(
+      `--data-dir '${app.dataDir.replaceAll("'", "''")}'`,
+    ),
+  );
+  const path = bootstrapToken(app.dataDir),
+    record = JSON.parse(readFileSync(path, "utf8")),
+    input = {
+      username: "tester",
+      password: "Synthetic-password-2026!",
+      bootstrap_token: record.token,
+    };
+  const ready = await app.call("/auth/status");
+  assert.equal(ready.data.bootstrap_hint.state, "ready");
+  assert.equal(JSON.stringify(ready.data).includes(record.token), false);
+  const wrong = record.token[0] === "0" ? "1".repeat(64) : "0".repeat(64);
+  const rejected = await app.call("/auth/bootstrap", "POST", {
+    ...input,
+    bootstrap_token: wrong,
+  });
+  assert.equal(rejected.status, 403);
+  assert.equal(rejected.data.error.code, "bootstrap_forbidden");
+  assert.match(rejected.data.error.message, /当前运行实例不匹配/);
+  assert.equal(app.store.get("SELECT count(*) AS n FROM admins").n, 0);
+  writeFileSync(path, JSON.stringify({ ...record, expires_at: 1 }));
+  assert.equal(
+    (await app.call("/auth/status")).data.bootstrap_hint.state,
+    "expired",
+  );
+  assert.equal(
+    (await app.call("/auth/bootstrap", "POST", input)).data.error.code,
+    "bootstrap_expired",
+  );
+  writeFileSync(path, "{not-json");
+  assert.equal(
+    (await app.call("/auth/status")).data.bootstrap_hint.state,
+    "invalid",
+  );
+  assert.equal(
+    (await app.call("/auth/bootstrap", "POST", input)).data.error.code,
+    "bootstrap_invalid",
+  );
+  await app.bootstrap();
+  assert.equal((await app.call("/auth/status")).data.bootstrap_hint, undefined);
+  assert.equal(existsSync(path), false);
+  await app.call("/auth/logout", "POST", {});
+  assert.equal((await app.call("/auth/me")).status, 401);
+  assert.equal(
+    (
+      await app.call("/auth/login", "POST", {
+        username: "tester",
+        password: "Wrong-synthetic-password",
+      })
+    ).status,
+    401,
+  );
+  assert.equal(
+    (
+      await app.call("/auth/login", "POST", {
+        username: "tester",
+        password: "Synthetic-password-2026!",
+      })
+    ).status,
+    200,
+  );
+});
 test("secrets are encrypted, write-only, type-checked, and excluded from exports", async (t) => {
   const app = await fixture();
   t.after(() => app.close());

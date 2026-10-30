@@ -136,6 +136,13 @@ const username = ref(""),
     confirmation: "",
     bootstrap_token: "",
   });
+interface BootstrapHint {
+  file_path: string;
+  generate_command: string;
+  state: "missing" | "invalid" | "expired" | "ready";
+  expires_at: number | null;
+}
+const bootstrapHint = ref<BootstrapHint | null>(null);
 const error = ref(""),
   notice = ref(""),
   busy = ref(false),
@@ -266,14 +273,12 @@ async function task(action: () => Promise<void>) {
 async function initialize() {
   error.value = "";
   try {
-    const state = await api<{ initialized: boolean }>(
-      "/auth/status",
-      "GET",
-      undefined,
-      undefined,
-      controller.signal,
-    );
+    const state = await api<{
+      initialized: boolean;
+      bootstrap_hint?: BootstrapHint;
+    }>("/auth/status", "GET", undefined, undefined, controller.signal);
     if (!state.initialized) {
+      bootstrapHint.value = state.bootstrap_hint ?? null;
       authState.value = "setup";
       return;
     }
@@ -297,6 +302,16 @@ async function initialize() {
     }
   }
 }
+async function refreshBootstrap() {
+  await task(async () => {
+    const state = await api<{
+      initialized: boolean;
+      bootstrap_hint?: BootstrapHint;
+    }>("/auth/status");
+    bootstrapHint.value = state.bootstrap_hint ?? null;
+    if (state.initialized) authState.value = "login";
+  });
+}
 async function login() {
   await task(async () => {
     if (
@@ -304,6 +319,13 @@ async function login() {
       authForm.password !== authForm.confirmation
     )
       throw new Error("两次密码输入不一致");
+    if (authState.value === "setup") {
+      authForm.bootstrap_token = authForm.bootstrap_token.trim();
+      if (!/^[0-9a-f]{64}$/i.test(authForm.bootstrap_token))
+        throw new Error(
+          "请只填写JSON文件中的token字段（64位），不要填写文件路径或整段JSON",
+        );
+    }
     const data = await api<{ user: { username: string }; csrf_token: string }>(
       authState.value === "setup" ? "/auth/bootstrap" : "/auth/login",
       "POST",
@@ -655,11 +677,56 @@ onUnmounted(() => {
                 autocomplete="off"
                 required
               /><small
-                >在本机运行 npm run
-                bootstrap，从提示的私有文件读取。15分钟有效。</small
+                >只复制JSON中的token字段，15分钟有效。此凭证仅用于首次创建账户；之后使用用户名和密码登录。</small
               ></label
             ></template
-          ><button class="primary wide" :disabled="busy">
+          >
+          <section
+            v-if="authState === 'setup' && bootstrapHint"
+            class="bootstrap-help"
+            aria-label="当前实例初始化指引"
+          >
+            <p>当前运行实例的凭证文件：</p>
+            <code data-testid="bootstrap-file">{{
+              bootstrapHint.file_path
+            }}</code>
+            <p :class="bootstrapHint.state === 'ready' ? 'muted' : 'error'">
+              {{
+                {
+                  ready: "文件中的凭证当前有效",
+                  expired: "凭证已过期，需要重新生成",
+                  missing: "尚未生成此实例的凭证",
+                  invalid: "凭证文件无效，需要重新生成",
+                }[bootstrapHint.state]
+              }}<template v-if="bootstrapHint.expires_at">
+                · 到期：{{
+                  new Date(bootstrapHint.expires_at * 1000).toLocaleString(
+                    "zh-CN",
+                    { timeZone: "Asia/Shanghai" },
+                  )
+                }}（上海时间）</template
+              >
+            </p>
+            <details>
+              <summary>生成或更新此实例的凭证</summary>
+              <p>在项目根目录的本机 PowerShell 中运行：</p>
+              <code data-testid="bootstrap-command">{{
+                bootstrapHint.generate_command
+              }}</code>
+              <p>
+                不同数据目录的凭证不能互用；开发目录dev的凭证不能用于正式目录instance。
+              </p>
+            </details>
+            <button
+              type="button"
+              class="text-button"
+              :disabled="busy"
+              @click="refreshBootstrap"
+            >
+              刷新凭证状态
+            </button>
+          </section>
+          <button class="primary wide" :disabled="busy">
             {{
               busy
                 ? "正在连接…"

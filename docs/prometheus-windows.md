@@ -11,13 +11,15 @@ npm.cmd ci --ignore-scripts
 npm.cmd run build
 npm.cmd test
 npm.cmd run test:e2e --workspace @prometheus/admin
-npm.cmd run bootstrap
+npm.cmd run bootstrap -- --data-dir .local/prometheus/dev
 npm.cmd start
 ```
 
 要求 Node.js 24.7–24.x；正式打包使用 PowerShell7。浏览器测试需要已安装的 Playwright Chromium。缺少浏览器时按其官方流程安装；执行被阻止时保留诊断，不关闭系统安全策略。
 
 管理入口为 `http://127.0.0.1:8419/admin/`。初始化命令只显示私有文件路径，凭证15分钟有效；无默认密码。开发数据为 `.local/prometheus/dev`，不导入旧 dsh.db。ACL 使用原生 icacls / SDDL 检查当前目录及文件，只允许运行账户、SYSTEM和管理员。Windows PowerShell5的Get-Acl模块在本机无法自动加载，因此程序不依赖该模块；未变更安全策略。
+
+初始化页显示当前运行实例的凭证文件、到期时间和带准确`--data-dir`的生成命令，未初始化时仅返回这些必要指引，不返回token。已建立账户后不再返回这些路径。开发dev和正式instance的凭证不能互用；只粘贴JSON的token字段，创建账户后用用户名/密码登录。
 
 ## 固定版本发布
 

@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
-import { readFileSync, mkdirSync } from "node:fs";
+import { readFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 test.describe.configure({ mode: "serial" });
 const password = "Synthetic-browser-password-2026!";
@@ -13,16 +14,61 @@ test("first-run setup consumes an actual one-time credential", async ({
   const state = JSON.parse(
     readFileSync(resolve("../../.local/prometheus/e2e-state.json"), "utf8"),
   );
-  const token = JSON.parse(readFileSync(state.tokenFile, "utf8")).token;
+  const record = JSON.parse(readFileSync(state.tokenFile, "utf8"));
+  let token = record.token;
+  await expect(page.getByTestId("bootstrap-file")).toHaveText(state.tokenFile);
+  await page.getByText("生成或更新此实例的凭证", { exact: true }).click();
+  await expect(page.getByTestId("bootstrap-command")).toContainText(
+    `--data-dir '${state.dataDir}'`,
+  );
   await page.getByLabel("用户名", { exact: true }).fill("browser");
   await page.getByLabel("密码", { exact: true }).fill(password);
   await page.getByLabel("确认密码", { exact: true }).fill(password);
+  await page.getByLabel("一次性初始化凭证").fill(JSON.stringify(record));
+  await page.getByRole("button", { name: "创建空间" }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "不要填写文件路径或整段JSON",
+  );
+  await page
+    .getByLabel("一次性初始化凭证")
+    .fill(token[0] === "0" ? "1".repeat(64) : "0".repeat(64));
+  await page.getByRole("button", { name: "创建空间" }).click();
+  await expect(page.getByRole("alert")).toContainText("当前运行实例不匹配");
+  writeFileSync(state.tokenFile, JSON.stringify({ ...record, expires_at: 1 }));
+  await page.getByRole("button", { name: "刷新凭证状态" }).click();
+  await expect(
+    page.getByText("凭证已过期，需要重新生成", { exact: false }),
+  ).toBeVisible();
   await page.getByLabel("一次性初始化凭证").fill(token);
+  await page.getByRole("button", { name: "创建空间" }).click();
+  await expect(page.getByRole("alert")).toContainText("初始化凭证已过期");
+  token = randomBytes(32).toString("hex");
+  writeFileSync(
+    state.tokenFile,
+    JSON.stringify({ token, expires_at: Math.floor(Date.now() / 1000) + 900 }),
+  );
+  await page.getByRole("button", { name: "刷新凭证状态" }).click();
+  await expect(
+    page.getByText("文件中的凭证当前有效", { exact: false }),
+  ).toBeVisible();
+  await page.getByLabel("一次性初始化凭证").fill(` ${token} `);
   await page.getByRole("button", { name: "创建空间" }).click();
   await expect(
     page.getByRole("heading", { name: "运行总览", exact: true }),
   ).toBeVisible();
   await expect(page.locator(".local-badge")).toHaveText("Windows 本机");
+  expect(existsSync(state.tokenFile)).toBe(false);
+  await page.getByRole("button", { name: "退出登录" }).click();
+  await expect(
+    page.getByRole("button", { name: "进入日常空间" }),
+  ).toBeVisible();
+  await expect(page.getByLabel("一次性初始化凭证")).toHaveCount(0);
+  await page.getByLabel("用户名", { exact: true }).fill("browser");
+  await page.getByLabel("密码", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "进入日常空间" }).click();
+  await expect(
+    page.getByRole("heading", { name: "运行总览", exact: true }),
+  ).toBeVisible();
 });
 test.beforeEach(async ({ page }, info) => {
   if (info.title.startsWith("first-run")) return;

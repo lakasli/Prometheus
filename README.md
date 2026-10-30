@@ -17,11 +17,13 @@ npm.cmd ci --ignore-scripts
 npm.cmd run build
 npm.cmd test
 npm.cmd run test:e2e --workspace @prometheus/admin
-npm.cmd run bootstrap
+npm.cmd run bootstrap -- --data-dir .local/prometheus/dev
 npm.cmd start
 ```
 
 浏览器打开 **http://127.0.0.1:8419/admin/**。初始化命令只显示私有文件路径；在本机受保护终端读取凭证，在页面创建账户。凭证15分钟有效，用后删除；没有默认密码。保持前台运行，Ctrl+C正常退出。
+
+凭证绑定数据目录。正式实例使用`.local/prometheus/instance`时，应按初始化页面显示的路径和命令生成，不能使用dev目录的凭证。只复制JSON中的`token`字段，不复制路径或完整JSON。首次创建账户后改用用户名和密码登录，token不作为日常密码。
 
 默认开发数据为 `.local/prometheus/dev/prometheus.db`，不导入旧dsh.db。NTFS ACL只允许当前运行账户、SYSTEM和管理员；新目录设置私有权限，已有目录仅验证，权限过宽时拒绝启动。
 
