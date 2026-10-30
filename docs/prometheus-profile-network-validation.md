@@ -29,3 +29,35 @@
 首轮类型检查发现授权回调的泛型Row与明确owner字段类型不匹配，改为从已授权记录显式返回字段；第二次构建通过。浏览器首轮合并流程的包裹式select精确label定位超时，页面已实际呈现目标选项；补充明确aria-label后通过。三栏复测发现output隐含status与保存回执产生多个状态区，缩放比例改用有上下限的可访问只读meter，保存状态仍独立。原失败日志保留，未放宽权限或更改正式数据。
 
 人物自动归因、好友观察、睡眠独立自主写入和长期规模/性能仍缺；真实外部模型、QQ/微信账号核验与收发仍未验收。Windows worker阻塞及语音/Harness/Python/Component门禁不变，完整迁移目标仍未完成。
+
+## 固定Windows发布
+
+正式运行 **`01506301443144233e9288b4f5d19a6a42863c68`**，已提交、推送并用origin分支tip核实。上一可用应用为`025df62e4e0d2649ff7a78ce6be790477003203a`，本批同为schema10。后续证据文档提交不改变应用SHA。
+
+07:30:56+08:00核验Windows11 Pro 10.0.26200 x64、Core Ultra7 155H/22逻辑CPU、31.6GiB内存/可用12.3GiB、D盘可用407.6GiB，Node24.22.1/npm12.2.1/PowerShell7.6.5。只构建Node应用，未重新构建或运行原生worker，没有新增隔离证明。
+
+| 阶段       | 实际命令与结果                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 本地       | 类型、前后端构建、格式及diff检查通过。`npm run test --workspace @prometheus/server`：154项通过，约66.1秒；`npm run test --workspace @prometheus/admin`：12项本地图布局/运动纯函数通过，约0.8秒。最终三栏浏览器18项通过，约37.2秒。                                                                                                                                                                                                                                                                                  |
+| 打包       | `pwsh -NoProfile -File deploy/prometheus/package-windows.ps1 -Commit 01506301443144233e9288b4f5d19a6a42863c68 -PreviousVerifiedCommit 025df62e4e0d2649ff7a78ce6be790477003203a`：退出0，Git archive、锁定依赖、同SHA前后端及制品哈希通过。ZIP SHA256 `1f646ce6535af1c3716a4087c6108673b9aeb3b2a722768ebe62fdb3b31821d2`。                                                                                                                                                                                           |
+| 发布检查   | `node deploy/prometheus/verify-release.mjs <runtime>`：18项通过，退出0。                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 固定回归   | 设置`PROMETHEUS_RELEASE_ROOT=<runtime>`，执行`node --test --test-concurrency=1 apps/server/test/profile-mappings.test.mjs apps/server/test/affinity-sources.test.mjs apps/server/test/affinity.test.mjs apps/server/test/profiles.test.mjs apps/server/test/profile-model.test.mjs apps/server/test/diary.test.mjs`：75项通过，0失败/跳过，约26.8秒，退出0。74项固定服务HTTP/进程内场景，1项本地Temporal纯函数；安全/ACL和构造场景辅助来自本地。图布局/运动12项纯函数另记本地，不能混记为固定浏览器或真实平台通过。 |
+| 固定浏览器 | 同一环境变量下`npm run test:e2e --workspace @prometheus/admin`：18项通过，约39.9秒，退出0。测试实际渲染同SHA静态页面；1440px三栏及320px截图已查看，无横向溢出。                                                                                                                                                                                                                                                                                                                                                     |
+| 正式启动   | 包内`Start-Prometheus.ps1 -DataDir D:/DSH/.local/prometheus/instance`核对全部哈希后于07:34:30+08:00前台启动，Node PID22172，`http://127.0.0.1:8419/admin/`。                                                                                                                                                                                                                                                                                                                                                        |
+| 正式复核   | live/ready、前端build.json同SHA/schema10；20个匿名管理GET与两个带正确Origin的匿名合并/拆分POST均401。缺Origin的POST先返回403；既有账户登录页无脚本错误，未索取密码或代登录。当前库及历史schema9快照integrity_check=ok。                                                                                                                                                                                                                                                                                             |
+
+### 完整备份与新旧恢复
+
+07:33:57+08:00核对旧版本完整SHA、PID28088命令行、数据锁和无在途Run/整理/投递。Ctrl+C打印`Prometheus stopped`，Node、锁和8419监听消失；外层PowerShell实际退出1。07:34:14完整备份12个文件至`.local/prometheus/backups/instance-2026-10-30T23-34-14-015Z-6754b430-21b7-4b80-91b9-a7ae86c7cd34`，含数据库、主密钥、既有快照及部署元数据，完整性通过，命令退出0。
+
+完整备份经逐文件哈希/路径核对，恢复至私有目录`recovery-drills/3d289af4-0889-4056-98ee-92b9935fc381`。仅向该副本通过旧schema10应用保存合成凭据、草稿、已批准但仍标推测的字段、核对身份、日记、记忆、日程和实际有来源账本事件；原检查点47.125加2形成49.125，余数321保留。新包在18469 ready，旧字段/版本/身份/来源及凭据解密一致，事件未重复计分。新人工+1得到50.125，明确撤销重放后回到49.125/321。
+
+同一副本另保留两份旧合成QQ来源档案，由新包按管理者权限合并并拆回，来源owner不改变、两份分值仍各50，审计记实际管理员。关闭后实际上一版Store可读该schema10库且完整性通过。本批没有数据库迁移，也没有冒称新建schema升级快照。
+
+另一私有目录`recovery-drills/87e91ef4-e6ac-40c1-ac1a-22826a48ac9e`恢复未加入合成资料的完整备份，由实际上一版025df62在18469 ready，稳定身份与完整性通过后正常关闭。07:34:16+08:00完成，新旧恢复演练退出0。正式目录没有使用测试副本，没有覆盖或重建用户数据库。
+
+正式切换前后稳定身份、管理员1、records/Run/消息/凭据0、配置/性格revision1、渠道关闭和主密钥哈希一致，人物/来源账本/模型作业表仍为空，未打开模型许可。完整备份、恢复副本和正式目录经过原生NTFS ACL检查。07:35:04+08:00再次复核；WSL旧Rust `df6429cbceb8f16504efe9464c1abbbdb4a67e29`在18439仍ready，仅供对照。
+
+首轮生产辅助检查未带Origin，先遭Origin层403而没有到达身份认证层，脚本退出1。补上精确Origin后两个匿名写入均401，复验退出0；原日志保留，没有修改制品或放宽Origin/认证规则。
+
+私有证据：`.local/prometheus/release-validation/reports/01506301443144233e9288b4f5d19a6a42863c68.json`、`.local/prometheus/upgrade-evidence/0150630/drill.json`及`production.json`，正式`deployment.json`记录SHA、上一版、备份和恢复目录。开发失败/通过、全量、固定回归/浏览器、打包及生产初次拒绝和复验日志分别保留在`.local/prometheus/`，不提交真实实例数据。
