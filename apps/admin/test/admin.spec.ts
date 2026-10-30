@@ -21,6 +21,13 @@ test("first-run setup consumes an actual one-time credential", async ({
   await expect(page.getByTestId("bootstrap-command")).toContainText(
     `--data-dir '${state.dataDir}'`,
   );
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page
+      .locator("body")
+      .evaluate((node) => node.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByLabel("用户名", { exact: true }).fill("browser");
   await page.getByLabel("密码", { exact: true }).fill(password);
   await page.getByLabel("确认密码", { exact: true }).fill(password);
