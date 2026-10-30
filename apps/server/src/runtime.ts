@@ -381,6 +381,18 @@ export class Runtime {
         now(),
         conversation,
       );
+      // Persist revocation separately from context epochs: sleep resets epochs
+      // for pending deliveries, but must never revive a response using old facts.
+      this.store.run(
+        "INSERT OR REPLACE INTO run_publications SELECT r.id,'suppressed','资料上下文已失效',? FROM runs r WHERE r.conversation_id=? AND EXISTS(SELECT 1 FROM run_targets t WHERE t.run_id=r.id)",
+        now(),
+        conversation,
+      );
+      this.store.run(
+        "UPDATE delivery_parts SET status='cancelled',error='资料上下文已失效',updated_at=? WHERE status='queued' AND run_id IN (SELECT id FROM runs WHERE conversation_id=?)",
+        now(),
+        conversation,
+      );
       for (const value of this.active.values())
         if (value.conversation === conversation) value.controller.abort();
     }

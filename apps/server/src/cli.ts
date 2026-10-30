@@ -9,6 +9,8 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
+import { createServer } from "node:net";
+import { workerProbe } from "./worker.ts";
 import { bootstrapToken } from "./auth.ts";
 import { privateDirectory } from "./security.ts";
 import { build, startServer } from "./server.ts";
@@ -19,6 +21,7 @@ prometheus serve [--data-dir <directory>] [--listen 127.0.0.1:8419] [--origin ht
 prometheus bootstrap-token [--data-dir <directory>]
 prometheus chat --message <text> --password-file <private-file> [--username admin] [--conversation <id>] [--url http://127.0.0.1:8419]
 prometheus recover-lock [--data-dir <directory>]
+prometheus worker-check [--data-dir <isolated-probe-directory>]
 
 Default data: .local/prometheus/dev; historical DSH data is never opened.
 Initialization tokens and passwords are not printed. Windows starts in the foreground; Ctrl+C exits.
@@ -56,6 +59,33 @@ async function main() {
       process.env.PROMETHEUS_DATA_DIR ??
       ".local/prometheus/dev",
   );
+  if (command === "worker-check") {
+    const listener = createServer((socket) => socket.destroy());
+    await new Promise<void>((ready, reject) => {
+      listener.once("error", reject);
+      listener.listen(0, "127.0.0.1", ready);
+    });
+    try {
+      const address = listener.address();
+      if (!address || typeof address === "string")
+        throw new Error("Probe listener unavailable");
+      const result = await workerProbe({
+        directory: join(dataDir, "worker-probe"),
+        port: address.port,
+      });
+      console.log(
+        JSON.stringify({
+          ...result,
+          time: new Date().toISOString(),
+          commit: build.commit,
+        }),
+      );
+      if (result.status !== "passed") process.exitCode = 2;
+    } finally {
+      await new Promise<void>((closed) => listener.close(() => closed()));
+    }
+    return;
+  }
   if (command === "bootstrap-token") {
     console.log(
       `初始化凭证文件：${bootstrapToken(dataDir)}（15分钟有效；在本机受保护终端读取，不要写入日志）。`,

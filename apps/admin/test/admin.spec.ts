@@ -4,6 +4,10 @@ import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 test.describe.configure({ mode: "serial" });
 const password = "Synthetic-browser-password-2026!";
+let sessionCookies: Awaited<
+  ReturnType<import("@playwright/test").BrowserContext["cookies"]>
+> = [];
+
 test("first-run setup consumes an actual one-time credential", async ({
   page,
 }) => {
@@ -77,15 +81,15 @@ test("first-run setup consumes an actual one-time credential", async ({
     page.getByRole("heading", { name: "运行总览", exact: true }),
   ).toBeVisible();
 });
+test.afterEach(async ({ page }, info) => {
+  if (info.title.startsWith("first-run") && info.status === "passed")
+    sessionCookies = await page.context().cookies();
+});
 test.beforeEach(async ({ page }, info) => {
   if (info.title.startsWith("first-run")) return;
+  expect(sessionCookies.length).toBeGreaterThan(0);
+  await page.context().addCookies(sessionCookies);
   await page.goto("/admin/");
-  await expect(
-    page.getByRole("button", { name: "进入日常空间" }),
-  ).toBeVisible();
-  await page.getByLabel("用户名", { exact: true }).fill("browser");
-  await page.getByLabel("密码", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "进入日常空间" }).click();
   await expect(
     page.getByRole("heading", { name: "运行总览", exact: true }),
   ).toBeVisible();
@@ -425,4 +429,79 @@ test("reviewed relationship events, disabled model proposals and isolated artwor
     ),
     fullPage: true,
   });
+});
+
+test("reviewed model diaries display their actual provenance", async ({
+  page,
+}) => {
+  const session = await (
+    await page.request.get("/api/admin/v1/auth/me")
+  ).json();
+  const headers = {
+    origin: "http://127.0.0.1:18449",
+    "x-csrf-token": session.csrf_token,
+  };
+  const state = JSON.parse(
+    readFileSync(resolve("../../.local/prometheus/e2e-state.json"), "utf8"),
+  );
+  const credential = await (
+    await page.request.post("/api/admin/v1/secrets", {
+      headers,
+      data: { kind: "model_api_key", value: "synthetic-diary-browser-key" },
+    })
+  ).json();
+  const current = await (await page.request.get("/api/admin/v1/config")).json();
+  current.config.model = {
+    model: "synthetic",
+    base_url: state.modelUrl,
+    credential_ref: credential.id,
+  };
+  expect(
+    (
+      await page.request.put("/api/admin/v1/config", {
+        headers: { ...headers, "if-match": `"${current.revision}"` },
+        data: { config: current.config },
+      })
+    ).status(),
+  ).toBe(200);
+  const memory = await (
+    await page.request.post("/api/admin/v1/records/memory", {
+      headers,
+      data: { data: { content: "日记界面的合成来源" } },
+    })
+  ).json();
+  const created = await (
+    await page.request.post("/api/admin/v1/knowledge/jobs", {
+      headers,
+      data: {
+        kind: "diary",
+        sources: [{ type: "record", id: memory.id }],
+        options: { date: "2026-10-31", period: "day" },
+      },
+    })
+  ).json();
+  let job: any;
+  await expect
+    .poll(async () => {
+      job = await (
+        await page.request.get(`/api/admin/v1/knowledge/jobs/${created.id}`)
+      ).json();
+      return job.status;
+    })
+    .toBe("review_pending");
+  expect(
+    (
+      await page.request.post(`/api/admin/v1/knowledge/jobs/${job.id}/review`, {
+        headers: { ...headers, "if-match": `"${job.revision}"` },
+        data: { approve: true },
+      })
+    ).status(),
+  ).toBe(200);
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "日记", exact: true })
+    .click();
+  await expect(
+    page.locator(".record-card").filter({ hasText: "来源明确的模型日记" }),
+  ).toContainText("模型整理 · 已人工审核");
 });

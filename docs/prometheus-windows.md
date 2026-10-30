@@ -70,3 +70,11 @@ node deploy/prometheus/backup-instance.mjs --data-dir D:/DSH/.local/prometheus/i
 脚本取得与服务相同的原子数据锁，复制主密钥等全部文件、生成SQLite一致性快照并检查integrity_check，保存私有清单与逐文件哈希。拒绝符号链接及数据目录内的目标；已有锁时失败，不杀进程。备份位于.local/prometheus/backups/instance-*，不输出秘密。
 
 schema2不能由schema1制品打开。回退先保留schema2目录，向新私有目录恢复完整schema1快照，再用上一版固定SHA启动和复验；不能覆盖运行数据或遗漏主密钥。
+
+## 隔离工作器前置检查
+
+语音、Harness、Python和Component执行仍禁用。可在安装MSVC Build Tools/Windows SDK的本机执行`npm.cmd run build:worker`构建固定空权限探针；打包加`-IncludeWorkerProbe`时会从同一Git SHA重新编译并记录制品哈希。正常TypeScript构建不自动启动该探针。
+
+`node deploy/prometheus/verify-worker.mjs <runtime绝对目录>`核对探针哈希并写入独立私有报告；阻塞退出2，不计为应用或隔离通过。当前主机已记录签名策略4551/CodeIntegrity事件及子进程0xC0000142初始化失败，权限和完整生命周期尚未验收，不调整安全策略。详见[迁移审查](prometheus-migration-audit.md)。
+
+针对本批逻辑的固定制品回归可设置`PROMETHEUS_RELEASE_ROOT`后执行`node --test apps/server/test/migration-logic.test.mjs`；测试数据仍放在工作区忽略目录，不写入制品。

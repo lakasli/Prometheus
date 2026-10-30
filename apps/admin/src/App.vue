@@ -1058,9 +1058,11 @@ onUnmounted(() => {
               <p v-if="item.data.feelings" class="feeling">
                 感受：{{ item.data.feelings }}
               </p>
-              <small v-if="item.kind === 'diary'" class="muted"
-                >人工记录 · {{ item.data.sources.length }} 条来源</small
-              >
+              <small v-if="item.kind === 'diary'" class="muted">{{
+                item.data.generator === "model_reviewed"
+                  ? "模型整理 · 已人工审核（来源见整理记录）"
+                  : `人工记录 · ${item.data.sources.length} 条资料引用`
+              }}</small>
               <footer>
                 <small>{{ date(item.updated_at) }}</small>
                 <div>

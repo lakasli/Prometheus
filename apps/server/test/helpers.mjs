@@ -2,9 +2,15 @@ import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { startServer } from "../dist/server.js";
-import { bootstrapToken } from "../dist/auth.js";
+import { fileURLToPath, pathToFileURL } from "node:url";
+const sourceRoot = fileURLToPath(new URL("../../../", import.meta.url));
+const runtimeRoot = resolve(process.env.PROMETHEUS_RELEASE_ROOT ?? sourceRoot);
+const { startServer } = await import(
+  pathToFileURL(resolve(runtimeRoot, "apps/server/dist/server.js"))
+);
+const { bootstrapToken } = await import(
+  pathToFileURL(resolve(runtimeRoot, "apps/server/dist/auth.js"))
+);
 
 export async function port() {
   const socket = createServer();
@@ -26,7 +32,7 @@ export async function fixture(options = {}) {
   );
   const app = await startServer({
     dataDir,
-    webDir: resolve(root, "apps/admin/dist"),
+    webDir: resolve(runtimeRoot, "apps/admin/dist"),
     host: "127.0.0.1",
     port: number,
     origin,

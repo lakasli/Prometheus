@@ -2,7 +2,8 @@
 param(
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$Commit,
     [ValidatePattern('^[0-9a-f]{40}$')][string]$PreviousVerifiedCommit,
-    [string]$ReleaseRoot = '.local/prometheus/releases'
+    [string]$ReleaseRoot = '.local/prometheus/releases',
+    [switch]$IncludeWorkerProbe
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -44,6 +45,10 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Locked dependency installation failed.' }
         & npm.cmd run build
         if ($LASTEXITCODE -ne 0) { throw 'Prometheus build failed.' }
+        if ($IncludeWorkerProbe) {
+            & npm.cmd run build:worker
+            if ($LASTEXITCODE -ne 0) { throw 'Native worker prerequisite probe build failed.' }
+        }
     } finally { Pop-Location }
     foreach ($taskName in @('server', 'admin')) {
         $taskApp = Join-Path $taskRuntime ('apps/' + $taskName)

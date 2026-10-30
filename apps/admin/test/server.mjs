@@ -13,6 +13,14 @@ const provider = createServer(async (request, response) => {
     content = JSON.stringify({
       candidates: [{ content: "浏览器选中的来源中可以核实的合成事实。" }],
     });
+  else if (system.includes('"facts"'))
+    content = JSON.stringify({
+      title: "来源明确的模型日记",
+      date: "2026-10-31",
+      period: "day",
+      facts: "浏览器明确来源中的合成事实。",
+      feelings: "独立标注的感受。",
+    });
   else if (system.includes('"html"'))
     content = JSON.stringify({
       html: '<!doctype html><html><body><h1>合成插画</h1><script>parent.document.body.dataset.unsafe="executed"</script></body></html>',

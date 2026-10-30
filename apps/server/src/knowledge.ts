@@ -264,7 +264,9 @@ export class Knowledge {
           grant.allow_model !== 1 ||
           (background && grant.capture !== 1) ||
           (grant.expires_at !== null && Number(grant.expires_at) <= now()))) ||
-      (grant && grant.allow_model !== 1)
+      (grant &&
+        (grant.allow_model !== 1 ||
+          (grant.expires_at !== null && Number(grant.expires_at) <= now())))
     )
       throw new ApiError(
         403,
@@ -499,7 +501,14 @@ export class Knowledge {
           kind: "memory" | "diary" | "people" | "relationships" | "schedule",
           data: Json,
         ) => {
-          const record = this.runtime.records.save(kind, owner, { data });
+          const record = this.runtime.records.save(
+            kind,
+            owner,
+            { data },
+            undefined,
+            undefined,
+            kind === "diary" ? "model_reviewed" : "manual",
+          );
           saved.push(record.id);
           for (const ref of refs) {
             this.store.run(
@@ -960,11 +969,15 @@ export class Knowledge {
       });
     } catch (error) {
       if (
-        this.store.get("SELECT status FROM model_jobs WHERE id=?", id)
-          ?.status === "running"
+        ["queued", "running"].includes(
+          String(
+            this.store.get("SELECT status FROM model_jobs WHERE id=?", id)
+              ?.status,
+          ),
+        )
       )
         this.store.run(
-          "UPDATE model_jobs SET status=?,error=?,updated_at=? WHERE id=?",
+          "UPDATE model_jobs SET status=?,error=?,revision=revision+1,updated_at=? WHERE id=?",
           this.stopped
             ? "interrupted"
             : abort.signal.aborted

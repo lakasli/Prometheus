@@ -70,8 +70,8 @@ function payload(
       if (!["day", "week", "month"].includes(String(period)))
         throw bad("日记周期无效");
       const sources = data.sources ?? [];
-      if (!Array.isArray(sources) || sources.length > 16)
-        throw bad("日记来源最多16条");
+      if (!Array.isArray(sources) || sources.length > 128)
+        throw bad("日记来源最多128条");
       const ids = sources.map((id) => text(id, "来源 ID", 36, 36));
       for (const id of ids)
         if (
@@ -187,6 +187,39 @@ export class Records {
     const q = string(query.get("q") ?? "", "查询", 200),
       limit = integer(Number(query.get("limit") ?? 50), "分页大小", 1, 100),
       offset = integer(Number(query.get("offset") ?? 0), "分页偏移", 0, 100000);
+    if (!q || [...q].length >= 3) {
+      // FTS phrases treat operators, quotes and punctuation as literal data.
+      // Trigram indexes cannot match one/two characters; retain a bounded
+      // substring fallback for these searches below.
+      const search = q
+        ? '"' + JSON.stringify(q).slice(1, -1).replaceAll('"', '""') + '"'
+        : "";
+      const where =
+        "kind=? AND owner_id=? AND deleted_at IS NULL" +
+        (q
+          ? " AND rowid IN (SELECT rowid FROM record_fts WHERE record_fts MATCH ?)"
+          : "");
+      const parameters = q ? [type, owner, search] : [type, owner];
+      return {
+        items: this.store
+          .all(
+            `SELECT * FROM records WHERE ${where} ORDER BY updated_at DESC,rowid DESC LIMIT ? OFFSET ?`,
+            ...parameters,
+            limit,
+            offset,
+          )
+          .map(item),
+        total: Number(
+          this.store.get(
+            `SELECT count(*) AS n FROM records WHERE ${where}`,
+            ...parameters,
+          )!.n,
+        ),
+        limit,
+        offset,
+        assistant_id: this.store.assistantId,
+      };
+    }
     const all = this.store.all(
       "SELECT * FROM records WHERE kind=? AND owner_id=? AND deleted_at IS NULL ORDER BY updated_at DESC,rowid DESC LIMIT 5001",
       type,
@@ -213,6 +246,7 @@ export class Records {
     value: unknown,
     id?: string,
     expected?: number,
+    provenance: "manual" | "model_reviewed" = "manual",
   ) {
     const body = fields(value, ["data", "visibility", "publish"]);
     const visibility = body.visibility ?? "private";
@@ -221,6 +255,7 @@ export class Records {
     if (visibility === "shared" && body.publish !== true)
       throw bad("共享资料须显式确认发布");
     const data = payload(type, body.data, this.store, owner);
+    if (type === "diary") data.generator = provenance;
     if (
       visibility === "shared" &&
       ["diary", "relationships", "skills", "schedule", "people"].includes(type)

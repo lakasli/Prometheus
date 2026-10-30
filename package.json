@@ -15,6 +15,7 @@
     "build": "npm run build:server && npm run build:web",
     "build:server": "npm run build --workspace @prometheus/server",
     "build:web": "npm run build --workspace @prometheus/admin",
+    "build:worker": "pwsh -NoProfile -File apps/server/scripts/build-worker.ps1",
     "typecheck": "npm run typecheck --workspace @prometheus/server && npm run typecheck --workspace @prometheus/admin",
     "test": "npm run build:web && npm run test --workspace @prometheus/server",
     "start": "node apps/server/dist/cli.js serve",
