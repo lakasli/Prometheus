@@ -26,3 +26,27 @@ Node24没有原生Temporal；固定使用`@js-temporal/polyfill@0.5.1`（ISC，�
 代码复核还修复：过期虚拟机会误显计划中；grant版本改变未立即使人工绑定的在途阅读失效；目标资源被移出授权时误显完成。新增回归分别覆盖，失败结果不计通过。
 
 04:05–04:06+08:00最终本地检查：类型检查退出0，前后端构建成功，服务端85项全部通过（约41.4秒），浏览器12项全部通过（约16.2秒），Prettier与git diff --check通过。此前84项回归属于新增授权版本场景前的结果，最终以85项为准。
+
+## 固定SHA Windows验收与正式运行
+
+应用SHA **`d7e6fb5d0b1c3f82eb14df44b141351237b1ae8b`** 已提交并推送origin，`git ls-remote`核实远端分支tip相同。打包命令为`pwsh -NoProfile -File deploy/prometheus/package-windows.ps1 -Commit d7e6fb5d0b1c3f82eb14df44b141351237b1ae8b -PreviousVerifiedCommit 782a9828e15985b4d0df4437085ccd8a5b40d263 -IncludeWorkerProbe`，退出0。仅Git archive源码进入包，未夹带用户未提交的Rust/Breeze文件。前后端同SHA，ZIP SHA-256为`ed5de5a52af22f6e4e67c3107834ef68d11bfc0dfc4d5ec32b6ca4bbfd50ffbb`。
+
+目标主机：Microsoft Windows 11专业版10.0.26200 x64，Ultra7 155H/22逻辑处理器；RAM31.6GiB，验收时空闲约12.2GiB，D盘空闲约410.5GiB。Node24.22.1/npm12.2.1/PowerShell7.6.5，MSVC14.44.35207与SDK10.0.26100.0。Get-ComputerInfo的ProductName仍报Windows10，CIM实际Caption为Windows11；保留这一查询差异。探针同SHA编译成功，本批未重新执行，不产生Windows隔离通过结论。
+
+| 检查           | 实际结果                                                                                                                                                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Git及固定构建  | 提交、推送、远端tip、archive构建、生产依赖安装、前端静态资源与后端构建均通过，退出0；依赖审计0漏洞。                                                                                                                      |
+| 固定包基础验收 | `node deploy/prometheus/verify-release.mjs <runtime>` 18项通过，退出0；核对逐文件hash、SHA、启动、live/ready、认证与合成文字流程。                                                                                        |
+| 固定包专项     | 设置PROMETHEUS_RELEASE_ROOT后执行schedule.test.mjs，18项通过，约4.5秒，退出0。其中17项绑定固定服务HTTP/进程内夹具（包括schema5升级），1项Temporal/JSON纯函数检查使用本地dist；密码、ACL及部分时间辅助函数也来自本地构建。 |
+| 固定包浏览器   | 同环境运行管理页12项全部通过，约17.3秒，退出0；实际静态资源与服务来自固定包，不重建源码。360px截图已检查，无横向溢出。                                                                                                    |
+| 正式健康与权限 | 前端build.json和live/ready均完整SHA、schema6；15个匿名管理API返回401，包含日程/资料/grant/目标。既有登录页无JavaScript错误，未使用用户密码或代登录。                                                                      |
+
+04:07:49+08:00复核上一版782a982的Node PID25844、命令行、数据锁和健康SHA；无Run/整理/投递在途，渠道关闭。Ctrl+C输出`Prometheus stopped`，外层PowerShell实际退出1；PID、8419监听和锁均消失。空闲退出不当作正式在途取消验证。
+
+04:07:56+08:00执行完整实例备份，7个文件、integrity_check=ok：`.local/prometheus/backups/instance-2026-10-30T20-07-56-908Z-fbf4996d-ec17-4272-a0dd-e44f43690550`。主密钥、数据库及旧快照/部署元数据一起备份。复制前核验文件hash、路径和NTFS ACL，不覆盖现有备份。
+
+04:07:58+08:00在独立恢复目录`recovery-drills/516d1858-5ebf-466d-affa-abe2c2f9bcae`加入合成schema5草稿、人工日程和已有固定点账本，仅修改演练副本。实际新制品18469 ready并升级6；草稿内容/基准/创建时间、人工日程及只读投影、分值48.25/余数123/直接互动时间均保留，主密钥hash一致。新日程表无伪造活动/请求，自动schema5快照仍可读且integrity_check=ok。实际旧782a982 Store拒绝schema6；另一私有目录`recovery-drills/d2a1b706-c023-4e51-a9a5-610f490e12eb`恢复未经合成修改的完整schema5备份，旧制品18469 ready并关闭。恢复与新库目录分开。
+
+04:08:03+08:00包内Start-Prometheus.ps1核对制品hash后前台启动正式实例，PID2224，入口`http://127.0.0.1:8419/admin/`。04:08:32复验完成：管理员1，资料/Run/消息/凭据0，配置/性格revision1，稳定身份及主密钥hash与升级前一致；人物/草稿/新日程资源等表无合成数据进入正式实例。当前库和自动schema5快照integrity_check=ok，实例、secrets和master.key原生NTFS ACL仅运行账户、SYSTEM与Administrators。
+
+私有证据：`.local/prometheus/release-validation/reports/d7e6fb5d0b1c3f82eb14df44b141351237b1ae8b.json`、`.local/prometheus/upgrade-evidence/d7e6fb5/drill.json`与`production.json`；正式deployment.json记录当前SHA、上一可用SHA、备份、PID和验证范围。WSL原Rust `df6429cbceb8f16504efe9464c1abbbdb4a67e29` 在18439仍ready，仅供对照。应用运行、固定制品合成场景、真实平台及原始完整功能迁移是不同结论，本批不宣称全部功能迁移完成。
