@@ -391,6 +391,7 @@ export class Profiles {
     };
   }
   history(actor: string, kind: "assertion" | "edge", id: string) {
+    this.refresh();
     const table = kind === "assertion" ? "profile_assertions" : "profile_edges",
       a = this.store.get(`SELECT * FROM ${table} WHERE id=?`, id);
     if (!a) throw missing();
@@ -1347,6 +1348,7 @@ export class Profiles {
       );
   }
   graph(actor: string, query: URLSearchParams) {
+    this.refresh();
     const list = this.list(
         actor,
         new URLSearchParams({

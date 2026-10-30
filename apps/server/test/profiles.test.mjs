@@ -787,3 +787,71 @@ test("schema7 upgrade retains existing names, ledgers, data and an integrity-che
     old.close();
   }
 });
+test("graph and version history immediately recheck source expiration before a background sweep", async (t) => {
+  for (const firstRead of ["graph", "history"]) {
+    const app = await fixture();
+    t.after(() => app.close());
+    await app.bootstrap();
+    app.features.automation.stop();
+    await app.features.knowledge.stop();
+    let p = await create(app, "来源图起点"),
+      q = await create(app, "来源图终点");
+    const c = await conversation(app),
+      scope = c.id;
+    app.store.run(
+      "INSERT INTO source_grants VALUES(?,1,1,0,0,0,NULL,0,?)",
+      scope,
+      now(),
+    );
+    const raw = message(app, c.id, p.owner_id);
+    p = await propose(app, p, "已授权的原文资料", {
+      source: { type: "message", id: raw, revision: 1 },
+    });
+    p = (await review(app, p, p.assertions[0])).data;
+    const a = p.assertions[0];
+    const made = await app.call(
+      "/relationships/edges",
+      "POST",
+      {
+        from_id: p.id,
+        to_id: q.id,
+        expected_to_revision: q.revision,
+        relationship_type: "本人陈述的旧同事关系",
+        statement_kind: "self_report",
+        source: { type: "message", id: raw, revision: 1 },
+        reason: "从同一授权原文核对",
+      },
+      match(p.revision),
+    );
+    assert.equal(made.status, 201);
+    const e = made.data.edges[0];
+    const approved = await app.call(
+      `/relationships/edges/${e.id}/review`,
+      "POST",
+      { action: "approve", reason: "独立核对原文", supersedes: [] },
+      match(e.revision),
+    );
+    assert.equal(approved.status, 200);
+    app.store.run(
+      "UPDATE source_grants SET expires_at=? WHERE source_key=?",
+      now() - 1,
+      scope,
+    );
+    if (firstRead === "graph")
+      assert.equal(
+        (await app.call("/relationships/graph")).data.edges.length,
+        0,
+      );
+    const history = await app.call(`/relationships/assertions/${a.id}/history`);
+    assert.equal(history.status, 200);
+    assert.ok(
+      history.data.items.every((v) => v.value === null && v.reason === null),
+    );
+    assert.equal((await app.call("/relationships/graph")).data.edges.length, 0);
+    assert.ok(
+      (await app.call(`/relationships/edges/${e.id}/history`)).data.items.every(
+        (v) => v.relationship_type === null && v.reason === null,
+      ),
+    );
+  }
+});
