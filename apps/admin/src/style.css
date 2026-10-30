@@ -848,6 +848,38 @@ label > small {
   overflow: auto;
   font-size: 12px;
 }
+.configuration-drafts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+}
+.configuration-drafts .form-actions {
+  flex-wrap: wrap;
+}
+.configuration-drafts select {
+  min-width: 0;
+  max-width: 100%;
+}
+.configuration-drafts > details > * {
+  margin-top: 14px;
+}
+.configuration-drafts .draft-differences {
+  padding-left: 20px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.draft-operation {
+  margin-top: 14px;
+  overflow-wrap: anywhere;
+}
+.draft-operation pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 360px;
+  overflow: auto;
+  font-size: 12px;
+}
 .log-row strong {
   font-size: 12px;
   font-weight: 500;

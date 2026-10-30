@@ -297,6 +297,34 @@ export class Channels {
       this.tokenPending = undefined;
     }
   }
+  async checkQqConnection(config: Config, signal: AbortSignal): Promise<void> {
+    // Explicit check of a draft account; do not replace the active token cache.
+    try {
+      const value = business(
+        await this.http(
+          this.endpoints.qq,
+          "/app/getAppAccessToken",
+          "POST",
+          {
+            appId: config.qq.app_id,
+            clientSecret: this.store.secret(
+              config.qq.credential_ref!,
+              "qq_app_secret",
+            ),
+          },
+          {},
+          AbortSignal.any([signal, this.controller.signal]),
+        ),
+      );
+      string(value.access_token, "QQ访问凭据", 8192, 1);
+    } catch {
+      throw new ApiError(
+        signal.aborted ? 408 : 502,
+        "qq_check_failed",
+        "QQ访问凭据检查未完成，未保存平台响应正文",
+      );
+    }
+  }
   private wxHeaders(token?: string) {
     return {
       "iLink-App-Id": "bot",

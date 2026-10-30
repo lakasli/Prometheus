@@ -122,6 +122,67 @@ export function validateConfig(value: unknown, allowLoopback = false): Config {
     speech: { enabled: false },
   };
 }
+/** Inactive drafts may have unfinished names/ranges, but never extra fields,
+ * credentials in URLs, arbitrary transports or non-reference secret values. */
+export function draftConfig(value: unknown, allowLoopback = false): Config {
+  const root = fields(value, ["model", "runtime", "qq", "weixin", "speech"]),
+    model = fields(root.model, ["base_url", "model", "credential_ref"]),
+    runtime = fields(root.runtime, [
+      "max_concurrent_runs",
+      "timeout_seconds",
+      "max_history_messages",
+    ]),
+    qq = fields(root.qq, ["enabled", "app_id", "credential_ref", "transport"]),
+    weixin = fields(root.weixin, ["enabled"]),
+    speech = fields(root.speech, ["enabled"]);
+  const ref = (value: unknown) => {
+    if (value === null) return null;
+    const result = string(value, "凭据引用", 36, 36);
+    if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(result))
+      throw bad("草稿只接受凭据引用，请单独保存密钥");
+    return result;
+  };
+  const base = string(model.base_url, "模型地址", 2048);
+  if (base) modelUrl(base, allowLoopback);
+  const transport = string(qq.transport, "QQ连接方式", 20);
+  if (transport !== "webhook" && transport !== "websocket")
+    throw bad("QQ连接方式无效");
+  return {
+    model: {
+      base_url: base,
+      model: string(model.model, "模型名称", 128),
+      credential_ref: ref(model.credential_ref),
+    },
+    runtime: {
+      max_concurrent_runs: integer(
+        runtime.max_concurrent_runs,
+        "并发上限",
+        -1000000,
+        1000000,
+      ),
+      timeout_seconds: integer(
+        runtime.timeout_seconds,
+        "请求超时",
+        -1000000,
+        1000000,
+      ),
+      max_history_messages: integer(
+        runtime.max_history_messages,
+        "历史数量",
+        -1000000,
+        1000000,
+      ),
+    },
+    qq: {
+      enabled: boolean(qq.enabled, "QQ开关"),
+      app_id: string(qq.app_id, "QQ App ID", 128),
+      credential_ref: ref(qq.credential_ref),
+      transport,
+    },
+    weixin: { enabled: boolean(weixin.enabled, "微信开关") },
+    speech: { enabled: boolean(speech.enabled, "语音开关") },
+  };
+}
 export interface Personality {
   name: string;
   description: string;

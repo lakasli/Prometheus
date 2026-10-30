@@ -16,7 +16,7 @@ import {
   unavailable,
 } from "./errors.ts";
 import { validateConfig, validatePersonality } from "./config.ts";
-import { complete } from "./model.ts";
+import { Configurations } from "./configuration.ts";
 import { kind } from "./records.ts";
 import { Runtime } from "./runtime.ts";
 import { checkHostOrigin, networkOptions, now } from "./security.ts";
@@ -154,8 +154,12 @@ export async function startServer(options: ServerOptions) {
     options.allowLoopbackModel,
     options.testChannelEndpoints,
   );
-  let checking = false;
-  const connectionChecks = new Set<AbortController>();
+  const configurations = new Configurations(
+    store,
+    runtime,
+    options.allowLoopbackModel,
+    (config, signal) => features.channels.checkQqConnection(config, signal),
+  );
   const server = createServer(async (request, response) => {
     response.setHeader("x-content-type-options", "nosniff");
     response.setHeader("referrer-policy", "no-referrer");
@@ -268,6 +272,82 @@ export async function startServer(options: ServerOptions) {
             },
             assistant_id: store.assistantId,
           });
+        if (apiPath === "/config/drafts") {
+          if (method === "GET")
+            return json(response, configurations.list(admin.id));
+          if (method === "POST")
+            return json(
+              response,
+              configurations.save(admin.id, await body(request)),
+              201,
+            );
+        }
+        const configDraft =
+          /^\/config\/drafts\/([a-f0-9-]{36})(?:\/(validate|checks|apply|rebase))?$/.exec(
+            apiPath,
+          );
+        if (configDraft) {
+          const id = configDraft[1]!;
+          if (!configDraft[2] && method === "GET")
+            return json(response, configurations.get(admin.id, id));
+          const expected = revision(request.headers["if-match"]);
+          if (!configDraft[2] && method === "PUT")
+            return json(
+              response,
+              configurations.save(admin.id, await body(request), id, expected),
+            );
+          if (!configDraft[2] && method === "DELETE")
+            return json(
+              response,
+              configurations.remove(admin.id, id, expected),
+            );
+          if (method === "POST" && configDraft[2] === "validate") {
+            fields(await body(request), []);
+            return json(
+              response,
+              configurations.validate(admin.id, id, expected),
+            );
+          }
+          if (method === "POST" && configDraft[2] === "checks") {
+            fields(await body(request), []);
+            return json(
+              response,
+              configurations.check(admin.id, id, expected),
+              202,
+            );
+          }
+          if (method === "POST" && configDraft[2] === "apply")
+            return json(
+              response,
+              configurations.apply(admin.id, id, expected, await body(request)),
+              202,
+            );
+          if (method === "POST" && configDraft[2] === "rebase")
+            return json(
+              response,
+              configurations.rebase(
+                admin.id,
+                id,
+                expected,
+                await body(request),
+              ),
+            );
+        }
+        if (apiPath === "/config/operations" && method === "GET")
+          return json(response, configurations.operations(admin.id));
+        const configOperation = /^\/config\/operations\/([a-f0-9-]{36})$/.exec(
+          apiPath,
+        );
+        if (configOperation && method === "GET")
+          return json(
+            response,
+            configurations.operation(admin.id, configOperation[1]!),
+          );
+        if (configOperation && method === "DELETE")
+          return json(
+            response,
+            configurations.cancel(admin.id, configOperation[1]!),
+          );
         if (apiPath === "/config" && method === "GET") {
           response.setHeader("etag", `"${store.config().revision}"`);
           return json(response, store.config());
@@ -288,38 +368,12 @@ export async function startServer(options: ServerOptions) {
           );
         }
         if (apiPath === "/config/check" && method === "POST") {
-          if (checking)
-            throw new ApiError(429, "checks_busy", "连接检查正在执行");
-          const input = fields(await body(request), ["config"]);
-          const config = validateConfig(
-            input.config,
-            options.allowLoopbackModel,
+          const result = await configurations.checkCurrent(
+            admin.id,
+            await body(request),
           );
-          store.checkCredentials(config);
-          if (!config.model.credential_ref) throw bad("请先选择模型凭据");
-          checking = true;
-          const controller = new AbortController();
-          connectionChecks.add(controller);
-          let release: (() => void) | undefined;
-          try {
-            release = runtime.beginCheck();
-            await complete(
-              config,
-              store.secret(config.model.credential_ref, "model_api_key"),
-              [{ role: "user", content: "请只回复 OK。" }],
-              AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]),
-              options.allowLoopbackModel,
-            );
-            store.audit(admin.id, "model", "completed", "模型连接检查成功");
-            return json(response, {
-              ok: true,
-              message: "模型实际返回成功；配置尚未保存",
-            });
-          } finally {
-            release?.();
-            checking = false;
-            connectionChecks.delete(controller);
-          }
+          store.audit(admin.id, "model", "completed", "模型连接检查成功");
+          return json(response, result);
         }
         if (apiPath === "/config/revisions" && method === "GET")
           return json(response, {
@@ -526,7 +580,7 @@ export async function startServer(options: ServerOptions) {
         if (apiPath === "/export" && method === "GET")
           return json(response, {
             name: "Prometheus",
-            schema: 3,
+            schema: 4,
             assistant_id: store.assistantId,
             exported_at: now(),
             config: store.config(),
@@ -632,6 +686,7 @@ export async function startServer(options: ServerOptions) {
       });
     });
   } catch (error) {
+    await configurations.stop();
     await features.stop();
     await runtime.stop();
     store.close();
@@ -643,6 +698,7 @@ export async function startServer(options: ServerOptions) {
     store,
     runtime,
     features,
+    configurations,
     async close() {
       if (closed) return;
       closed = true;
@@ -650,9 +706,10 @@ export async function startServer(options: ServerOptions) {
         server.close(() => resolve()),
       );
       server.closeIdleConnections();
-      for (const controller of connectionChecks) controller.abort();
+      const stoppingRuntime = runtime.stop();
+      await configurations.stop();
       await features.stop();
-      await runtime.stop();
+      await stoppingRuntime;
       await closing;
       store.close();
     },

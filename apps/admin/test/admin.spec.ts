@@ -626,3 +626,126 @@ test("journal filters show authorized input and actual context with responsive s
     animations: "disabled",
   });
 });
+
+test("configuration drafts survive reload and require an explicit rebase before applying a receipt", async ({
+  page,
+}) => {
+  const me = await (await page.request.get("/api/admin/v1/auth/me")).json();
+  const headers = {
+    origin: "http://127.0.0.1:18449",
+    "x-csrf-token": me.csrf_token,
+  };
+  const original = await (
+    await page.request.get("/api/admin/v1/config")
+  ).json();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "模型与运行", exact: true })
+    .click();
+  await page
+    .getByLabel("模型名称", { exact: true })
+    .fill("draft-browser-model");
+  const panel = page.locator(".configuration-drafts");
+  await panel.getByText("配置草稿与操作记录", { exact: true }).click();
+  await panel.getByRole("button", { name: "另存当前表单为草稿" }).click();
+  await expect(panel.getByRole("status")).toContainText("草稿已保存");
+  const id = await panel.getByLabel("选择配置草稿").inputValue();
+  expect(id).toMatch(/^[0-9a-f-]{36}$/);
+  expect(
+    (await (await page.request.get("/api/admin/v1/config")).json()).revision,
+  ).toBe(original.revision);
+  await panel.getByRole("button", { name: "校验草稿", exact: true }).click();
+  await expect(
+    panel.getByText("字段校验通过；连接状态以操作记录为准。", { exact: true }),
+  ).toBeVisible();
+  await panel
+    .getByRole("button", { name: "检查草稿连接", exact: true })
+    .click();
+  await expect(panel.locator(".draft-operation > strong")).toHaveText(
+    "检查完成",
+  );
+  await page.reload();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "模型与运行", exact: true })
+    .click();
+  await panel.getByText("配置草稿与操作记录", { exact: true }).click();
+  await panel.getByLabel("选择配置草稿").selectOption(id);
+  await panel.getByRole("button", { name: "载入草稿到表单" }).click();
+  await expect(page.getByLabel("模型名称", { exact: true })).toHaveValue(
+    "draft-browser-model",
+  );
+  expect(
+    (
+      await page.request.put("/api/admin/v1/config", {
+        headers: { ...headers, "if-match": `"${original.revision}"` },
+        data: { config: original.config },
+      })
+    ).status(),
+  ).toBe(200);
+  await panel.getByRole("button", { name: "刷新草稿与操作" }).click();
+  await expect(
+    panel.getByRole("button", { name: "应用已保存草稿" }),
+  ).toBeDisabled();
+  await expect(
+    panel.getByText("生效配置已变化", { exact: false }),
+  ).toBeVisible();
+  page.once("dialog", (dialog) => dialog.accept());
+  await panel.getByRole("button", { name: "核对差异并重新定位草稿" }).click();
+  await panel.getByRole("button", { name: "校验草稿", exact: true }).click();
+  await panel
+    .getByRole("button", { name: "检查草稿连接", exact: true })
+    .click();
+  await expect(panel.locator(".draft-operation > strong")).toHaveText(
+    "检查完成",
+  );
+  page.once("dialog", (dialog) => dialog.accept());
+  await panel.getByRole("button", { name: "应用已保存草稿" }).click();
+  await expect(page.getByLabel("模型名称", { exact: true })).toHaveValue(
+    "draft-browser-model",
+  );
+  await expect
+    .poll(
+      async () =>
+        (await (await page.request.get("/api/admin/v1/config")).json())
+          .revision,
+    )
+    .toBe(original.revision + 2);
+  // Parent refresh reconstructs the panel; persisted receipts remain available.
+  if ((await panel.locator("details").first().getAttribute("open")) === null)
+    await panel.getByText("配置草稿与操作记录", { exact: true }).click();
+  await panel.getByLabel("选择配置草稿").selectOption(id);
+  await expect(
+    panel.getByText(`当前生效 v${original.revision + 2}`, { exact: false }),
+  ).toBeVisible();
+  const receipts = await (
+    await page.request.get("/api/admin/v1/config/operations")
+  ).json();
+  const applied = receipts.items.find(
+    (item: any) => item.kind === "apply" && item.draft_id === id,
+  );
+  await panel.getByLabel("查看配置操作").selectOption(applied.id);
+  await expect(panel.locator(".draft-operation > strong")).toHaveText(
+    "应用完成",
+  );
+  await panel.getByText("操作回执", { exact: true }).click();
+  await expect(panel.locator(".draft-operation pre")).toContainText(
+    '"applied_revision"',
+  );
+  await expect(panel.locator(".draft-operation pre")).not.toContainText(
+    "synthetic-diary-browser-key",
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page
+      .locator("body")
+      .evaluate((node) => node.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await page.screenshot({
+    path: resolve(
+      "../../.local/prometheus/screenshots/config-drafts-mobile.png",
+    ),
+    fullPage: true,
+    animations: "disabled",
+  });
+});

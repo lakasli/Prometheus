@@ -13,6 +13,7 @@ import ContextPanel from "./components/ContextPanel.vue";
 import PlanningPanel from "./components/PlanningPanel.vue";
 import AffinityPanel from "./components/AffinityPanel.vue";
 import PersonalityHistory from "./components/PersonalityHistory.vue";
+import ConfigDraftsPanel from "./components/ConfigDraftsPanel.vue";
 import type {
   Capability,
   ConfigState,
@@ -191,8 +192,10 @@ const form = reactive<Record<string, any>>({}),
 const controller = new AbortController();
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const baseline = ref("");
+const draftWorking = ref(false);
 const dirty = computed(
   () =>
+    draftWorking.value ||
     editor.value ||
     (page.value === "personality" &&
       baseline.value !== JSON.stringify(personality)) ||
@@ -288,7 +291,7 @@ function failure(value: unknown) {
   error.value = value instanceof Error ? value.message : "连接未完成，请重试";
 }
 async function task(action: () => Promise<void>) {
-  if (busy.value) return;
+  if (busy.value || draftWorking.value) return;
   busy.value = true;
   error.value = "";
   notice.value = "";
@@ -388,7 +391,7 @@ async function logout() {
   });
 }
 async function navigate(next: Page) {
-  if (busy.value || next === page.value) return;
+  if (busy.value || draftWorking.value || next === page.value) return;
   if (dirty.value && !window.confirm("离开会放弃尚未保存的修改，确定继续？"))
     return;
   editor.value = false;
@@ -558,6 +561,8 @@ function restorePersonality(saved: PersonalityState) {
 }
 async function saveModel() {
   await task(async () => {
+    if (newKey.value.trim())
+      throw new Error("请先单独加密保存或清空待保存凭据，再应用配置");
     const saved = await api<ConfigState>(
       "/config",
       "PUT",
@@ -568,6 +573,13 @@ async function saveModel() {
     await loadPage();
     notice.value = "配置已保存并生效。";
   });
+}
+function loadConfigDraft(value: ConfigState["config"]) {
+  config.value = clone(value);
+  newKey.value = "";
+}
+async function configDraftApplied() {
+  await task(loadPage);
 }
 async function storeKey() {
   await task(async () => {
@@ -1166,14 +1178,17 @@ onUnmounted(() => {
               <div>
                 <h2>远程模型</h2>
                 <p>
-                  已保存 v{{ configState?.revision }} · 已生效 v{{
-                    configState?.applied_revision
+                  已生效 v{{ configState?.applied_revision }} ·
+                  {{
+                    dirty
+                      ? "表单内容尚未应用"
+                      : `当前保存版本 v${configState?.revision}`
                   }}
                 </p>
               </div>
               <span class="badge">OpenAI 兼容协议</span>
             </div>
-            <form @submit.prevent="saveModel">
+            <form @submit.prevent="saveModel" :inert="busy || draftWorking">
               <label
                 >服务地址<input
                   v-model="config.model.base_url"
@@ -1256,6 +1271,18 @@ onUnmounted(() => {
               </div>
             </form>
           </section>
+          <ConfigDraftsPanel
+            v-if="configState"
+            :current="configState"
+            :working="config"
+            :dirty="dirty"
+            :pending-secret="!!newKey.trim()"
+            :disabled="busy"
+            @working="draftWorking = $event"
+            @loaded="loadConfigDraft"
+            @applied="configDraftApplied"
+            @error="failure"
+          />
           <section class="panel history-panel">
             <div class="section-heading">
               <div>

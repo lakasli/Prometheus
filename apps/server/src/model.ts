@@ -79,6 +79,8 @@ export function requestJson(
     );
   return new Promise((resolve, reject) => {
     let failure: ApiError | null = null;
+    let completed = false;
+    let result: unknown;
     const connectionError = () =>
       new ApiError(
         signal.aborted ? 408 : 502,
@@ -143,26 +145,24 @@ export function requestJson(
         });
         response.on("end", () => {
           try {
-            resolve(
-              JSON.parse(
-                Buffer.concat(chunks).toString("utf8"),
-                (_key, value, context?: { source: string }) =>
-                  typeof value === "number" &&
-                  !Number.isSafeInteger(value) &&
-                  context?.source &&
-                  /^\d+$/.test(context.source)
-                    ? context.source
-                    : value,
-              ),
+            result = JSON.parse(
+              Buffer.concat(chunks).toString("utf8"),
+              (_key, value, context?: { source: string }) =>
+                typeof value === "number" &&
+                !Number.isSafeInteger(value) &&
+                context?.source &&
+                /^\d+$/.test(context.source)
+                  ? context.source
+                  : value,
             );
+            completed = true;
           } catch {
-            reject(
-              new ApiError(
-                502,
-                "invalid_model_response",
-                "模型响应不是有效 JSON",
-              ),
+            failure = new ApiError(
+              502,
+              "invalid_model_response",
+              "模型响应不是有效 JSON",
             );
+            request.destroy();
           }
         });
       },
@@ -170,9 +170,11 @@ export function requestJson(
     request.on("error", (error) => {
       failure ??= error instanceof ApiError ? error : connectionError();
     });
-    // Cancellation/errors keep the physical lease until the socket is closed.
+    // Every result keeps the physical lease until the socket is closed.
     request.on("close", () => {
       if (failure) reject(failure);
+      else if (completed) resolve(result);
+      else reject(connectionError());
     });
     request.end(payload);
   });

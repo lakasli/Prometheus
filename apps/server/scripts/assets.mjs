@@ -28,7 +28,7 @@ writeFileSync(
         readFileSync(new URL("../package.json", import.meta.url), "utf8"),
       ).version,
       commit: sha,
-      data_schema: 3,
+      data_schema: 4,
     },
     null,
     2,

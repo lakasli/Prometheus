@@ -49,12 +49,12 @@ export class Store {
           .get()?.value
       : undefined;
     if (tables.length) {
-      if (!["1", "2", "3"].includes(String(previousSchema))) {
+      if (!["1", "2", "3", "4"].includes(String(previousSchema))) {
         this.database.close();
         throw new Error("Unsupported Prometheus schema; do not downgrade");
       }
     }
-    if (tables.length && previousSchema !== "3") {
+    if (tables.length && previousSchema !== "4") {
       const backupDir = privateDirectory(join(path, "backups"));
       const target = join(
         backupDir,
@@ -77,8 +77,32 @@ export class Store {
           .filter((line) => !line.trimStart().startsWith("PRAGMA "))
           .join("\n"),
       );
+      const draftColumns = new Set(
+        this.all("PRAGMA table_info(config_drafts)").map((row) =>
+          String(row.name),
+        ),
+      );
+      for (const [name, definition] of [
+        ["revision", "INTEGER NOT NULL DEFAULT 1"],
+        ["updated_at", "INTEGER NOT NULL DEFAULT 0"],
+        ["state", "TEXT NOT NULL DEFAULT 'draft'"],
+        ["validation_json", "TEXT"],
+        ["last_check_id", "TEXT"],
+        ["applied_operation_id", "TEXT"],
+      ])
+        if (!draftColumns.has(name!))
+          this.database.exec(
+            `ALTER TABLE config_drafts ADD COLUMN ${name} ${definition}`,
+          );
       this.run(
-        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','3') ON CONFLICT(key) DO UPDATE SET value='3'",
+        "UPDATE config_drafts SET updated_at=created_at WHERE updated_at=0",
+      );
+      this.run(
+        "UPDATE config_operations SET status='interrupted',config_json=NULL,error='连接检查随服务退出，未自动重试',updated_at=? WHERE status IN ('running','cancelling')",
+        now(),
+      );
+      this.run(
+        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','4') ON CONFLICT(key) DO UPDATE SET value='4'",
       );
       this.run(
         "INSERT OR IGNORE INTO metadata(key,value) VALUES('assistant.identity',?)",
@@ -380,12 +404,20 @@ export class Store {
       this.get(
         "SELECT id FROM runs WHERE status IN ('queued','running') AND instr(config_json,?)>0",
         id,
+      ) ||
+      this.get(
+        "SELECT id FROM config_drafts WHERE instr(config_json,?)>0",
+        id,
+      ) ||
+      this.get(
+        "SELECT id FROM config_operations WHERE status IN ('running','cancelling') AND instr(config_json,?)>0",
+        id,
       )
     )
       throw new ApiError(
         409,
         "credential_in_use",
-        "凭据仍被当前配置、回退版本或任务引用",
+        "凭据仍被配置、草稿、回退版本或在途请求引用",
       );
     this.transaction(() => {
       this.run("DELETE FROM secrets WHERE id=?", id);
