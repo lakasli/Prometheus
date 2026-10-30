@@ -14,6 +14,7 @@ import ScheduleWorkPanel from "./components/ScheduleWorkPanel.vue";
 import ContextPanel from "./components/ContextPanel.vue";
 import PlanningPanel from "./components/PlanningPanel.vue";
 import AffinityPanel from "./components/AffinityPanel.vue";
+import ProfilesPanel from "./components/ProfilesPanel.vue";
 import PersonalityHistory from "./components/PersonalityHistory.vue";
 import ConfigDraftsPanel from "./components/ConfigDraftsPanel.vue";
 import type {
@@ -197,7 +198,8 @@ const baseline = ref("");
 const draftWorking = ref(false);
 const scheduleDirty = ref(false),
   workDirty = ref(false),
-  diaryDirty = ref(false);
+  diaryDirty = ref(false),
+  profilesDirty = ref(false);
 const scheduleCalendar = ref<InstanceType<typeof CalendarPanel>>();
 const dirty = computed(
   () =>
@@ -205,6 +207,7 @@ const dirty = computed(
     scheduleDirty.value ||
     workDirty.value ||
     diaryDirty.value ||
+    profilesDirty.value ||
     editor.value ||
     (page.value === "personality" &&
       baseline.value !== JSON.stringify(personality)) ||
@@ -405,7 +408,11 @@ async function navigate(next: Page) {
     return;
   editor.value = false;
   page.value = next;
-  scheduleDirty.value = workDirty.value = diaryDirty.value = false;
+  scheduleDirty.value =
+    workDirty.value =
+    diaryDirty.value =
+    profilesDirty.value =
+      false;
   menuOpen.value = false;
   error.value = "";
   notice.value = "";
@@ -1492,6 +1499,13 @@ onUnmounted(() => {
         />
         <PlanningPanel v-if="page === 'schedule'" @error="failure" />
         <AffinityPanel v-if="page === 'relationships'" @error="failure" />
+        <ProfilesPanel
+          v-if="page === 'people' || page === 'relationships'"
+          :refresh-token="records"
+          @error="failure"
+          @dirty="profilesDirty = $event"
+          @changed="task(loadPage)"
+        />
         <ContextPanel v-if="page === 'models'" @error="failure" />
         <footer class="content-footer">
           <span

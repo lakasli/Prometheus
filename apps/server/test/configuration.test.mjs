@@ -619,7 +619,7 @@ test("schema3 upgrade preserves pre-existing inactive drafts and snapshots the o
   assert.equal(
     upgraded.get("SELECT value FROM metadata WHERE key='prometheus.schema'")
       .value,
-    "7",
+    "8",
   );
   const saved = upgraded.get("SELECT * FROM config_drafts WHERE id=?", id);
   assert.equal(saved.revision, 1);

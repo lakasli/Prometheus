@@ -619,7 +619,9 @@ export class Knowledge {
         record &&
         ["memory", "diary", "people", "relationships"].includes(
           String(record.kind),
-        )
+        ) &&
+        (["memory", "diary"].includes(String(record.kind)) ||
+          change.action === "forgotten")
       ) {
         const key =
           record.visibility === "shared"

@@ -54,7 +54,8 @@ export const capabilityStatus = {
   },
   relationships: {
     available: true,
-    description: "人工审核的人物和有向关系、相处事件好感与衰减、同域合并",
+    description:
+      "来源字段与有向关系审核、身份绑定/关联、人工好感与同域合并；真实互动计分待迁移",
   },
   skills: {
     available: true,
@@ -584,7 +585,7 @@ export async function startServer(options: ServerOptions) {
         if (apiPath === "/export" && method === "GET")
           return json(response, {
             name: "Prometheus",
-            schema: 7,
+            schema: 8,
             assistant_id: store.assistantId,
             exported_at: now(),
             config: store.config(),

@@ -50,13 +50,15 @@ export class Store {
       : undefined;
     if (tables.length) {
       if (
-        !["1", "2", "3", "4", "5", "6", "7"].includes(String(previousSchema))
+        !["1", "2", "3", "4", "5", "6", "7", "8"].includes(
+          String(previousSchema),
+        )
       ) {
         this.database.close();
         throw new Error("Unsupported Prometheus schema; do not downgrade");
       }
     }
-    if (tables.length && previousSchema !== "7") {
+    if (tables.length && previousSchema !== "8") {
       const backupDir = privateDirectory(join(path, "backups"));
       const target = join(
         backupDir,
@@ -104,7 +106,7 @@ export class Store {
         now(),
       );
       this.run(
-        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','7') ON CONFLICT(key) DO UPDATE SET value='7'",
+        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','8') ON CONFLICT(key) DO UPDATE SET value='8'",
       );
       if (
         previousSchema &&

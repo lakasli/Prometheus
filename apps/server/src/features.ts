@@ -13,6 +13,7 @@ import { ConversationContext } from "./context.ts";
 import { Relationships } from "./relationships.ts";
 import { Schedule } from "./schedule-work.ts";
 import { Diary } from "./diary.ts";
+import { Profiles } from "./profiles.ts";
 
 export interface FeatureResult {
   data: unknown;
@@ -31,6 +32,7 @@ export class Features {
   readonly relationships: Relationships;
   readonly schedule: Schedule;
   readonly diary: Diary;
+  readonly profiles: Profiles;
   constructor(
     readonly store: Store,
     readonly runtime: Runtime,
@@ -72,11 +74,18 @@ export class Features {
         );
       },
     );
-    this.knowledge.onScopeInvalidated = (scope) =>
+    this.profiles = new Profiles(store, runtime, this.knowledge, this.diary);
+    this.diary.onSourceInvalidated = (type, id, rev) =>
+      this.profiles.invalidateSource(type, id, rev);
+    this.diary.onPolicyInvalidated = (id) => this.profiles.invalidatePolicy(id);
+    this.knowledge.onScopeInvalidated = (scope) => {
       this.diary.scopeChanged(scope);
+      this.profiles.refresh();
+    };
     this.automation.onScheduleTick = () => {
       this.diary.tick();
       this.schedule.tick();
+      this.profiles.refresh();
     };
     this.automation.onRestConsolidate = (cycle) =>
       this.diary.prepareRest(cycle);
@@ -94,15 +103,25 @@ export class Features {
     runtime.onInvalidation = (owner, change) => {
       this.knowledge.invalidateOwner(owner, change);
       this.diary.sourceChanged(owner, change);
+      this.profiles.sourceChanged(change);
       if (change?.action === "forgotten") this.relationships.forget(change.id);
       if (change?.action === "created") this.relationships.created(change.id);
+      if (change?.action === "created") this.profiles.changed(change.id);
     };
     runtime.getSummary = (conversation) => this.knowledge.summary(conversation);
-    runtime.refreshSourceGrants = () => this.knowledge.expireGrants();
+    runtime.refreshSourceGrants = () => {
+      this.knowledge.expireGrants();
+      this.profiles.refresh();
+    };
+    runtime.getPeopleContext = (conversation, owner) =>
+      this.profiles.native(conversation, owner);
+    runtime.recordPeopleContext = (run, uses) =>
+      this.profiles.recordUses(run, uses);
     runtime.localCommand = (content, owner, conversation, clientId) =>
       this.localCommand(content, owner, conversation, clientId);
     this.channels.canDeliver = (run) => {
       this.knowledge.expireGrants();
+      this.profiles.refresh();
       return (
         this.automation.restStatus().state.phase === "awake" ||
         (!!run &&
@@ -510,6 +529,107 @@ export class Features {
       if (method === "GET" && plan[2])
         return { data: this.schedule.previewPlan(admin.id, plan[1]!) };
     }
+    if (path === "/relationships/profiles" && method === "GET")
+      return { data: this.profiles.list(admin.id, url.searchParams) };
+    if (path === "/relationships/profiles" && method === "POST")
+      return {
+        data: this.profiles.create(admin.id, await readBody()),
+        status: 201,
+      };
+    if (path === "/relationships/graph" && method === "GET")
+      return { data: this.profiles.graph(admin.id, url.searchParams) };
+    if (path === "/relationships/edges" && method === "POST")
+      return {
+        data: this.profiles.edge(
+          admin.id,
+          revision(request.headers["if-match"]),
+          await readBody(),
+        ),
+        status: 201,
+      };
+    const profile =
+      /^\/relationships\/profiles\/([a-f0-9-]{36})(?:\/(assertions|bind|unbind|link|unlink|contact))?$/.exec(
+        path,
+      );
+    if (profile) {
+      const id = profile[1]!,
+        op = profile[2];
+      if (method === "GET" && !op)
+        return { data: this.profiles.detail(admin.id, id) };
+      if (method === "DELETE" && !op) {
+        const p = this.profiles.person(admin.id, id, true);
+        return {
+          data: this.runtime.records.forget(
+            "people",
+            id,
+            String(p.owner_id),
+            revision(request.headers["if-match"]),
+          ),
+        };
+      }
+      if (method === "PATCH" && !op)
+        return {
+          data: this.profiles.rename(
+            admin.id,
+            id,
+            revision(request.headers["if-match"]),
+            await readBody(),
+          ),
+        };
+      if (method === "POST" && op) {
+        const value = await readBody(),
+          expected = revision(request.headers["if-match"]);
+        switch (op) {
+          case "assertions":
+            return {
+              data: this.profiles.propose(admin.id, id, expected, value),
+              status: 201,
+            };
+          case "bind":
+            return { data: this.profiles.bind(admin.id, id, expected, value) };
+          case "unbind":
+            return {
+              data: this.profiles.unbind(admin.id, id, expected, value),
+            };
+          case "link":
+            return { data: this.profiles.group(admin.id, id, expected, value) };
+          case "unlink":
+            return {
+              data: this.profiles.ungroup(admin.id, id, expected, value),
+            };
+          case "contact":
+            return {
+              data: this.profiles.contact(admin.id, id, expected, value),
+            };
+        }
+      }
+    }
+    const profileHistory =
+      /^\/relationships\/(assertions|edges)\/([a-f0-9-]{36})\/history$/.exec(
+        path,
+      );
+    if (profileHistory && method === "GET")
+      return {
+        data: this.profiles.history(
+          admin.id,
+          profileHistory[1] === "assertions" ? "assertion" : "edge",
+          profileHistory[2]!,
+        ),
+      };
+    const assertion =
+      /^\/relationships\/(assertions|edges)\/([a-f0-9-]{36})\/review$/.exec(
+        path,
+      );
+    if (assertion && method === "POST")
+      return {
+        data: this.profiles.review(
+          admin.id,
+          assertion[1] === "assertions" ? "assertion" : "edge",
+          assertion[2]!,
+          revision(request.headers["if-match"]),
+          await readBody(),
+        ),
+      };
     if (path === "/relationships/people" && method === "GET")
       return {
         data: {

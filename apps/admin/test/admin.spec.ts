@@ -94,6 +94,128 @@ test.beforeEach(async ({ page }, info) => {
     page.getByRole("heading", { name: "运行总览", exact: true }),
   ).toBeVisible();
 });
+test("profile source fields, explicit conflict review, identity binding and page graph work on desktop and mobile", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const me = await (await page.request.get("/api/admin/v1/auth/me")).json(),
+    headers = {
+      origin: "http://127.0.0.1:18449",
+      "x-csrf-token": me.csrf_token,
+    };
+  const c = await (
+    await page.request.post("/api/admin/v1/conversations", {
+      headers,
+      data: { title: "浏览器人物身份专属会话" },
+    })
+  ).json();
+  await page.getByRole("button", { name: "人物", exact: true }).click();
+  const panel = page.getByRole("region", { name: "人物资料与身份" });
+  await expect(panel).toBeVisible();
+  await panel
+    .getByRole("button", { name: "建立来源域人物", exact: true })
+    .click();
+  await panel.getByLabel("名称", { exact: true }).fill("浏览器来源人物");
+  await panel
+    .getByLabel("人工备注", { exact: true })
+    .fill("备注不会自动成为已核实字段");
+  await panel.getByLabel("依据", { exact: true }).fill("浏览器人工核对新建");
+  await panel.getByRole("button", { name: "核对并保存", exact: true }).click();
+  await expect(
+    panel.getByRole("heading", { name: "浏览器来源人物", exact: true }),
+  ).toBeVisible();
+  await panel
+    .getByRole("button", { name: "新增字段陈述", exact: true })
+    .click();
+  await panel
+    .getByLabel("字段内容", { exact: true })
+    .fill("浏览器明确陈述喜欢古诗");
+  await panel.getByLabel("陈述类型", { exact: true }).selectOption("inference");
+  await panel.getByLabel("依据", { exact: true }).fill("此处保留推测标记");
+  await panel
+    .getByRole("button", { name: "保存待审核陈述", exact: true })
+    .click();
+  const approve = async () => {
+    const handler = async (dialog: import("@playwright/test").Dialog) => {
+      await dialog.accept(
+        dialog.type() === "prompt" ? "逐项人工核对的审核依据" : undefined,
+      );
+    };
+    page.on("dialog", handler);
+    try {
+      await panel
+        .getByRole("button", { name: "审核批准", exact: true })
+        .click();
+      await expect(
+        panel.locator(".profile-statement").filter({ hasText: "已批准" }),
+      ).toContainText("推测");
+    } finally {
+      page.off("dialog", handler);
+    }
+  };
+  await approve();
+  await panel
+    .getByRole("button", { name: "核对账号身份", exact: true })
+    .click();
+  await panel.getByLabel("本人私聊会话", { exact: true }).selectOption(c.id);
+  await panel.getByLabel("账号别名", { exact: true }).fill("浏览器已核对本人");
+  await panel.getByLabel("依据", { exact: true }).fill("独立核对当前账号本人");
+  await panel.getByRole("button", { name: "核对并保存", exact: true }).click();
+  await expect(panel).toContainText("浏览器已核对本人");
+  await panel
+    .getByRole("button", { name: "新增字段陈述", exact: true })
+    .click();
+  await panel
+    .getByLabel("字段内容", { exact: true })
+    .fill("浏览器纠正后喜欢历史");
+  await panel.getByLabel("依据", { exact: true }).fill("本人后续明确纠正");
+  await panel
+    .getByRole("button", { name: "保存待审核陈述", exact: true })
+    .click();
+  await approve();
+  await expect(
+    panel.locator(".profile-statement").filter({ hasText: "已替代" }),
+  ).toContainText("浏览器明确陈述喜欢古诗");
+  await panel
+    .getByRole("button", { name: "版本记录", exact: true })
+    .first()
+    .click();
+  await expect(panel).toContainText("所选陈述的版本记录");
+  await panel
+    .getByText("本页关系图（最多50个人物，仅显示已批准的有向关系）", {
+      exact: true,
+    })
+    .click();
+  await expect(
+    panel.getByRole("img", { name: "当前页已批准人物关系图" }),
+  ).toBeVisible();
+  await panel.getByRole("button", { name: "放大", exact: true }).click();
+  await panel.getByRole("button", { name: "右移", exact: true }).click();
+  await panel.getByRole("button", { name: "复位", exact: true }).click();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.locator("body").evaluate((el) => el.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await panel.screenshot({
+    path: resolve("../../.local/prometheus/screenshots/profiles-mobile.png"),
+    animations: "disabled",
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await panel
+    .getByRole("button", { name: "新增字段陈述", exact: true })
+    .click();
+  await panel.getByLabel("字段内容", { exact: true }).fill("未保存资料");
+  page.once("dialog", (d) => d.dismiss());
+  await page.getByRole("button", { name: "运行总览", exact: true }).click();
+  await expect(panel.getByLabel("字段内容", { exact: true })).toHaveValue(
+    "未保存资料",
+  );
+  await panel.getByRole("button", { name: "取消", exact: true }).click();
+  await page.getByRole("button", { name: "运行总览", exact: true }).click();
+  expect(errors).toEqual([]);
+});
 test("overview renders without console, CSP or failed asset errors at desktop and mobile widths", async ({
   page,
 }) => {

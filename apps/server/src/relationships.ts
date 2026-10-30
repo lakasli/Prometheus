@@ -79,6 +79,14 @@ export class Relationships {
         throw conflict();
       if (
         this.store.get(
+          "SELECT person_id FROM profile_group_members WHERE person_id IN (?,?)",
+          from,
+          into,
+        )
+      )
+        throw bad("身份关联组中的人物须先拆分关联，再做同域合并");
+      if (
+        this.store.get(
           "SELECT alias_id FROM person_aliases WHERE alias_id IN (?,?)",
           from,
           into,

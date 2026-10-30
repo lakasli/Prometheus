@@ -700,7 +700,7 @@ test("schema6 upgrade preserves existing drafts, current affinity and explicit d
   assert.equal(
     app.store.get("SELECT value FROM metadata WHERE key='prometheus.schema'")
       .value,
-    "7",
+    "8",
   );
   assert.equal(
     app.store.get(
