@@ -315,6 +315,14 @@ export class Records {
     return this.store.transaction(() => {
       const current = this.get(type, id, owner);
       if (current.revision !== expected) throw conflict();
+      if (
+        type === "people" &&
+        this.store.get(
+          "SELECT a.alias_id FROM person_aliases a JOIN records r ON r.id=a.alias_id WHERE a.person_id=? AND r.deleted_at IS NULL",
+          id,
+        )
+      )
+        throw bad("请先拆分该档案的合并来源，再遗忘，避免连带删除其他人物来源");
       this.clearDependents(id, true);
       this.store.audit(
         owner,

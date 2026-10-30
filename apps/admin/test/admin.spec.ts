@@ -430,9 +430,9 @@ test("reviewed relationship events, disabled model proposals and isolated artwor
   await page.getByLabel("相处人物").selectOption({ label: "甲" });
   await page.getByLabel("相处依据").fill("浏览器明确确认的合成相处事件");
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "确认相处事件" }).click();
+  await page.getByRole("button", { name: "确认人工调整" }).click();
   await expect(page.getByRole("status")).toContainText(
-    "已保存人工确认的相处事件",
+    "已保存人工确认的好感调整",
   );
   await page
     .getByRole("navigation")
@@ -744,6 +744,64 @@ test("configuration drafts survive reload and require an explicit rebase before 
   await page.screenshot({
     path: resolve(
       "../../.local/prometheus/screenshots/config-drafts-mobile.png",
+    ),
+    fullPage: true,
+    animations: "disabled",
+  });
+});
+
+test("relationship mappings can be split without moving independent profile or score data", async ({
+  page,
+}) => {
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "人际关系", exact: true })
+    .click();
+  await page.getByText("核对并合并重复人物", { exact: true }).click();
+  await page
+    .getByLabel("待合并人物", { exact: true })
+    .selectOption({ label: "甲" });
+  await page
+    .getByLabel("保留人物", { exact: true })
+    .selectOption({ label: "乙" });
+  await page
+    .getByLabel("合并依据", { exact: true })
+    .fill("浏览器核对的合成重复档案");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "确认合并人物", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("独立账本保留");
+  await expect(
+    page.locator(".record-card").filter({ hasText: "甲" }).last(),
+  ).toContainText("映射并入：乙");
+  await page.getByText("核对并拆分人物映射", { exact: true }).click();
+  await page
+    .getByLabel("待拆分人物", { exact: true })
+    .selectOption({ label: "甲" });
+  await page.getByLabel("拆分依据", { exact: true }).fill("重新核对为不同人物");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "确认拆分人物", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("人物映射已拆分");
+  await page.getByText("好感规则", { exact: true }).click();
+  await page.getByLabel("每日衰减", { exact: true }).fill("0.5");
+  await page
+    .getByLabel("规则修改依据", { exact: true })
+    .fill("仅调整未来的衰减区间");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "保存好感规则", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("好感规则已保存");
+  await page.getByText("好感策略历史", { exact: true }).click();
+  await expect(
+    page.getByText("仅调整未来的衰减区间", { exact: false }),
+  ).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page
+      .locator("body")
+      .evaluate((node) => node.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await page.screenshot({
+    path: resolve(
+      "../../.local/prometheus/screenshots/relationships-ledger-mobile.png",
     ),
     fullPage: true,
     animations: "disabled",

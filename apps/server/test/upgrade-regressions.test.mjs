@@ -6,9 +6,11 @@ import { resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { Store } from "../dist/store.js";
 import { privateDirectory, now } from "../dist/security.js";
 import { fixture, until } from "./helpers.mjs";
+const root = fileURLToPath(new URL("../../../", import.meta.url));
 test("stopped-instance snapshot preserves the secret master key and can restore into a separate directory", async () => {
   const app = await fixture();
   await app.bootstrap();
@@ -24,13 +26,13 @@ test("stopped-instance snapshot preserves the secret master key and can restore 
     execFileSync(
       process.execPath,
       [
-        resolve("../../deploy/prometheus/backup-instance.mjs"),
+        resolve(root, "deploy/prometheus/backup-instance.mjs"),
         "--data-dir",
         app.dataDir,
         "--source-commit",
         "49c3ed46b9f6737c8913ad2eff78ee7bc20a8049",
         "--backup-root",
-        resolve("../../.local/prometheus/tests/snapshots"),
+        resolve(root, ".local/prometheus/tests/snapshots"),
       ],
       { encoding: "utf8" },
     ),
@@ -50,7 +52,7 @@ test("stopped-instance snapshot preserves the secret master key and can restore 
 });
 test("schema1 upgrade takes an integrity-checked restorable snapshot and rejects future downgrades", () => {
   const path = privateDirectory(
-    resolve(`../../.local/prometheus/tests/upgrade-${randomUUID()}`),
+    resolve(root, `.local/prometheus/tests/upgrade-${randomUUID()}`),
   );
   const original = new DatabaseSync(join(path, "prometheus.db"));
   original.exec(
@@ -68,7 +70,7 @@ test("schema1 upgrade takes an integrity-checked restorable snapshot and rejects
   assert.equal(
     upgraded.get("SELECT value FROM metadata WHERE key='prometheus.schema'")
       .value,
-    "4",
+    "5",
   );
   const backup = join(
     path,
@@ -183,20 +185,34 @@ test("reviewed affinity stays scoped and never grants contact; merge leaves unre
   ).data;
   assert.equal(
     (
-      await app.call(`/relationships/people/${people[0].id}/event`, "POST", {
-        delta: 5,
-        reason: "合成依据",
-        reviewed: false,
-      })
+      await app.call(
+        `/relationships/people/${people[0].id}/event`,
+        "POST",
+        {
+          delta: 5,
+          reason: "合成依据",
+          reviewed: false,
+          event_key: "unreviewed",
+          kind: "manual_adjustment",
+        },
+        { headers: { "if-match": '"1"' } },
+      )
     ).status,
     400,
   );
   const event = await app.call(
     `/relationships/people/${people[0].id}/event`,
     "POST",
-    { delta: 5, reason: "已核对的合成依据", reviewed: true },
+    {
+      delta: 5,
+      reason: "已核对的合成依据",
+      reviewed: true,
+      event_key: "reviewed",
+      kind: "manual_adjustment",
+    },
+    { headers: { "if-match": '"1"' } },
   );
-  assert.equal(event.data.affinity, 5);
+  assert.equal(event.data.affinity, 55);
   assert.equal(event.data.contact_permission, false);
   assert.equal(event.data.autonomous_sending, false);
   const merged = await app.call(
@@ -204,9 +220,10 @@ test("reviewed affinity stays scoped and never grants contact; merge leaves unre
     "POST",
     {
       into_id: people[1].id,
-      expected_from_revision: 1,
+      expected_from_revision: event.data.revision,
       expected_into_revision: 1,
       confirmed: true,
+      reason: "明确核对同一人物的合成档案",
     },
   );
   assert.equal(merged.status, 200);
@@ -217,7 +234,7 @@ test("reviewed affinity stays scoped and never grants contact; merge leaves unre
   const target = (await app.call("/relationships/people")).data.items.find(
     (p) => p.id === people[1].id,
   );
-  assert.equal(target.events.length, 1);
+  assert.equal(target.events.length, 0);
   assert.equal((await app.call("/knowledge/sources")).data.items.length, 0);
 });
 test("sleep context reset never resurrects a completed reply whose publication was suppressed", async (t) => {

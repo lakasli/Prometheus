@@ -49,12 +49,12 @@ export class Store {
           .get()?.value
       : undefined;
     if (tables.length) {
-      if (!["1", "2", "3", "4"].includes(String(previousSchema))) {
+      if (!["1", "2", "3", "4", "5"].includes(String(previousSchema))) {
         this.database.close();
         throw new Error("Unsupported Prometheus schema; do not downgrade");
       }
     }
-    if (tables.length && previousSchema !== "4") {
+    if (tables.length && previousSchema !== "5") {
       const backupDir = privateDirectory(join(path, "backups"));
       const target = join(
         backupDir,
@@ -102,8 +102,13 @@ export class Store {
         now(),
       );
       this.run(
-        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','4') ON CONFLICT(key) DO UPDATE SET value='4'",
+        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','5') ON CONFLICT(key) DO UPDATE SET value='5'",
       );
+      if (previousSchema && previousSchema !== "5")
+        this.run(
+          "INSERT OR IGNORE INTO metadata VALUES('affinity.legacy_cutoff',?)",
+          String(now()),
+        );
       this.run(
         "INSERT OR IGNORE INTO metadata(key,value) VALUES('assistant.identity',?)",
         randomUUID(),

@@ -47,6 +47,7 @@ export class Features {
     runtime.onInvalidation = (owner, change) => {
       this.knowledge.invalidateOwner(owner, change);
       if (change?.action === "forgotten") this.relationships.forget(change.id);
+      if (change?.action === "created") this.relationships.created(change.id);
     };
     runtime.getSummary = (conversation) => this.knowledge.summary(conversation);
     runtime.refreshSourceGrants = () => this.knowledge.expireGrants();
@@ -71,6 +72,7 @@ export class Features {
     };
   }
   start() {
+    this.relationships.affinity.start();
     this.media.start();
     this.channels.start();
     this.knowledge.start();
@@ -217,6 +219,7 @@ export class Features {
     }
   }
   async stop() {
+    this.relationships.affinity.stop();
     this.media.stop();
     this.automation.stop();
     await this.channels.stop();
@@ -236,7 +239,12 @@ export class Features {
     readBody: () => Promise<unknown>,
   ): Promise<FeatureResult> {
     if (path === "/relationships/people" && method === "GET")
-      return { data: { items: this.relationships.people(admin.id) } };
+      return {
+        data: {
+          items: this.relationships.people(admin.id),
+          legacy_mappings: this.relationships.legacyMappings(admin.id),
+        },
+      };
     if (path === "/relationships/policy" && method === "GET")
       return { data: this.relationships.policy(admin.id) };
     if (path === "/relationships/policy" && method === "PUT")
@@ -253,13 +261,32 @@ export class Features {
         ),
       };
     const person =
-      /^\/relationships\/people\/([a-f0-9-]{36})\/(event|merge)$/.exec(path);
+      /^\/relationships\/people\/([a-f0-9-]{36})\/(event|merge|split)$/.exec(
+        path,
+      );
     if (person && method === "POST")
       return {
         data:
           person[2] === "event"
-            ? this.relationships.add(admin.id, person[1]!, await readBody())
-            : this.relationships.merge(admin.id, person[1]!, await readBody()),
+            ? this.relationships.add(
+                admin.id,
+                person[1]!,
+                revision(request.headers["if-match"]),
+                await readBody(),
+              )
+            : person[2] === "merge"
+              ? this.relationships.merge(admin.id, person[1]!, await readBody())
+              : this.relationships.split(
+                  admin.id,
+                  person[1]!,
+                  await readBody(),
+                ),
+      };
+    if (path === "/relationships/policy/history" && method === "GET")
+      return { data: this.relationships.affinity.history(admin.id) };
+    if (path === "/relationships/policy/preview" && method === "POST")
+      return {
+        data: this.relationships.affinity.preview(admin.id, await readBody()),
       };
     if (path === "/context/policy" && method === "GET")
       return { data: this.conversationContext.policy() };
