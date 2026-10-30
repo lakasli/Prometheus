@@ -41,3 +41,29 @@
 本批仍不宣称完整迁移：跨来源统一的自我日记、人物字段/关系/好感来源的完整对接、既有周期跨时区迁移、十万规模与长期运行另验。新实例无真实模型/渠道配置；合成模型不是外部模型或QQ/微信客户端验收。Windows worker原策略阻断不变，语音/Harness/Python/Component执行仍禁用。
 
 05:00–05:06+08:00最终本地检查：类型检查、前后端构建退出0；服务端103项全部通过，约50.7秒；浏览器13项全部通过，约18.4秒；Prettier和git diff --check通过。日记专项18项，其中17个服务场景、1个时间/严格JSON纯函数场景。末轮浏览器试跑曾在390px折叠导航下等待隐藏的侧栏按钮而超时，检查真实页面后在验证桌面离开提示前恢复桌面视口，未改变产品导航或放宽断言；临时事件草稿被明确放弃后再次进入为空。
+
+## 固定SHA Windows验收与正式运行
+
+应用 **`b8c4708300413044df2a54ddbdf22bf710517706`** 已提交、推送origin，并以git ls-remote核实远端分支tip。命令`pwsh -NoProfile -File deploy/prometheus/package-windows.ps1 -Commit b8c4708300413044df2a54ddbdf22bf710517706 -PreviousVerifiedCommit d7e6fb5d0b1c3f82eb14df44b141351237b1ae8b -IncludeWorkerProbe`退出0。Git archive固定前后端同SHA，不夹带用户Rust/Breeze改动；ZIP SHA-256为`2bf7fd5ebd49c04ea599146d16d864a7df4b7a566c2864cc16bef34a5adb3ee7`。
+
+Windows11专业版10.0.26200 x64，Ultra7 155H/22逻辑处理器，RAM31.6GiB、验收时空闲约11.9GiB，D盘空闲约409.9GiB。Node24.22.1/npm12.2.1/PowerShell7.6.5，MSVC14.44.35207/SDK10.0.26100.0。应用前后端及同SHA空权限探针编译通过；本批未执行探针，不产生隔离成功证据。语音、Harness、Python和Component仍禁用。
+
+| 检查           | 实际结果                                                                                                                                                                                                                                                          |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 构建与依赖     | 固定archive构建前后端、生产依赖安装及制品逐文件hash通过，退出0；审计0漏洞。                                                                                                                                                                                       |
+| 固定基础验收   | verify-release.mjs实际runtime 18项通过，退出0；包含SHA/hash、启动、live/ready、认证和合成文字链路。                                                                                                                                                               |
+| 固定专项回归   | PROMETHEUS_RELEASE_ROOT绑定b8c4708后，diary.test.mjs与schedule.test.mjs合计36项通过，约14.7秒，退出0。34项使用固定服务HTTP/进程内夹具，2项时间/严格JSON纯函数来自本地dist；密码/时间/ACL辅助亦来自本地。部分场景通过直接服务方法或SQL构造，不冒充独立进程端到端。 |
+| 固定浏览器     | 13项通过，约16.7秒，退出0；服务与静态资源都来自包，不重建工作区；日记、来源与390px截图实际检查。                                                                                                                                                                  |
+| 正式权限与页面 | 20个匿名管理API均401，含日记状态/分区/事件/周期/导出；既有账户登录页无JavaScript错误，无用户密码或代登录。前端build.json与live/ready均完整应用SHA和schema7。                                                                                                      |
+
+05:10:20+08:00核对上一版d7e6fb5的Node PID2224、命令行、数据锁和健康SHA；无Run/整理/投递在途，渠道关闭、无模型配置。Ctrl+C输出`Prometheus stopped`，外层PowerShell退出1；PID、8419监听与数据锁均消失。此空闲退出不当作正式在途取消验收。
+
+05:10:28+08:00完整实例备份8个文件、integrity_check=ok，保存数据库、主密钥、旧快照与部署元数据：`.local/prometheus/backups/instance-2026-10-30T21-10-28-479Z-c0462e28-eeb6-4711-992b-f0eb935c2879`。备份与恢复目录逐文件hash/路径、NTFS ACL通过，没有覆盖原实例或既有备份。
+
+05:10:30+08:00在独立目录`recovery-drills/12577898-f8a1-4e6d-a19c-327e5e5d194d`恢复schema6，仅这个副本加入合成未应用草稿、人物账本、人工记忆/日记/日程及一条用真实旧Store加密的合成凭据。新制品18469 ready并升级7，原草稿内容/基准/时间、人工资料与日程不变，好感49.125/余数321保留；合成凭据解密通过，主密钥hash一致。两条旧明确记录登记为有来源事件，没有启用模型，也没有伪造模型片段/请求。自动schema6快照仍可读且integrity_check=ok。
+
+随后实际旧d7e6fb5 Store拒绝schema7；在另一私有目录`recovery-drills/302822c8-6b49-4398-8113-60b0682e5327`恢复未加合成数据的完整schema6备份，旧制品18469 ready并关闭。代码回退与数据恢复分开，未删除新表或重建用户数据库来绕过门禁。
+
+05:10:35+08:00包内Start-Prometheus.ps1核对全部制品hash后前台启动，Node PID10032，入口`http://127.0.0.1:8419/admin/`。05:10:49复验：管理员1，资料/Run/消息/凭据0，配置/性格revision1，稳定身份及主密钥hash与升级前一致。日记仅默认自身私有分区1和本次运行观测区间1；事件、模型请求、片段、周期条目0，未带入任何合成数据，模型许可仍关闭。当前库与自动schema6快照integrity_check=ok；实例、secrets和master.key原生NTFS ACL仅运行账户、SYSTEM和Administrators。
+
+私有证据为`.local/prometheus/release-validation/reports/b8c4708300413044df2a54ddbdf22bf710517706.json`、`.local/prometheus/upgrade-evidence/b8c4708/drill.json`与`production.json`。正式deployment.json记录当前SHA、上一可用SHA、备份与检查范围。WSL旧Rust df6429c在18439仍ready，仅供对照；不计为Windows、真实模型、QQ/微信、隔离执行或长期规模验收。完整迁移目标继续保持未完成。
