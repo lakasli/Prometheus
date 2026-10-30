@@ -1,0 +1,106 @@
+> 旧 DSH README 快照；历史事实保留，相对链接已适配本文件位置。新项目入口见 [Prometheus](../../README.md)。
+
+# DSH：Windows 上的 Rust AI 助手
+
+**用户于 2026-10-30 将正式运行与部署目标改为 Windows，不再部署到树莓派。** 默认工作目录为 `D:\DSH`，使用 Windows 原生 Rust 服务和构建后的静态 Vue 管理页面。本次调整项目规则与部署说明，不代表 Windows 迁移或运行验收已完成。
+
+M0 核心验证和 M1 文本 / Web 管理基础已有历史 Linux 实现与部署：Rust 服务、Cordis 生命周期、SQLite 持久任务、原生模型 API、QQ 官方接入和静态管理台。历史树莓派 / Ubuntu / Lite 报告保留当时事实，不作为 Windows 测试通过的证据。当前命令、首次启动阻塞和平台适配范围见 [Windows 开发与部署流程](../development-workflow.md)。
+
+M0/M1原始部署与真实Harness / QQ联调已通过，历史证据见 [M0/M1验证记录](../m0-m1-validation.md)。历史角色卡M1.1的部署版本、回归与真实QQ验证独立记录在 [角色卡验收记录](../character-card-validation.md)，不将文档提交SHA当成运行版本。
+
+## 当前功能范围
+
+以下列出仓库已有实现；相关验收链接记录历史平台结果。依赖 Linux 隔离的插件工厂 / WAT worker，以及 Piper 安装与运行环境，尚未完成 Windows 适配；对应能力在安全条件满足前维持不可用。普通服务、浏览器管理与渠道功能仍须在 Windows 逐项运行验证。
+
+- 作息与整理：配置中的独立作息策略、来源控制许可、定时 / 受控直接入睡与唤醒、接收不中断、原期限恢复、待发布结果复用及有界来源整理；默认关闭，单期超过 16 个来源仍明确 partial。固定部署、Linux / 单次真实模型 / 浏览器证据及未交付范围见 [睡眠发布验收](../rest-release-validation.md)。
+- 日程：月 / 周 / 日与议程、重复系列与例外、改期 / 暂停 / 取消、旧触发任务兼容、自主范围与模型预算、授权文本阅读和跨时段续读。视频理解、主动投递与未注册动作保持明确阻断，见 [日程契约](../schedule-system.md)。
+- 日记与资料：显式事件、来源与模型出域授权、每日兜底、日 / 周 / 月记、事实与感受分栏、来源分页、FTS5 与近期日记检索、更正 / 遗忘和旧记忆兼容迁移。周 / 月按固定日记版本分批归并，保存恢复检查点；超出单日容量或模型预算时显示等待 / 阻断，见 [日记契约](../diary-system.md)。
+- 人际关系：稳定人物、待审字段与有向边、同名区分、会话身份、跨账号同人确认、同域合并 / 拆分、版本化好感规则及来源失效。联系许可不自动授予发送权，见 [人物契约](../relationships-system.md)。本轮实际部署与验收见 [独立记录](../life-systems-validation.md)，不等于完整睡眠、好友观察或全部 M2 已交付。
+- 管理员一次性初始化、密码哈希、可撤销会话、Origin / CSRF 检查。
+- Skill 管理、版本冻结和显式对话调用，默认「制作 Skill」「绘画」与「设置触发任务」；生成草稿经审核保存，绘画按已配置能力走原生 PNG 或隔离 HTML / SVG。契约与验证边界见 [Skill 说明](../skills.md)。
+- 模型与 QQ 配置、受限密钥存储、配置草稿 / 校验 / 连接测试 / 版本应用 / 回退。
+- CLI 与渠道文本对话、独立会话历史、全局最多两个活跃 Run；Web 管理页查看运行日志。
+- Rust / WIT / Wasmtime Component 插件工厂：生成函数体、隔离构建、独立测试、摘要审批、版本启用 / 回滚与显式 `/plugin` 调用。当前只开放空权限无状态工具；完整 broker 与模型自动调用循环仍按原架构推进。见 [插件工厂](../plugin-factory.md) 与 [实机 / 单次真实模型验收](../plugin-factory-validation.md)。
+- 普通对话的逐句 JSON 回复计划、1–4条上限、账号与会话持久发送间隔；图片 / 视频私有制品和按需本地 Piper 中文 TTS，富媒体优先适配 QQ C2C。契约见 [逐句与媒体](../structured-replies.md) 和 [Piper](../speech.md)，部署、真实 QQ 客户端和未测范围见 [本轮验收](../voice-plugins-validation.md)。
+- QQ 当前官方非群 API 固定白名单管理、参数校验、只读探针及逐项结果状态。见 [范围与文档](../qq-non-group-api.md)；协议模拟覆盖不等同于账号获权或真实平台操作通过。
+- SQLite 入站去重、持久队列与回复 Outbox；排队任务重启可恢复，在途结果未知时明确标记，不盲目重发。
+- 会话身份与来源版本冻结，历史按实际投递句段构建；明确私聊纯文本更正可阻止尚未发布的旧候选，摘要与日记复用投递证据。范围、兼容回退与模拟 / 真实验收见 [会话协调](../conversation-coordination.md) 和 [首批记录](../conversation-coordination-validation.md)。
+- [短期焦点与纠正](../conversation-state.md)、[会话约定资料审核](../conversation-commitments.md)及[普通文字上下文预算](../context-budget.md)：同来源发言者隔离、封闭明确续接 / 收尾、版本与 TTL 失效、完整必需输入、块选择及只读原因。管理审核不冒充来源同意、日程建立或实际履行；模型窗口和 token 明确区分未知、声明与估计。新切片发布与验收见 [记录](../conversation-state-validation.md)。睡眠、真实主动联系与 Python 动作继续独立推进。
+- QQ 官方 WebSocket（默认）和签名 Webhook（可选），实际平台能力需由已授权账号联调。
+- QQ C2C 连续普通短文本可在 3.5 秒静默 / 最长 8 秒窗口内合并为一轮，保留每条来源及去重；命令、媒体与性格 / 配置变更分界。规则与部署证据见 [连续短文本](../qq-text-batches.md)。
+- M0 的真实 Cordis 四组生命周期实验与真实 Harness ACP 探针。M1 生产聊天使用 NativeBackend，尚不启用完整 Harness 执行环境。
+- 唯一助手性格在“助手与模型”编辑，带版本冲突检测，对后续 Run 生效；历史角色卡与快照保留，不再支持多角色切换。
+- 助手自身的稳定身份与显式长期记忆：共享 / 来源域私有、中文全文检索、版本纠正、遗忘、来源、JSON导出及Web管理；Web / CLI / QQ复用记忆命令和有界对话召回。实际验收见 [记忆记录](../memory-validation.md)。
+- 同来源长会话增量摘要：复用现有任务槽、来源与覆盖水位、敏感资料省略、超长轮次明确摘录、取消恢复和遗忘联动；管理页可查看并重建派生摘要。独立验收见 [摘要记录](../summary-validation.md)。
+- 会话记忆候选：明确勾选来源消息、模型提取、审核后私有入库，拒绝 / 到期 / 遗忘清除候选正文，不自动共享或覆盖事实。当前发布与验证状态见 [候选记录](../memory-candidate-validation.md)。
+- 微信 iLink 单账号文字私聊适配：管理页扫码、本人来源限制、原子游标 / 入站去重、冻结回复上下文、凭据失效与不确定发送处理。实现与模拟验证见 [微信说明](../weixin.md) 和 [验收边界](../weixin-validation.md)；真实手机扫码与收发仍待验收。
+- 图片后端支持 PNG、JPEG/JPG、WebP、GIF、BMP，实际解码、方向纠正和去元数据后，经 DeepSeek-flash 与 Native 上下文回答；GIF / WebP 读取首帧，失败使用自然短句。通用文字安排使用现有日程授权，性格不预设抄诗爱好。见 [当前契约](../general-plans-images.md)。原 Web 单 PNG 界面验收见 [历史图片对话记录](../conversation-images-validation.md)；当前 Web 工作台已改为日志。
+
+管理页面按 [架构的信息架构](../architecture.md#143-页面与用户操作) 组织。“角色卡”并入“助手与模型”，“对话工作台”改为只读“日志记录”，删除“任务与诊断”入口。日志展示输入 / 输出、Run、工具、视觉、语音合成与投递等实际运行事件；ASR / subagent 尚未接入。旧 WAT 与独立图片诊断 API 保留原权限边界，不再挂页面入口。契约与本轮验收见 [单助手与运行日志](../assistant-runtime-logs.md)。
+
+ACP 通知属于已提交的语义输出，不承诺模型 token 流。M0 在途取消由临时回环 HTTP 代理确认真实上游请求仍未完成，再经私有 IPC 触发 ACP cancel；不以排队成功或已经结束的文本输出作为取消证据。代理不记录凭证、请求或回复正文。
+
+后台自动事实抽取、微信真实平台收发验收、微信渠道媒体、ASR、完整插件工厂和Harness工具桥仍待交付；Piper与QQ富媒体本轮实现及验收单独记录；历史Web单PNG图片对话曾部署并通过独立验收，当前管理页已改为日志；相关后端保留，不代表完整M4。WAT开发诊断原型不代表M5，现有记忆与微信切片也不代表M2全部完成。后续按 [架构文档](../architecture.md) 的功能与信息架构推进，重大偏离先说明并由用户确认，不改写目标来迁就原型。
+
+「任务触发」已实现正式管理 tab、持久调度与默认 [设置触发任务 Skill](../skills/task-trigger-setup.md)：一次性时刻 / 启用后秒延迟、固定秒间隔、日历日期、中国工作日 / 休息日，以及本人交互 Run 完成 / 失败与服务启动事件。模型仅生成待审核草稿，保存停用后须预演并明确启用；固定提醒或隔离助手任务的结果保存在认证 Web 页面。当前内置已核验的 2026 年中国日历，未知年份阻断，不发送 QQ / 微信主动消息或接受外部 webhook。契约见 [详细设计](../task-triggers.md) 和 [Schema](../schemas/dsh-task-trigger-v1.schema.json)，本地检查及正式部署状态见 [运行验收](../task-triggers-validation.md)；先前 [静态验证](../task-triggers-design-validation.md) 仅为历史设计证据。
+
+角色卡根据AIRI源码研究独立实现，采用CCv3文本内容与DSH模块偏好扩展；服务端版本、会话绑定和入队快照按本项目设计。见 [角色卡契约](../character-cards.md)、[Schema](../schemas/dsh-character-card-v1.schema.json) 与 [原创示例](../examples/campanus.character-card.json)。未引入AIRI依赖。临时源码尚在忽略目录中，删除操作被工具策略拒绝；实际状态见 [研究记录](../research/airi-character-card-review.md)。
+
+在 Web“助手与模型”中编辑唯一性格，保存后下一个入队的 Run 使用新版本，已有会话也遵循该规则。首次沿用原默认角色内容；没有默认卡时使用原助手设置。旧角色卡写入 / 选择 API 已停用，QQ `/角色` 仅提示使用单一助手。
+
+CLI 使用 `dshd chat --message "你好"`，或用 `--conversation <ID>` 续接历史，均使用当前助手性格，不再提供角色选择参数。CLI 与渠道对话后端保留；Web 管理页专注配置与日志。
+
+在“助手记忆”中管理属于助手的经历与事实；共享条目需明确确认，可跨Web / CLI / QQ使用，私有条目仅在来源账号域内使用，无需把人的跨平台账号绑定。私聊或Web可用 `/memory remember <内容>`、`/memory list`、`/memory show <ID>`、`/memory correct <ID>@<版本> <新内容>`、`/memory forget <ID>@<版本>`；命令不调用模型，群聊和频道只读，角色草稿测试会话不写记忆。遗忘会清空记忆正文 / 旧版 / 索引并停止后续上下文使用相关旧历史，原始聊天消息和离线备份按独立策略保留。详见 [记忆使用与边界](../memory.md)。
+
+## Windows 本地运行
+
+需要仓库锁定的 Rust 1.88.0、MSVC C/C++ 编译工具链与 Windows SDK、Node.js 和 npm。前端只在构建阶段需要 Node，生产静态页面由 Rust 提供。在 PowerShell 中执行：
+
+```powershell
+Set-Location D:\DSH
+npm.cmd ci --prefix web/admin
+npm.cmd run build --prefix web/admin
+cargo build -p dshd --locked
+# 以上每步成功后再继续；首次创建管理账户前生成一次性凭证。
+& .\target\debug\dshd.exe bootstrap-token --data-dir .local/dev
+& .\target\debug\dshd.exe serve --data-dir .local/dev --listen 127.0.0.1:8419 --origin http://127.0.0.1:8419 --web-dir web/admin/dist
+```
+
+打开 `http://127.0.0.1:8419/admin/`，在本机私有的 `.local/dev/bootstrap-token.json` 中读取 15 分钟有效的一次性初始化凭证，创建管理账户。已有账户直接登录；管理账户独立于 Windows 登录账户，没有默认口令。然后录入自己的模型 API key，保存草稿、校验、连接测试并应用。
+
+录入真实凭据前核验 `.local/dev` 与凭证文件的 NTFS ACL，只允许授权运行账户及必要的系统管理主体访问；Unix 权限设置不能替代 Windows ACL。凭证不要上传、粘贴进日志或提交到 Git。模型地址默认要求 HTTPS，拒绝私网地址；本地模拟模型测试显式使用 `--allow-private-model`，生产部署不开启该例外。
+
+2026-10-30 在原本地源码 `79c561e` 的首次尝试中，前端已构建成功，后端在执行 `wasm-encoder` 构建程序时被 Windows 应用程序控制策略阻止（错误 4551），服务尚未启动。之后同步的远端新实现尚未重新构建。需由系统管理者处理可信构建程序的执行许可后再验证，不自动关闭或绕过策略，也不回退到树莓派部署。
+
+服务启动后，在另一个 PowerShell 中检查 `Invoke-RestMethod http://127.0.0.1:8419/health/live` 和 `Invoke-RestMethod http://127.0.0.1:8419/health/ready`。前台窗口保持运行，使用 `Ctrl+C` 停止服务。
+
+## 检查与验收
+
+```powershell
+npm.cmd test --prefix web/admin
+npm.cmd run build --prefix web/admin
+cargo test --workspace --locked
+python -S tools/smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
+python -S tools/assistant-logs-smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
+python -S tools/memory-smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
+python -S tools/summary-smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
+python -S tools/task-triggers-smoke.py --binary target/debug/dshd.exe --web-dir web/admin/dist
+python -S tools/tests/test_deploy_compatibility.py
+```
+
+`tools/smoke.py` 会启动真实 Rust 进程、临时数据库和隔离的模拟模型，验证认证、配置、对话去重及重启恢复；它不会使用生产数据或凭证，不能代替真实 DeepSeek / QQ 联调。检查须使用实际 Windows `.exe`，Linux 历史通过结果另列。
+
+## Windows 发布与浏览器访问
+
+遵循 [AGENTS.md](../../AGENTS.md)：本地编写 → 检查 → Git 提交推送 → Windows 固定 SHA 构建与部署 → Windows 运行测试 → 记录。仅修改文档时执行静态检查与 Git 交付，不启动或重启应用。
+
+- 当前 Windows 启动方式为上述 PowerShell 前台命令；Windows 服务、自启动和自动发布 / 回滚脚本尚未实现。
+- 正式发布须分离代码制品与持久配置 / 数据 / 日志，绑定前后端完整 SHA 并验证数据库兼容性，详见 [开发与部署流程](../development-workflow.md)。
+- [前端打包脚本](../../deploy/package-web.ps1) 可为已提交 SHA 生成静态资源压缩包；它本身不会部署或启动 Windows 后端。
+- `deploy/deploy.sh`、`deploy/rollback.sh`、systemd 模板及 aarch64 Piper 安装文件保留为历史 Linux 实现，不再是默认执行步骤。
+
+本机直接访问 `http://127.0.0.1:8419/admin/`，无需 SSH。其他设备访问时使用受控 HTTPS 反向代理，保持前后端同源，配置对应 `--origin https://<管理域名>` 和 `--secure-cookie`，后端继续监听 loopback；不要将管理端口直接暴露为普通局域网 HTTP。
+
+旧树莓派的 HTTPS / 8086 入口与证书安装记录仅保留为 [历史验收](../lan-https-validation.md)，不是 Windows 默认访问地址；本次不迁移该主机的证书、配置或用户数据。
+
+QQ 按 [最新官方指南](https://bot.q.qq.com/wiki/) 设置连接方式：Windows 个人部署默认选择 WebSocket，在页面录入 AppID / AppSecret，按实际账号权限订阅和测试；Webhook 才需要额外配置公网 HTTPS 回调。

@@ -1,5 +1,7 @@
 # DSH 项目工作规则
 
+> **2026-10-30 Prometheus 重写决定**：用户授权使用 TypeScript 重新编写本项目、命名为 Prometheus，并明确选择“作为全新项目重写，旧数据保留备份”。新的默认入口为根目录 npm 工作区 `apps/server` / `apps/admin`，运行于 Windows Node.js；下文 Rust / DSH 的语言与启动命令作为旧实现规则保留，新的实际命令见 [Prometheus Windows 流程](docs/prometheus-windows.md)。Git 提交推送、Windows 固定 SHA 验收、用户改动保护、凭据与数据隔离以及未验证执行能力保持禁用等要求继续适用。原完整功能目标仍保留，未迁移能力不得报告为重写完成，见 [迁移范围](docs/prometheus-migration.md)。
+
 本文件适用于整个仓库。参与项目的开发者和 AI Agent 应遵循以下开发、交付和验证流程。
 
 ## 1. 固定工作流程

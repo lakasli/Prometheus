@@ -1,5 +1,7 @@
 /target/
 **/node_modules/
+**/dist/
+/playwright-report/
 **/__pycache__/
 /web/admin/dist/
 /.local/

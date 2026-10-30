@@ -1,0 +1,29 @@
+{
+  "name": "prometheus",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Prometheus personal companion runtime for Windows",
+  "engines": {
+    "node": ">=24.7.0 <25"
+  },
+  "workspaces": [
+    "apps/server",
+    "apps/admin"
+  ],
+  "scripts": {
+    "build": "npm run build:server && npm run build:web",
+    "build:server": "npm run build --workspace @prometheus/server",
+    "build:web": "npm run build --workspace @prometheus/admin",
+    "typecheck": "npm run typecheck --workspace @prometheus/server && npm run typecheck --workspace @prometheus/admin",
+    "test": "npm run build:web && npm run test --workspace @prometheus/server",
+    "start": "node apps/server/dist/cli.js serve",
+    "bootstrap": "node apps/server/dist/cli.js bootstrap-token",
+    "dev": "npm run build && npm start",
+    "format": "prettier --write --ignore-unknown apps deploy/prometheus package.json README.md docs/prometheus-*.md",
+    "format:check": "prettier --check --ignore-unknown apps deploy/prometheus package.json README.md docs/prometheus-*.md"
+  },
+  "devDependencies": {
+    "prettier": "3.9.10"
+  }
+}

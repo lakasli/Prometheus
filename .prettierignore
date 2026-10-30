@@ -1,0 +1,8 @@
+**/node_modules/
+**/dist/
+.local/
+web/
+crates/
+library/
+source/
+package-lock.json
