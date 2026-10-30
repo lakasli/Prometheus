@@ -256,6 +256,8 @@ test("schedules, diaries, people, relationships and skills save through their re
   await page.getByRole("button", { name: "＋ 新增日程" }).click();
   await page.getByLabel("标题", { exact: true }).fill("合成阅读计划");
   await page.getByLabel("内容", { exact: true }).fill("手动阅读与进度记录");
+  await page.getByLabel("开始时间", { exact: true }).fill("2027-01-01T09:00");
+  await page.getByLabel("结束时间", { exact: true }).fill("2027-01-01T10:00");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.locator(".record-card")).toContainText("合成阅读计划");
   await page
@@ -806,4 +808,195 @@ test("relationship mappings can be split without moving independent profile or s
     fullPage: true,
     animations: "disabled",
   });
+});
+
+test("civil calendar, scoped edits, authorized reading and work goals operate through management pages", async ({
+  page,
+}) => {
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "日程", exact: true })
+    .click();
+  const editor = page.locator(".schedule-editor"),
+    work = page.locator(".schedule-work");
+  await page.getByLabel("日历日期", { exact: true }).fill("2027-01-31");
+  await page.getByLabel("日历日期", { exact: true }).press("Tab");
+  await editor.getByRole("button", { name: "新建活动", exact: true }).click();
+  await editor.getByLabel("活动标题", { exact: true }).fill("浏览器月度系列");
+  await editor.getByLabel("活动类型", { exact: true }).selectOption("video");
+  await editor
+    .getByLabel("活动目的", { exact: true })
+    .fill("仅核对合成日历与能力门禁");
+  await editor.getByLabel("活动开始", { exact: true }).fill("2027-01-31T09:00");
+  await editor.getByLabel("活动结束", { exact: true }).fill("2027-01-31T10:00");
+  await editor.getByLabel("活动重复", { exact: true }).selectOption("monthly");
+  await editor.getByLabel("重复次数（0表示不指定）", { exact: true }).fill("3");
+  await editor.getByRole("button", { name: "预演活动", exact: true }).click();
+  await expect(editor.getByText("只读预演", { exact: true })).toBeVisible();
+  await editor.getByRole("button", { name: "保存活动", exact: true }).click();
+  await expect(editor.getByRole("status")).toContainText("活动已保存");
+  await page
+    .locator(".calendar-grid")
+    .getByRole("button", { name: "浏览器月度系列", exact: true })
+    .click();
+  await expect(editor.getByLabel("活动修改范围", { exact: true })).toHaveValue(
+    "single",
+  );
+  await editor.getByLabel("活动开始", { exact: true }).fill("2027-02-08T09:00");
+  await editor.getByLabel("活动结束", { exact: true }).fill("2027-02-08T10:00");
+  await editor
+    .getByRole("button", { name: "保存活动更改", exact: true })
+    .click();
+  await expect(editor.getByRole("status")).toContainText("更改已保存");
+  await page.getByLabel("日历日期", { exact: true }).fill("2027-02-08");
+  await page.getByLabel("日历日期", { exact: true }).press("Tab");
+  await expect(
+    page
+      .locator(".calendar-grid")
+      .getByRole("button", { name: "浏览器月度系列", exact: true }),
+  ).toBeVisible();
+  await page
+    .locator(".calendar-grid")
+    .getByRole("button", { name: "浏览器月度系列", exact: true })
+    .dragTo(page.locator('.calendar-day:has(time[datetime="2027-02-09"])'));
+  await expect(editor.getByRole("status")).toContainText("拖动改期已预演");
+  await expect(editor.getByLabel("活动开始", { exact: true })).toHaveValue(
+    "2027-02-09T09:00",
+  );
+  const unmoved = await (
+    await page.request.get(
+      `/api/admin/v1/schedule/calendar?start=${Date.parse("2027-02-08T00:00+08:00") / 1000}&end=${Date.parse("2027-02-09T00:00+08:00") / 1000}`,
+    )
+  ).json();
+  expect(
+    unmoved.items.some((item: any) => item.title === "浏览器月度系列"),
+  ).toBe(true);
+  await editor
+    .getByRole("button", { name: "保存活动更改", exact: true })
+    .click();
+  await expect(editor.getByRole("status")).toContainText("更改已保存");
+  await page.getByLabel("日历日期", { exact: true }).fill("2027-03-31");
+  await page.getByLabel("日历日期", { exact: true }).press("Tab");
+  await page.getByLabel("日历视图").selectOption("day");
+  await page
+    .locator(".calendar-grid")
+    .getByRole("button", { name: "浏览器月度系列", exact: true })
+    .click();
+  await editor
+    .getByLabel("活动修改范围", { exact: true })
+    .selectOption("following");
+  await expect(
+    editor.getByLabel("重复次数（0表示不指定）", { exact: true }),
+  ).toHaveValue("1");
+  await editor.getByLabel("活动开始", { exact: true }).fill("2027-03-31T11:00");
+  await editor.getByLabel("活动结束", { exact: true }).fill("2027-03-31T12:00");
+  await editor
+    .getByRole("button", { name: "保存活动更改", exact: true })
+    .click();
+  await expect(editor.getByRole("status")).toContainText("后续系列已另建");
+  await editor
+    .getByRole("button", { name: "关闭活动编辑", exact: true })
+    .click();
+  await work.getByText("授权文本与阅读进度", { exact: true }).click();
+  await work.getByLabel("授权文本标题", { exact: true }).fill("浏览器合成书架");
+  await work
+    .getByLabel("授权文本正文", { exact: true })
+    .fill("浏览器明确授权的合成片段。");
+  await work
+    .getByLabel("明确允许当前模型服务阅读这份私人文本", { exact: true })
+    .check();
+  await work
+    .getByRole("button", { name: "保存并授权文本", exact: true })
+    .click();
+  await expect(work.getByRole("status")).toContainText("尚不代表已阅读");
+  await work.getByText("自主安排范围", { exact: true }).click();
+  await work.getByLabel("授权名称", { exact: true }).fill("浏览器阅读范围");
+  await work.getByLabel("范围内可用：浏览器合成书架", { exact: true }).check();
+  await work
+    .getByLabel("明确授予以上范围，不授予消息发送或程序执行权限", {
+      exact: true,
+    })
+    .check();
+  await work.getByRole("button", { name: "保存自主授权", exact: true }).click();
+  await expect(work.getByRole("status")).toContainText("自主范围已保存");
+  await work.getByText("工作目标与规划", { exact: true }).click();
+  await work.getByLabel("工作目标", { exact: true }).fill("浏览器规则工作目标");
+  await work
+    .getByLabel("工作目标授权", { exact: true })
+    .selectOption({ label: "浏览器阅读范围" });
+  await work.getByLabel("目标采用：浏览器合成书架", { exact: true }).check();
+  await work
+    .getByLabel("启用目标，在已有范围内自动安排", { exact: true })
+    .check();
+  await work.getByRole("button", { name: "保存工作目标", exact: true }).click();
+  await expect(work.getByRole("status")).toContainText("目标已启用");
+  await work
+    .getByRole("button", { name: "预演目标空闲段", exact: true })
+    .click();
+  await expect(work.getByText("只读候选时段", { exact: false })).toBeVisible();
+  const local = (time: number) =>
+    new Date(time + 8 * 3600000).toISOString().slice(0, 16);
+  await page
+    .getByLabel("日历日期", { exact: true })
+    .fill(local(Date.now()).slice(0, 10));
+  await page.getByLabel("日历日期", { exact: true }).press("Tab");
+  await editor.getByRole("button", { name: "新建活动", exact: true }).click();
+  await editor
+    .getByLabel("活动标题", { exact: true })
+    .fill("浏览器实际片段请求");
+  await editor
+    .getByLabel("活动目的", { exact: true })
+    .fill("只读取明确提供的合成片段");
+  await editor
+    .getByLabel("活动开始", { exact: true })
+    .fill(local(Date.now() - 60000));
+  await editor
+    .getByLabel("活动结束", { exact: true })
+    .fill(local(Date.now() + 120000));
+  await editor
+    .getByLabel("活动阅读资料", { exact: true })
+    .selectOption({ label: "浏览器合成书架" });
+  await editor.getByRole("button", { name: "保存活动", exact: true }).click();
+  await expect(editor.getByRole("status")).toContainText("活动已保存");
+  await editor
+    .getByRole("button", { name: "关闭活动编辑", exact: true })
+    .click();
+  let book: any;
+  await expect
+    .poll(async () => {
+      book = (
+        await (
+          await page.request.get("/api/admin/v1/schedule/resources")
+        ).json()
+      ).items.find((item: any) => item.title === "浏览器合成书架");
+      return book.progress?.checkpoint;
+    })
+    .toBe([..."浏览器明确授权的合成片段。"].length);
+  await work
+    .getByRole("button", { name: "刷新书架与目标", exact: true })
+    .click();
+  await work
+    .getByRole("button", { name: "查看覆盖与笔记", exact: true })
+    .click();
+  await expect(work.locator("pre")).toContainText("合成浏览器回复");
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page
+      .locator("body")
+      .evaluate((node) => node.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await work.screenshot({
+    path: resolve(
+      "../../.local/prometheus/screenshots/schedule-reading-mobile.png",
+    ),
+    animations: "disabled",
+  });
+  page.once("dialog", (dialog) => dialog.accept());
+  await work.getByRole("button", { name: "撤销文本授权", exact: true }).click();
+  await expect(work.getByRole("status")).toContainText("派生笔记已撤销");
+  const revoked = await (
+    await page.request.get(`/api/admin/v1/schedule/resources/${book.id}`)
+  ).json();
+  expect(revoked.notes).toHaveLength(0);
+  expect(revoked.progress).toBeNull();
 });

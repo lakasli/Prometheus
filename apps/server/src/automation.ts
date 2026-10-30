@@ -191,6 +191,10 @@ function validateAction(value: unknown): Json {
   };
 }
 export class Automation {
+  onScheduleTick?: () => void;
+  get workClockTrusted() {
+    return this.clockTrusted && !this.stopped;
+  }
   private timer?: ReturnType<typeof setTimeout>;
   private stopped = false;
   private lastWall = Date.now();
@@ -552,6 +556,7 @@ export class Automation {
       this.restTick();
       this.triggerTick();
       this.collect();
+      this.onScheduleTick?.();
     } catch {
       /* Durable state remains for inspection. */
     }

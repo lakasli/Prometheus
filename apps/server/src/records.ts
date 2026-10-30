@@ -166,6 +166,11 @@ const item = (row: Row): RecordItem => ({
   updated_at: Number(row.updated_at),
 });
 export class Records {
+  validateSchedule?: (
+    owner: string,
+    data: Record<string, unknown>,
+    id?: string,
+  ) => void;
   constructor(
     private store: Store,
     private invalidate: (
@@ -264,6 +269,7 @@ export class Records {
     return this.store.transaction(() => {
       const current = id ? this.get(type, id, owner) : null;
       if (current && current.revision !== expected) throw conflict();
+      if (type === "schedule") this.validateSchedule?.(owner, data, id);
       const count = Number(
         this.store.get(
           "SELECT count(*) AS count FROM records WHERE owner_id=? AND kind=? AND deleted_at IS NULL",

@@ -467,7 +467,7 @@ test("schema2 upgrades snapshot the prior database and backfill message referenc
   assert.equal(
     upgraded.get("SELECT value FROM metadata WHERE key='prometheus.schema'")
       .value,
-    "5",
+    "6",
   );
   assert.equal(
     upgraded.get("SELECT count(*) AS n FROM audit_events WHERE kind='input'").n,

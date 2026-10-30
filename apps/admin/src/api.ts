@@ -17,11 +17,13 @@ export async function api<T>(
   body?: unknown,
   revision?: number,
   signal?: AbortSignal,
+  idempotencyKey?: string,
 ): Promise<T> {
   const headers: Record<string, string> = { accept: "application/json" };
   if (body !== undefined) headers["content-type"] = "application/json";
   if (method !== "GET") headers["x-csrf-token"] = csrf;
   if (revision !== undefined) headers["if-match"] = `"${revision}"`;
+  if (idempotencyKey) headers["idempotency-key"] = idempotencyKey;
   const response = await fetch(`/api/admin/v1${path}`, {
     method,
     headers,

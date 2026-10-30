@@ -1,0 +1,59 @@
+export const activityTypes: Record<string, string> = {
+  reading: "授权文本阅读",
+  writing: "文字活动",
+  video: "视频学习",
+  consolidation: "整理",
+  chat: "主动联系",
+  action: "动作",
+  manual: "人工日程",
+  trigger: "既有触发任务",
+};
+export const scheduleStatus = (value: string) =>
+  ({
+    enabled: "已启用",
+    paused: "已暂停",
+    cancelled: "已取消",
+    pending_approval: "待单独批准",
+    planned: "已安排",
+    pending: "等待准入",
+    running: "请求中",
+    partial: "保留部分进度",
+    completed: "已完成",
+    blocked: "条件未满足",
+    skipped: "已跳过",
+    failed: "请求失败",
+    invalidated: "旧请求已失效",
+    interrupted: "请求已中断",
+    active: "进行中",
+    projected: "时间投影",
+    review_pending: "待审核",
+    approved: "已审核",
+    not_attempted: "尚未尝试",
+    in_progress: "进行中",
+  })[value] ?? "待核对";
+export const scheduleReason = (value: string | null) =>
+  value
+    ? ({
+        video_provider_unavailable: "视频理解能力尚未验证",
+        contact_consent_and_verified_delivery_required:
+          "主动联系需要接收许可与渠道验收",
+        registered_action_broker_required: "动作执行尚未验证",
+        registered_text_activity_required: "尚未绑定可执行的文字活动",
+        consolidation_system_job_only: "整理由独立的日记任务处理",
+        model_not_configured: "尚未配置模型",
+        model_budget_exhausted: "今日模型预算已用尽",
+        resource_already_read: "资料已经读完，本次未重复请求",
+        resource_revoked: "资料授权已撤销",
+        activity_revision_changed: "活动已改变，旧机会保留历史",
+        grant_resource_or_activity_changed: "授权、资料或活动已变化",
+        execution_window_elapsed: "执行窗口已结束",
+        missed_execution_window: "已错过执行窗口",
+        no_available_slot: "暂无合适的授权时段",
+        autonomy_revoked: "自主授权已撤销或到期",
+        planning_invalid_json: "模型未返回有效的完整选择",
+        schedule_conflict: "候选时段已被占用",
+        model_declined: "模型本次未选择活动",
+        service_stopping: "请求随服务退出中断",
+        restart_checkpoint: "服务重启，继续核对已保存水位",
+      }[value] ?? "条件已变化，请核对执行记录")
+    : "";

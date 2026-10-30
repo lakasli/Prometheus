@@ -9,6 +9,7 @@ import MediaPanel from "./components/MediaPanel.vue";
 import PluginsPanel from "./components/PluginsPanel.vue";
 import ArtworkPanel from "./components/ArtworkPanel.vue";
 import CalendarPanel from "./components/CalendarPanel.vue";
+import ScheduleWorkPanel from "./components/ScheduleWorkPanel.vue";
 import ContextPanel from "./components/ContextPanel.vue";
 import PlanningPanel from "./components/PlanningPanel.vue";
 import AffinityPanel from "./components/AffinityPanel.vue";
@@ -193,9 +194,14 @@ const controller = new AbortController();
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const baseline = ref("");
 const draftWorking = ref(false);
+const scheduleDirty = ref(false),
+  workDirty = ref(false);
+const scheduleCalendar = ref<InstanceType<typeof CalendarPanel>>();
 const dirty = computed(
   () =>
     draftWorking.value ||
+    scheduleDirty.value ||
+    workDirty.value ||
     editor.value ||
     (page.value === "personality" &&
       baseline.value !== JSON.stringify(personality)) ||
@@ -1459,7 +1465,19 @@ onUnmounted(() => {
         <RestPanel v-if="page === 'models'" @error="failure" />
         <PluginsPanel v-if="page === 'plugins'" @error="failure" />
         <ArtworkPanel v-if="page === 'skills'" @error="failure" />
-        <CalendarPanel v-if="page === 'schedule'" @error="failure" />
+        <CalendarPanel
+          ref="scheduleCalendar"
+          v-if="page === 'schedule'"
+          :refresh-token="records"
+          @error="failure"
+          @dirty="scheduleDirty = $event"
+        />
+        <ScheduleWorkPanel
+          v-if="page === 'schedule'"
+          @error="failure"
+          @dirty="workDirty = $event"
+          @changed="scheduleCalendar?.refresh()"
+        />
         <PlanningPanel v-if="page === 'schedule'" @error="failure" />
         <AffinityPanel v-if="page === 'relationships'" @error="failure" />
         <ContextPanel v-if="page === 'models'" @error="failure" />

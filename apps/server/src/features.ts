@@ -11,6 +11,7 @@ import { Media, Plugins } from "./media.ts";
 import { hash } from "./security.ts";
 import { ConversationContext } from "./context.ts";
 import { Relationships } from "./relationships.ts";
+import { Schedule } from "./schedule-work.ts";
 
 export interface FeatureResult {
   data: unknown;
@@ -27,6 +28,7 @@ export class Features {
   readonly plugins: Plugins;
   readonly conversationContext: ConversationContext;
   readonly relationships: Relationships;
+  readonly schedule: Schedule;
   constructor(
     readonly store: Store,
     readonly runtime: Runtime,
@@ -44,6 +46,18 @@ export class Features {
       this.knowledge,
     );
     this.relationships = new Relationships(store, runtime, this.knowledge);
+    this.schedule = new Schedule(
+      store,
+      runtime,
+      this.knowledge,
+      allowLoopback,
+      () =>
+        this.automation.workClockTrusted &&
+        this.automation.restStatus().state.phase === "awake",
+    );
+    this.automation.onScheduleTick = () => this.schedule.tick();
+    runtime.records.validateSchedule = (owner, data, id) =>
+      this.schedule.checkSimple(owner, data, id);
     runtime.onInvalidation = (owner, change) => {
       this.knowledge.invalidateOwner(owner, change);
       if (change?.action === "forgotten") this.relationships.forget(change.id);
@@ -219,6 +233,7 @@ export class Features {
     }
   }
   async stop() {
+    await this.schedule.stop();
     this.relationships.affinity.stop();
     this.media.stop();
     this.automation.stop();
@@ -226,7 +241,7 @@ export class Features {
     await this.knowledge.stop();
   }
   matches(path: string) {
-    return /^\/(channels|knowledge|automation|context|rest|media|plugins|relationships|qq\/api)(?:\/|$)/.test(
+    return /^\/(schedule|channels|knowledge|automation|context|rest|media|plugins|relationships|qq\/api)(?:\/|$)/.test(
       path,
     );
   }
@@ -238,6 +253,166 @@ export class Features {
     url: URL,
     readBody: () => Promise<unknown>,
   ): Promise<FeatureResult> {
+    if (path === "/schedule/calendar" && method === "GET")
+      return { data: this.schedule.calendar(admin.id, url.searchParams) };
+    if (path === "/schedule/activities" && method === "GET")
+      return { data: this.schedule.list(admin.id, url.searchParams) };
+    if (path === "/schedule/activities" && method === "POST")
+      return {
+        status: 201,
+        data: this.schedule.create(
+          admin.id,
+          await readBody(),
+          request.headers["idempotency-key"],
+        ),
+      };
+    if (path === "/schedule/proposals" && method === "POST")
+      return {
+        status: 201,
+        data: this.schedule.create(
+          admin.id,
+          await readBody(),
+          request.headers["idempotency-key"],
+          true,
+        ),
+      };
+    if (path === "/schedule/activities/preview" && method === "POST")
+      return { data: this.schedule.preview(admin.id, await readBody()) };
+    const scheduled =
+      /^\/schedule\/activities\/([a-f0-9-]{36})(?:\/(history|preview|move-preview|approve|pause|resume|cancel|attempts))?$/.exec(
+        path,
+      );
+    if (scheduled) {
+      const id = scheduled[1]!;
+      if (method === "GET") {
+        if (!scheduled[2]) return { data: this.schedule.detail(admin.id, id) };
+        if (scheduled[2] === "history")
+          return { data: this.schedule.history(admin.id, id) };
+        if (scheduled[2] === "attempts") {
+          this.schedule.detail(admin.id, id);
+          return {
+            data: { items: this.schedule.attempts(admin.id, id, "activity") },
+          };
+        }
+      }
+      if (method === "PATCH" && !scheduled[2])
+        return {
+          data: this.schedule.change(
+            admin.id,
+            id,
+            revision(request.headers["if-match"]),
+            await readBody(),
+          ),
+        };
+      if (method === "POST") {
+        const expected = revision(request.headers["if-match"]),
+          data = await readBody();
+        if (scheduled[2] === "preview")
+          return { data: this.schedule.preview(admin.id, data, id, expected) };
+        if (scheduled[2] === "move-preview")
+          return {
+            data: this.schedule.movePreview(admin.id, id, expected, data),
+          };
+        if (scheduled[2] === "approve")
+          return { data: this.schedule.approve(admin.id, id, expected, data) };
+        const state = {
+          pause: "paused",
+          resume: "enabled",
+          cancel: "cancelled",
+        }[scheduled[2] ?? ""];
+        if (state) {
+          const input = fields(data, ["scope", "nominal_at"]);
+          return {
+            data: this.schedule.change(admin.id, id, expected, {
+              ...input,
+              state,
+            }),
+          };
+        }
+      }
+    }
+    if (path === "/schedule/resources" && method === "GET")
+      return { data: this.schedule.resources(admin.id) };
+    if (path === "/schedule/resources" && method === "POST")
+      return {
+        status: 201,
+        data: this.schedule.saveResource(admin.id, await readBody()),
+      };
+    const resource =
+      /^\/schedule\/resources\/([a-f0-9-]{36})(?:\/(revoke))?$/.exec(path);
+    if (resource) {
+      if (method === "GET" && !resource[2])
+        return { data: this.schedule.resourceDetail(admin.id, resource[1]!) };
+      if (method === "POST" && resource[2]) {
+        fields(await readBody(), []);
+        return {
+          data: this.schedule.revokeResource(
+            admin.id,
+            resource[1]!,
+            revision(request.headers["if-match"]),
+          ),
+        };
+      }
+    }
+    if (path === "/schedule/autonomy-grants" && method === "GET")
+      return { data: this.schedule.grants(admin.id) };
+    if (path === "/schedule/autonomy-grants" && method === "POST")
+      return {
+        status: 201,
+        data: this.schedule.saveGrant(admin.id, await readBody()),
+      };
+    const grant =
+      /^\/schedule\/autonomy-grants\/([a-f0-9-]{36})(?:\/(revoke))?$/.exec(
+        path,
+      );
+    if (grant) {
+      if (method === "GET" && !grant[2])
+        return { data: this.schedule.grantDetail(admin.id, grant[1]!) };
+      if (method === "PATCH" && !grant[2])
+        return {
+          data: this.schedule.saveGrant(
+            admin.id,
+            await readBody(),
+            grant[1]!,
+            revision(request.headers["if-match"]),
+          ),
+        };
+      if (method === "POST" && grant[2]) {
+        fields(await readBody(), []);
+        return {
+          data: this.schedule.revokeGrant(
+            admin.id,
+            grant[1]!,
+            revision(request.headers["if-match"]),
+          ),
+        };
+      }
+    }
+    if (path === "/schedule/plans" && method === "GET")
+      return { data: this.schedule.plans(admin.id) };
+    if (path === "/schedule/plans" && method === "POST")
+      return {
+        status: 201,
+        data: this.schedule.savePlan(admin.id, await readBody()),
+      };
+    const plan = /^\/schedule\/plans\/([a-f0-9-]{36})(?:\/(preview))?$/.exec(
+      path,
+    );
+    if (plan) {
+      if (method === "GET" && !plan[2])
+        return { data: this.schedule.planDetail(admin.id, plan[1]!) };
+      if (method === "PATCH" && !plan[2])
+        return {
+          data: this.schedule.savePlan(
+            admin.id,
+            await readBody(),
+            plan[1]!,
+            revision(request.headers["if-match"]),
+          ),
+        };
+      if (method === "GET" && plan[2])
+        return { data: this.schedule.previewPlan(admin.id, plan[1]!) };
+    }
     if (path === "/relationships/people" && method === "GET")
       return {
         data: {
@@ -475,11 +650,7 @@ export class Features {
       return { data: { items: this.automation.results(admin.id) } };
     if (path === "/automation/calendar" && method === "GET")
       return {
-        data: this.automation.calendar(
-          admin.id,
-          Number(url.searchParams.get("start")),
-          Number(url.searchParams.get("end")),
-        ),
+        data: this.schedule.calendar(admin.id, url.searchParams),
       };
     if (path === "/rest/status" && method === "GET")
       return { data: this.automation.restStatus() };

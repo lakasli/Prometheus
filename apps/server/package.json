@@ -12,6 +12,7 @@
     "test": "npm run build && node --test --test-concurrency=1 test/*.test.mjs"
   },
   "dependencies": {
+    "@js-temporal/polyfill": "0.5.1",
     "cordis": "3.18.1",
     "ws": "8.22.0"
   },

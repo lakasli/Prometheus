@@ -49,12 +49,12 @@ export class Store {
           .get()?.value
       : undefined;
     if (tables.length) {
-      if (!["1", "2", "3", "4", "5"].includes(String(previousSchema))) {
+      if (!["1", "2", "3", "4", "5", "6"].includes(String(previousSchema))) {
         this.database.close();
         throw new Error("Unsupported Prometheus schema; do not downgrade");
       }
     }
-    if (tables.length && previousSchema !== "5") {
+    if (tables.length && previousSchema !== "6") {
       const backupDir = privateDirectory(join(path, "backups"));
       const target = join(
         backupDir,
@@ -102,13 +102,23 @@ export class Store {
         now(),
       );
       this.run(
-        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','5') ON CONFLICT(key) DO UPDATE SET value='5'",
+        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','6') ON CONFLICT(key) DO UPDATE SET value='6'",
       );
-      if (previousSchema && previousSchema !== "5")
+      if (
+        previousSchema &&
+        ["1", "2", "3", "4"].includes(String(previousSchema))
+      )
         this.run(
           "INSERT OR IGNORE INTO metadata VALUES('affinity.legacy_cutoff',?)",
           String(now()),
         );
+      this.run(
+        "UPDATE schedule_attempts SET status='interrupted',config_json=NULL,error_code='service_restarted',updated_at=? WHERE status IN ('prepared','running','cancelling')",
+        now(),
+      );
+      this.run(
+        "UPDATE schedule_occurrences SET status='partial',block_reason='restart_checkpoint',fence=NULL WHERE status='running'",
+      );
       this.run(
         "INSERT OR IGNORE INTO metadata(key,value) VALUES('assistant.identity',?)",
         randomUUID(),
@@ -416,6 +426,10 @@ export class Store {
       ) ||
       this.get(
         "SELECT id FROM config_operations WHERE status IN ('running','cancelling') AND instr(config_json,?)>0",
+        id,
+      ) ||
+      this.get(
+        "SELECT id FROM schedule_attempts WHERE config_json IS NOT NULL AND instr(config_json,?)>0",
         id,
       )
     )

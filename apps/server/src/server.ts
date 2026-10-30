@@ -209,7 +209,11 @@ export async function startServer(options: ServerOptions) {
             () =>
               body(
                 request,
-                apiPath.startsWith("/media/") ? 2 * 1024 * 1024 : 128 * 1024,
+                apiPath === "/schedule/resources"
+                  ? 4 * 1024 * 1024
+                  : apiPath.startsWith("/media/")
+                    ? 2 * 1024 * 1024
+                    : 128 * 1024,
               ),
           );
           if (result.raw) {
@@ -580,7 +584,7 @@ export async function startServer(options: ServerOptions) {
         if (apiPath === "/export" && method === "GET")
           return json(response, {
             name: "Prometheus",
-            schema: 5,
+            schema: 6,
             assistant_id: store.assistantId,
             exported_at: now(),
             config: store.config(),

@@ -69,7 +69,7 @@ node deploy/prometheus/backup-instance.mjs --data-dir D:/DSH/.local/prometheus/i
 
 脚本取得与服务相同的原子数据锁，复制主密钥等全部文件、生成SQLite一致性快照并检查integrity_check，保存私有清单与逐文件哈希。拒绝符号链接及数据目录内的目标；已有锁时失败，不杀进程。备份位于.local/prometheus/backups/instance-*，不输出秘密。
 
-当前schema5不能由schema1/2/3/4制品打开。升级前自动创建原schema数据库快照，正式升级另备份完整实例；回退先保留新目录，向另一个私有目录恢复匹配旧制品的完整快照（含主密钥），再用上一版固定SHA启动和复验。不能覆盖运行数据或仅切换代码。
+当前实现schema6不能由schema1/2/3/4/5制品打开，实际部署SHA见对应验收记录。升级前自动创建原schema数据库快照，正式升级另备份完整实例；回退先保留新目录，向另一个私有目录恢复匹配旧制品的完整快照（含主密钥），再用上一版固定SHA启动和复验。不能覆盖运行数据或仅切换代码。
 
 ## 隔离工作器前置检查
 
@@ -84,3 +84,5 @@ node deploy/prometheus/backup-instance.mjs --data-dir D:/DSH/.local/prometheus/i
 配置草稿与异步操作回归：`node --test apps/server/test/configuration.test.mjs`，同样支持PROMETHEUS_RELEASE_ROOT绑定服务夹具。草稿保存、字段校验、连接检查与明确应用互相独立；管理页“模型与运行”中展开“配置草稿与操作记录”。QQ检查仅获取凭据，不证明真实平台消息可发送。直接Store的schema3夹具使用本地构建，固定制品升级另做完整实例恢复演练。
 
 人物账本回归：`node --test apps/server/test/affinity.test.mjs`。HTTP和进程内服务夹具可绑定固定runtime；测试中的独立schema4数据库定义和密码/ACL辅助函数为本地夹具，固定包真实升级仍单独演练。升级不以新默认覆盖已有规则和分值；新合并保留原档案及独立账本，早期删除式合并不猜测恢复。
+
+日程系列/授权阅读回归：`node --test apps/server/test/schedule.test.mjs`。HTTP和服务夹具绑定PROMETHEUS_RELEASE_ROOT；Temporal/JSON纯函数与安全辅助函数来自本地dist，分别记账。管理页在日程中提供系列与活动、授权文本与工作目标；拖动只预演，保存与批准分开。新授予模型权限并不启用尚未验证的执行或渠道外发。详见[日程迁移验收](prometheus-schedule-validation.md)。
