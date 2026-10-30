@@ -2,7 +2,7 @@
 
 面向 Windows 的 TypeScript 日常空间。2026-10-30用户确认：**使用 TypeScript 重写，命名为 Prometheus，作为全新项目运行，旧数据保留备份**。
 
-新入口为根目录 npm 工作区：`apps/server` 后端、`apps/admin` 管理页面；运行链路不编译或调用 Rust。原代码、素材和未提交的 Breeze 改动保留，旧说明见 [DSH历史README](docs/legacy/README-DSH.md)。本地目录与Git托管地址保持现状，未擅自更改远端仓库名称。
+新入口为根目录 npm 工作区：`apps/server` 后端、`apps/admin` 管理页面；运行链路不编译或调用 Rust。原代码、素材和未提交的 Breeze 改动保留，旧说明见 [DSH历史README](docs/legacy/README-DSH.md)。用户于2026-10-31指定新仓库[GitHub Prometheus](https://github.com/lakasli/Prometheus)，旧远端保留为dsh-legacy，本地仍为D:\DSH。
 
 **第二批已迁入渠道文字、来源整理、触发、作息与PNG媒体，完整旧功能的迁移仍未完成。** 真实QQ / 微信、正式外部模型与媒体平台验收单独记录；语音、Harness和生成插件执行在Windows隔离验证前保持禁用。原目标继续保留，见 [逐项迁移范围](docs/prometheus-migration.md)。
 
@@ -58,4 +58,4 @@ node deploy/prometheus/verify-release.mjs <runtime绝对路径>
 
 发布从已推送SHA构建，前后端版本一致，生成逐文件哈希和ZIP。包内Start-Prometheus.ps1验证后前台启动；数据在制品之外，不安装服务或自启动。
 
-旧备份包含Git bundle、工作区差异、原有未跟踪源码和SQLite一致性快照。第三方运行库及原始音频素材保留原位。详见 [架构](docs/prometheus-architecture.md)、[Windows流程](docs/prometheus-windows.md) 和 [验收记录](docs/prometheus-validation.md)。
+旧备份包含Git bundle、工作区差异、原有未跟踪源码和SQLite一致性快照。第三方运行库及原始音频素材保留原位。详见 [架构](docs/prometheus-architecture.md)、[Windows流程](docs/prometheus-windows.md)、[首轮验收](docs/prometheus-validation.md) 与 [第二批验收](docs/prometheus-phase2-validation.md)。
