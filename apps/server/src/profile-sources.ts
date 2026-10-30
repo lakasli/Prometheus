@@ -62,7 +62,12 @@ export class ProfileSources {
       model,
     );
   }
-  read(actor: string, ref: ProfileRef, model = false): ProfileSource {
+  read(
+    actor: string,
+    ref: ProfileRef,
+    model = false,
+    humanContinuity = false,
+  ): ProfileSource {
     const { type, id, revision } = ref;
     const tomb = this.store.get(
       "SELECT source_revision FROM profile_source_tombstones WHERE source_type=? AND source_id=?",
@@ -85,7 +90,7 @@ export class ProfileSources {
       if (
         ref.policy_id !== null &&
         (s.policy_id !== ref.policy_id ||
-          s.policy_revision !== ref.policy_revision)
+          (!humanContinuity && s.policy_revision !== ref.policy_revision))
       )
         throw bad("日记来源许可版本变化", "source_invalidated");
       return {
@@ -111,7 +116,7 @@ export class ProfileSources {
       happened: number;
     if (type === "message") {
       row = this.store.get(
-        "SELECT m.*,m.rowid AS sequence,c.owner_id,c.source_key,r.status FROM messages m JOIN conversations c ON c.id=m.conversation_id JOIN runs r ON r.id=m.run_id WHERE m.id=?",
+        "SELECT m.*,m.rowid AS sequence,c.owner_id,c.source_key,r.status,r.created_at AS user_sent_at FROM messages m JOIN conversations c ON c.id=m.conversation_id JOIN runs r ON r.id=m.run_id WHERE m.id=?",
         id,
       );
       if (
@@ -141,7 +146,7 @@ export class ProfileSources {
       conversation = String(row.conversation_id);
       scope = String(row.source_key ?? conversation);
       content = String(row.content);
-      happened = Number(row.created_at);
+      happened = Number(row.user_sent_at);
       const cutoff = Math.max(
         Number(
           this.store.get(
@@ -201,6 +206,7 @@ export class ProfileSources {
       )
         throw bad("消息不在有效采集范围内", "source_forbidden");
       if (
+        !humanContinuity &&
         ref.policy_revision !== null &&
         ref.policy_revision !== Number(grant?.revision ?? 0)
       )

@@ -1,29 +1,23 @@
 import { randomUUID } from "node:crypto";
-import {
-  ApiError,
-  bad,
-  conflict,
-  fields,
-  integer,
-  string,
-  unavailable,
-} from "./errors.ts";
+import { ApiError, bad, conflict, fields, integer, string } from "./errors.ts";
 import { hash, now } from "./security.ts";
 import type { Store, Row } from "./store.ts";
 import type { Runtime } from "./runtime.ts";
 import type { Knowledge } from "./knowledge.ts";
+import { AffinityHistory, advanceAffinity } from "./affinity-history.ts";
+import type { AffinityPolicy } from "./affinity-history.ts";
+import type { ProfileRef } from "./profile-sources.ts";
 const DAY = 86400,
   MICRO = 1000000;
-type Policy = {
-  initial: number;
-  min: number;
-  max: number;
-  decay_per_day: number;
-  max_event_delta: number;
-  max_daily_delta: number;
-  grace_seconds: number;
-  downtime_cap_seconds: number;
-  decay_mode: "minimum" | "zero";
+type Policy = AffinityPolicy;
+export type AffinityEvidence = {
+  actor: string;
+  ref: ProfileRef;
+  direct_at: number | null;
+  identity_id: string | null;
+  identity_revision: number | null;
+  direct_owner_id: string | null;
+  direct_message_id: string | null;
 };
 const defaults = (): Policy => ({
   initial: 50,
@@ -48,6 +42,7 @@ const legacy = (): Policy => ({
 });
 const round = (value: number) => Math.round(value * MICRO);
 export class Affinity {
+  readonly replayLedger: AffinityHistory;
   private timer?: ReturnType<typeof setInterval>;
   private heartbeat = 0;
   constructor(
@@ -55,7 +50,11 @@ export class Affinity {
     private runtime: Runtime,
     private knowledge: Knowledge,
   ) {
+    this.replayLedger = new AffinityHistory(store, (owner) =>
+      this.policy(owner),
+    );
     this.initialize();
+    this.replayLedger.initialize();
     this.recover(now());
   }
   policy(owner: string) {
@@ -185,6 +184,7 @@ export class Affinity {
       Number(person.created_at),
       "初始策略或兼容迁移快照",
     );
+    this.replayLedger.ensure(String(person.id));
   }
   private state(person: string) {
     return this.store.get(
@@ -195,40 +195,9 @@ export class Affinity {
   settle(person: string, at = now(), supplied?: Policy) {
     const state = this.state(person),
       policy = supplied ?? this.policy(String(state.owner_id)).value;
-    const end = Math.max(at, Number(state.settled_at));
-    const created = Number(
-      this.store.get("SELECT created_at FROM records WHERE id=?", person)!
-        .created_at,
-    );
-    const start = Math.max(
-      Number(state.settled_at),
-      Number(state.last_direct_at ?? created) + policy.grace_seconds,
-    );
-    const numerator =
-      BigInt(Math.max(0, end - start)) * BigInt(round(policy.decay_per_day)) +
-      BigInt(Number(state.remainder));
-    const loss = Number(numerator / BigInt(DAY)),
-      current = Number(state.score_micro);
-    const score = Math.max(
-      round(policy.min),
-      Math.min(
-        round(policy.max),
-        policy.decay_mode === "zero"
-          ? current >= 0
-            ? Math.max(0, current - loss)
-            : Math.min(0, current + loss)
-          : current - loss,
-      ),
-    );
-    const settled =
-      score === round(policy.min) ||
-      (policy.decay_mode === "zero" && score === 0);
-    this.store.run(
-      "UPDATE affinity_states SET score_micro=?,settled_at=?,remainder=? WHERE person_id=?",
-      score,
-      end,
-      settled ? 0 : Number(numerator % BigInt(DAY)),
+    this.replayLedger.write(
       person,
+      advanceAffinity(this.replayLedger.state(person), policy, at),
     );
     return this.state(person);
   }
@@ -277,7 +246,7 @@ export class Affinity {
     };
     return { policy, reason };
   }
-  save(owner: string, expected: number, value: unknown) {
+  save(owner: string, expected: number, value: unknown, actor = owner) {
     const { policy, reason } = this.validate(value);
     return this.store.transaction(() => {
       const current = this.policy(owner);
@@ -326,8 +295,19 @@ export class Affinity {
         saved.revision,
         owner,
       );
-      this.store.audit(
+      for (const s of this.store.all(
+        "SELECT person_id FROM affinity_states WHERE owner_id=?",
         owner,
+      ))
+        this.replayLedger.record(
+          String(s.person_id),
+          "policy",
+          at,
+          `policy:${s.person_id}:${saved.revision}`,
+          { policy, revision: saved.revision },
+        );
+      this.store.audit(
+        actor,
         "relationships",
         "completed",
         "好感规则已分段结算并保存新版本",
@@ -384,7 +364,13 @@ export class Affinity {
       autonomous_sending: false,
     };
   }
-  add(owner: string, person: string, expected: number, value: unknown) {
+  add(
+    owner: string,
+    person: string,
+    expected: number,
+    value: unknown,
+    proof?: AffinityEvidence,
+  ) {
     const body = fields(value, [
       "delta",
       "reason",
@@ -393,16 +379,45 @@ export class Affinity {
       "kind",
     ]);
     if (body.reviewed !== true) throw bad("好感变化需要独立人工确认");
-    if (body.kind === "direct_interaction")
-      throw unavailable("具有来源证明和人物会话绑定的直接互动计分");
-    if (body.kind !== "manual_adjustment") throw bad("好感事件类型无效");
+    if (
+      body.kind === "direct_interaction" &&
+      (!proof || proof.ref.type !== "message" || proof.direct_at === null)
+    )
+      throw bad(
+        "直接互动须提供已核验会话中的完成用户消息",
+        "direct_evidence_required",
+      );
+    if (
+      !["manual_adjustment", "direct_interaction"].includes(String(body.kind))
+    )
+      throw bad("好感事件类型无效");
     const reason = string(body.reason, "变化依据", 2000, 1),
       eventKey = string(body.event_key, "幂等键", 160, 1);
+    if (
+      this.store.redact(reason) !== reason ||
+      /(?:sk-[A-Za-z0-9_-]{16,}|(?:api[_ -]?key|password|密码|验证码|access[_ -]?token)\s*[:=：]\s*\S{4,})/i.test(
+        reason,
+      )
+    )
+      throw bad("变化依据疑似包含秘密，请先移除");
     if (typeof body.delta !== "number" || !Number.isFinite(body.delta))
       throw bad("变化值无效");
     const requested = round(body.delta),
       fingerprint = hash(
-        JSON.stringify({ delta: requested, reason, kind: body.kind }),
+        JSON.stringify({
+          delta: requested,
+          reason,
+          kind: body.kind,
+          ...(proof && proof.ref.type !== "manual"
+            ? {
+                source: {
+                  type: proof.ref.type,
+                  id: proof.ref.id,
+                  revision: proof.ref.revision,
+                },
+              }
+            : {}),
+        }),
       );
     return this.store.transaction(() => {
       const profile = this.runtime.records.get("people", person, owner);
@@ -417,6 +432,19 @@ export class Affinity {
         return { ...profile, ...this.describe(profile) };
       }
       if (profile.revision !== expected) throw conflict();
+      if (
+        proof?.direct_message_id &&
+        this.store.get(
+          "SELECT event_id FROM affinity_event_sources WHERE direct_owner_id=? AND direct_message_id=?",
+          proof.direct_owner_id,
+          proof.direct_message_id,
+        )
+      )
+        throw new ApiError(
+          409,
+          "direct_interaction_already_counted",
+          "这条用户消息已经计分，撤销或改绑不会再次授分",
+        );
       const policy = this.policy(owner);
       if (Math.abs(requested) > round(policy.value.max_event_delta))
         throw bad("单次好感变化超过上限");
@@ -424,10 +452,11 @@ export class Affinity {
         dayStart = at - (at % DAY);
       const total = Number(
         this.store.get(
-          "SELECT coalesce(sum(abs(coalesce(d.requested_micro,round(e.delta*1000000)))),0) AS n FROM affinity_events e LEFT JOIN affinity_event_details d ON d.event_id=e.id WHERE e.person_id=? AND e.owner_id=? AND e.reason IS NOT NULL AND e.created_at>=?",
+          "SELECT coalesce(sum(abs(coalesce(d.requested_micro,round(e.delta*1000000)))),0) AS n FROM affinity_events e LEFT JOIN affinity_event_details d ON d.event_id=e.id WHERE e.person_id=? AND e.owner_id=? AND (e.reason IS NOT NULL OR d.event_id IS NOT NULL) AND e.created_at>=? AND e.created_at<?",
           person,
           owner,
           dayStart,
+          dayStart + DAY,
         )!.n,
       );
       if (total + Math.abs(requested) > round(policy.value.max_daily_delta))
@@ -460,13 +489,44 @@ export class Affinity {
         fingerprint,
         requested,
         policy.revision,
-        "manual_adjustment",
+        String(body.kind),
       );
       this.store.run(
-        "UPDATE affinity_states SET score_micro=?,policy_revision=? WHERE person_id=?",
+        "UPDATE affinity_states SET score_micro=?,policy_revision=?,last_direct_at=CASE WHEN ? IS NULL THEN last_direct_at ELSE max(coalesce(last_direct_at,0),?) END WHERE person_id=?",
         next,
         policy.revision,
+        proof?.direct_at ?? null,
+        proof?.direct_at ?? null,
         person,
+      );
+      if (proof)
+        this.store.run(
+          "INSERT INTO affinity_event_sources VALUES(?,?,?,?,?,?,?,?,?,?,NULL,?,?)",
+          id,
+          person,
+          proof.actor,
+          proof.ref.type,
+          proof.ref.id,
+          proof.ref.revision,
+          proof.ref.policy_id,
+          JSON.stringify(proof.ref),
+          proof.identity_id,
+          proof.identity_revision,
+          proof.direct_owner_id,
+          proof.direct_message_id,
+        );
+      this.replayLedger.record(
+        person,
+        "event",
+        at,
+        `event:${id}`,
+        {
+          requested_micro: requested,
+          direct_at: proof?.direct_at ?? null,
+          policy: policy.value,
+          policy_revision: policy.revision,
+        },
+        id,
       );
       this.store.run(
         "UPDATE records SET revision=revision+1,updated_at=? WHERE id=?",
@@ -475,10 +535,12 @@ export class Affinity {
       );
       this.runtime.invalidate(owner, { action: "corrected", id: person });
       this.store.audit(
-        owner,
+        proof?.actor ?? owner,
         "relationships",
         "completed",
-        "已记录人工好感调整，未授予联系权限",
+        body.kind === "direct_interaction"
+          ? "已核验用户消息并记录互动计分，未授予联系权限"
+          : "已记录人工好感调整，未授予联系权限",
         person,
       );
       return {
@@ -488,6 +550,12 @@ export class Affinity {
     });
   }
   forget(person: string) {
+    this.replayLedger.forget(person);
+    this.store.run(
+      "UPDATE affinity_event_sources SET invalidated_at=coalesce(invalidated_at,?) WHERE person_id=?",
+      now(),
+      person,
+    );
     this.store.run("DELETE FROM affinity_states WHERE person_id=?", person);
   }
   recover(at: number) {
@@ -502,6 +570,18 @@ export class Affinity {
         )) {
           const person = String(state.person_id),
             policy = this.policy(String(state.owner_id)).value;
+          this.replayLedger.ensure(person);
+          this.replayLedger.record(
+            person,
+            "outage",
+            at,
+            `outage:${person}:${prior}:${at}`,
+            {
+              prior: Math.max(prior, Number(state.settled_at)),
+              end: at,
+              cap: policy.downtime_cap_seconds,
+            },
+          );
           this.settle(person, prior, policy);
           const current = this.state(person),
             created = Number(

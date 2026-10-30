@@ -585,7 +585,7 @@ export async function startServer(options: ServerOptions) {
         if (apiPath === "/export" && method === "GET")
           return json(response, {
             name: "Prometheus",
-            schema: 9,
+            schema: 10,
             assistant_id: store.assistantId,
             exported_at: now(),
             config: store.config(),

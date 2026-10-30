@@ -1396,3 +1396,158 @@ test("explicit diary profile jobs remain pending until review and can be cancell
   });
   expect(errors).toEqual([]);
 });
+test("verified direct interactions can be recorded and withdrawn with a replay through the browser", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const me = await (await page.request.get("/api/admin/v1/auth/me")).json(),
+    headers = {
+      origin: "http://127.0.0.1:18449",
+      "x-csrf-token": me.csrf_token,
+    },
+    old = await (
+      await page.request.get("/api/admin/v1/relationships/policy")
+    ).json();
+  expect(
+    (
+      await page.request.put("/api/admin/v1/relationships/policy", {
+        headers: { ...headers, "if-match": `"${old.revision}"` },
+        data: {
+          ...old.value,
+          initial: 50,
+          min: 0,
+          max: 100,
+          decay_per_day: 1,
+          grace_seconds: 259200,
+          downtime_cap_seconds: 604800,
+          max_event_delta: 5,
+          max_daily_delta: 10,
+          decay_mode: "minimum",
+          confirmed: true,
+          reason: "合成浏览器未来规则",
+        },
+      })
+    ).status(),
+  ).toBe(200);
+  let p = await (
+    await page.request.post("/api/admin/v1/relationships/profiles", {
+      headers,
+      data: {
+        name: "浏览器直接互动账本",
+        reason: "明确核对本人",
+        confirmed: true,
+      },
+    })
+  ).json();
+  const c = await (
+    await page.request.post("/api/admin/v1/conversations", {
+      headers,
+      data: { title: "浏览器计分来源本人私聊" },
+    })
+  ).json();
+  p = await (
+    await page.request.post(
+      `/api/admin/v1/relationships/profiles/${p.id}/bind`,
+      {
+        headers: { ...headers, "if-match": `"${p.revision}"` },
+        data: {
+          conversation_id: c.id,
+          reason: "独立核对当前账号本人",
+          confirmed: true,
+        },
+      },
+    )
+  ).json();
+  const submitted = await (
+    await page.request.post(`/api/admin/v1/conversations/${c.id}/messages`, {
+      headers,
+      data: {
+        content: "浏览器已完成的一次直接互动",
+        client_message_id: crypto.randomUUID(),
+      },
+    })
+  ).json();
+  await expect
+    .poll(
+      async () =>
+        (
+          await (
+            await page.request.get(`/api/admin/v1/runs/${submitted.run_id}`)
+          ).json()
+        ).status,
+    )
+    .toBe("completed");
+  const messages = await (
+    await page.request.get(
+      `/api/admin/v1/relationships/profiles/${p.id}/affinity/sources`,
+    )
+  ).json();
+  expect(messages.items.length).toBe(1);
+  await page.getByRole("button", { name: "人物", exact: true }).click();
+  const profile = page.getByRole("region", { name: "人物资料与身份" });
+  await profile
+    .getByRole("button", { name: "浏览器直接互动账本 本人私有", exact: true })
+    .click();
+  const ledger = profile.locator(".affinity-ledger");
+  await ledger.getByText("有来源的相处账本与重放", { exact: true }).click();
+  await expect(ledger).toContainText("当前分值：50");
+  await ledger
+    .getByLabel("本次账本事件", { exact: true })
+    .selectOption("direct_interaction");
+  await ledger
+    .getByLabel("计分证据", { exact: true })
+    .selectOption(`message:${messages.items[0].id}`);
+  await ledger.getByLabel("变化分值", { exact: true }).fill("2");
+  await ledger
+    .getByLabel("本次计分依据", { exact: true })
+    .fill("独立核对本次完成的用户消息");
+  page.once("dialog", (d) => d.accept());
+  await ledger
+    .getByRole("button", { name: "核对并记录计分", exact: true })
+    .click();
+  await expect(ledger.getByRole("status")).toContainText("独立账本事件");
+  await expect(ledger).toContainText("当前分值：52");
+  await expect(ledger.locator(".affinity-entry")).toContainText("直接互动");
+  page.once("dialog", (d) => d.accept());
+  await ledger
+    .getByRole("button", { name: "撤销这次计分", exact: true })
+    .click();
+  await expect(ledger.getByRole("status")).toContainText("已撤销并重放");
+  await expect(ledger).toContainText("当前分值：50");
+  await ledger.getByText("来源失效后的重算记录", { exact: true }).click();
+  await expect(ledger).toContainText("52 → 50");
+  expect(
+    (
+      await (
+        await page.request.get(
+          `/api/admin/v1/relationships/profiles/${p.id}/affinity/sources`,
+        )
+      ).json()
+    ).items.length,
+  ).toBe(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.locator("body").evaluate((el) => el.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await ledger.screenshot({
+    path: resolve(
+      "../../.local/prometheus/screenshots/affinity-ledger-mobile.png",
+    ),
+    animations: "disabled",
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await ledger
+    .getByLabel("本次计分依据", { exact: true })
+    .fill("尚未保存的调整");
+  page.once("dialog", (d) => d.dismiss());
+  await page.getByRole("button", { name: "运行总览", exact: true }).click();
+  await expect(ledger.getByLabel("本次计分依据", { exact: true })).toHaveValue(
+    "尚未保存的调整",
+  );
+  await ledger
+    .getByRole("button", { name: "放弃账本修改", exact: true })
+    .click();
+  await page.getByRole("button", { name: "运行总览", exact: true }).click();
+  expect(errors).toEqual([]);
+});

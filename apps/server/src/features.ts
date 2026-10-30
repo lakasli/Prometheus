@@ -15,6 +15,7 @@ import { Schedule } from "./schedule-work.ts";
 import { Diary } from "./diary.ts";
 import { Profiles } from "./profiles.ts";
 import { ProfileModel } from "./profile-model.ts";
+import { AffinitySources } from "./affinity-sources.ts";
 
 export interface FeatureResult {
   data: unknown;
@@ -35,6 +36,7 @@ export class Features {
   readonly diary: Diary;
   readonly profiles: Profiles;
   readonly profileModel: ProfileModel;
+  readonly affinitySources: AffinitySources;
   constructor(
     readonly store: Store,
     readonly runtime: Runtime,
@@ -77,6 +79,16 @@ export class Features {
       },
     );
     this.profiles = new Profiles(store, runtime, this.knowledge, this.diary);
+    this.affinitySources = new AffinitySources(
+      store,
+      runtime,
+      this.profiles,
+      this.relationships.affinity,
+    );
+    this.profiles.onAffinitySourceInvalidated = (type, id, revision) =>
+      this.affinitySources.invalidateSource(type, id, revision);
+    this.profiles.onIdentityChanged = (person) =>
+      this.affinitySources.invalidateIdentity(person);
     this.profileModel = new ProfileModel(
       store,
       runtime,
@@ -95,12 +107,14 @@ export class Features {
       this.diary.scopeChanged(scope);
       this.profiles.refresh();
       this.profileModel.refresh();
+      this.affinitySources.refresh();
     };
     this.automation.onScheduleTick = () => {
       this.diary.tick();
       this.schedule.tick();
       this.profiles.refresh();
       this.profileModel.tick();
+      this.affinitySources.refresh();
     };
     this.automation.onRestConsolidate = (cycle) =>
       this.diary.prepareRest(cycle);
@@ -122,11 +136,17 @@ export class Features {
       if (change?.action === "forgotten") this.relationships.forget(change.id);
       if (change?.action === "created") this.relationships.created(change.id);
       if (change?.action === "created") this.profiles.changed(change.id);
+      this.affinitySources.refresh();
     };
     runtime.getSummary = (conversation) => this.knowledge.summary(conversation);
     runtime.refreshSourceGrants = () => {
       this.knowledge.expireGrants();
       this.profiles.refresh();
+    };
+    const refreshSourceGrants = runtime.refreshSourceGrants;
+    runtime.refreshSourceGrants = () => {
+      refreshSourceGrants();
+      this.affinitySources.refresh();
     };
     runtime.getPeopleContext = (conversation, owner) =>
       this.profiles.native(conversation, owner);
@@ -137,6 +157,7 @@ export class Features {
     this.channels.canDeliver = (run) => {
       this.knowledge.expireGrants();
       this.profiles.refresh();
+      this.affinitySources.refresh();
       return (
         this.automation.restStatus().state.phase === "awake" ||
         (!!run &&
@@ -154,6 +175,7 @@ export class Features {
     };
   }
   start() {
+    this.affinitySources.refresh();
     this.relationships.affinity.start();
     this.media.start();
     this.channels.start();
@@ -545,6 +567,61 @@ export class Features {
       if (method === "GET" && plan[2])
         return { data: this.schedule.previewPlan(admin.id, plan[1]!) };
     }
+    const affinityPath =
+      /^\/relationships\/profiles\/([a-f0-9-]{36})\/affinity(?:\/(sources|policy|policy-history|policy-preview|events)(?:\/([a-f0-9-]{36})\/revoke)?)?$/.exec(
+        path,
+      );
+    if (affinityPath) {
+      const id = affinityPath[1]!,
+        op = affinityPath[2];
+      if (method === "GET" && !op)
+        return { data: this.affinitySources.get(admin.id, id) };
+      if (method === "GET" && op === "sources")
+        return { data: this.affinitySources.sources(admin.id, id) };
+      if (method === "POST" && op === "events" && !affinityPath[3])
+        return {
+          data: this.affinitySources.add(
+            admin.id,
+            id,
+            revision(request.headers["if-match"]),
+            await readBody(),
+          ),
+        };
+      if (method === "POST" && op === "events" && affinityPath[3])
+        return {
+          data: this.affinitySources.revoke(
+            admin.id,
+            id,
+            affinityPath[3],
+            revision(request.headers["if-match"]),
+            await readBody(),
+          ),
+        };
+      const p = this.profiles.person(admin.id, id, true),
+        owner = String(p.owner_id);
+      if (method === "GET" && op === "policy")
+        return { data: this.relationships.affinity.policy(owner) };
+      if (method === "GET" && op === "policy-history")
+        return { data: this.relationships.affinity.history(owner) };
+      if (method === "POST" && op === "policy-preview")
+        return {
+          data: this.relationships.affinity.preview(owner, await readBody()),
+        };
+      if (method === "PUT" && op === "policy")
+        return {
+          data: this.relationships.affinity.save(
+            owner,
+            integer(
+              Number(request.headers["if-match"]?.replaceAll('"', "") ?? -1),
+              "策略版本",
+              0,
+              Number.MAX_SAFE_INTEGER,
+            ),
+            await readBody(),
+            admin.id,
+          ),
+        };
+    }
     if (path === "/relationships/model-jobs" && method === "GET")
       return { data: this.profileModel.list(admin.id, url.searchParams) };
     if (path === "/relationships/model-jobs" && method === "POST")
@@ -703,7 +780,7 @@ export class Features {
       return {
         data:
           person[2] === "event"
-            ? this.relationships.add(
+            ? this.affinitySources.add(
                 admin.id,
                 person[1]!,
                 revision(request.headers["if-match"]),

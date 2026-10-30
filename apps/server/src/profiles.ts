@@ -27,6 +27,12 @@ export type ProfileUse = {
 };
 export class Profiles {
   onModelInvalidated?: () => void;
+  onAffinitySourceInvalidated?: (
+    type: string,
+    id: string,
+    revision: number,
+  ) => void;
+  onIdentityChanged?: (person: string) => void;
   readonly sources: ProfileSources;
   private refreshing = false;
   constructor(
@@ -359,6 +365,7 @@ export class Profiles {
       : [];
     return {
       ...this.public(p),
+      can_manage: managed,
       assertions,
       edges,
       identities: managed
@@ -761,6 +768,13 @@ export class Profiles {
       );
       this.bump(id);
       this.runtime.invalidateConversation(conversation);
+      this.store.audit(
+        actor,
+        "relationships",
+        "completed",
+        "已独立核对人物账号身份，未授予联系权限",
+        id,
+      );
       return this.detail(actor, id);
     });
   }
@@ -787,6 +801,7 @@ export class Profiles {
         now(),
         identity,
       );
+      this.onIdentityChanged?.(id);
       this.store.run(
         "UPDATE profile_contact_permissions SET status='revoked',revision=revision+1,evidence=NULL,updated_at=? WHERE person_id=?",
         now(),
@@ -794,6 +809,13 @@ export class Profiles {
       );
       this.bump(id);
       this.runtime.invalidateConversation(String(binding.conversation_id));
+      this.store.audit(
+        actor,
+        "relationships",
+        "completed",
+        "已撤销人物身份绑定及其直接计分归因",
+        id,
+      );
       return this.detail(actor, id);
     });
   }
@@ -997,6 +1019,7 @@ export class Profiles {
       revision,
       now(),
     );
+    this.onAffinitySourceInvalidated?.(type, id, revision);
     this.eraseWhere("source_type=? AND source_id=? AND source_revision<=?", [
       type,
       id,

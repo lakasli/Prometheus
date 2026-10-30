@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { api } from "../api";
 import ProfileModelPanel from "./ProfileModelPanel.vue";
+import AffinityLedgerPanel from "./AffinityLedgerPanel.vue";
 const props = defineProps<{ refreshToken?: unknown }>();
 const emit = defineEmits<{ error: [unknown]; dirty: [boolean]; changed: [] }>();
 const busy = ref(false),
@@ -69,8 +70,11 @@ const statuses: Record<string, string> = {
   invalidated: "来源已失效",
 };
 const modelDirty = ref(false),
+  affinityDirty = ref(false),
   modelFormGeneration = ref(0);
-const draft = computed(() => !!mode.value || modelDirty.value);
+const draft = computed(
+  () => !!mode.value || modelDirty.value || affinityDirty.value,
+);
 watch(draft, (v) => emit("dirty", v));
 onUnmounted(() => emit("dirty", false));
 const sourceOptions = computed(() =>
@@ -84,6 +88,7 @@ const sourceOptions = computed(() =>
 function begin(next: string) {
   if (draft.value && !confirm("放弃未保存的人物修改？")) return;
   modelDirty.value = false;
+  affinityDirty.value = false;
   modelFormGeneration.value++;
   mode.value = next;
   Object.assign(form, {
@@ -657,7 +662,22 @@ onMounted(() =>
               {{ n.revision }}
             </p>
           </details>
+          <AffinityLedgerPanel
+            v-if="selected.can_manage"
+            :key="`ledger:${selected.id}:${modelFormGeneration}`"
+            :person="selected"
+            :sources="sourceOptions"
+            @error="emit('error', $event)"
+            @dirty="affinityDirty = $event"
+            @changed="
+              async () => {
+                if (!mode) await refresh();
+                emit('changed');
+              }
+            "
+          />
           <ProfileModelPanel
+            v-if="selected.can_manage"
             :key="`${selected.id}:${modelFormGeneration}`"
             :person="selected"
             :sources="sourceOptions"

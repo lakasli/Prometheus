@@ -147,7 +147,7 @@ test("manual adjustments are idempotent, revision-checked and charge absolute re
         kind: "direct_interaction",
       })
     ).status,
-    503,
+    400,
   );
   assert.equal(
     (
@@ -454,6 +454,6 @@ test("schema4 upgrade preserves saved scales and current legacy values without i
   assert.equal(
     app.store.get("SELECT value FROM metadata WHERE key='prometheus.schema'")
       .value,
-    "9",
+    "10",
   );
 });
