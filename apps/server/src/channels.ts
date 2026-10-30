@@ -633,7 +633,7 @@ export class Channels {
   }
   private seedDeliveries() {
     for (const row of this.store.all(
-      "SELECT r.id,r.response,r.owner_id FROM runs r JOIN run_targets t ON t.run_id=r.id WHERE r.status='completed' AND NOT EXISTS(SELECT 1 FROM delivery_parts p WHERE p.run_id=r.id) LIMIT 20",
+      "SELECT r.id,r.response,r.owner_id FROM runs r JOIN run_targets t ON t.run_id=r.id WHERE r.status='completed' AND NOT EXISTS(SELECT 1 FROM run_publications v WHERE v.run_id=r.id AND v.state='suppressed') AND NOT EXISTS(SELECT 1 FROM delivery_parts p WHERE p.run_id=r.id) LIMIT 20",
     )) {
       let parts;
       try {
@@ -681,6 +681,10 @@ export class Channels {
           wx?.account.credential_ref === row.credential_ref;
     if (
       !allowed ||
+      this.store.get(
+        "SELECT state FROM run_publications WHERE run_id=?",
+        String(row.run_id),
+      )?.state === "suppressed" ||
       Number(row.deadline) <= now() ||
       row.run_status !== "completed" ||
       row.context_epoch !== row.current_epoch

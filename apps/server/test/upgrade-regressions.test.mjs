@@ -220,3 +220,46 @@ test("reviewed affinity stays scoped and never grants contact; merge leaves unre
   assert.equal(target.events.length, 1);
   assert.equal((await app.call("/knowledge/sources")).data.items.length, 0);
 });
+test("sleep context reset never resurrects a completed reply whose publication was suppressed", async (t) => {
+  const app = await fixture();
+  t.after(() => app.close());
+  await app.bootstrap();
+  const conv = (await app.call("/conversations", "POST", {})).data,
+    owner = (await app.call("/auth/me")).data.user.id,
+    run = randomUUID();
+  app.store.run(
+    "INSERT INTO runs(id,conversation_id,owner_id,client_message_id,input,config_json,context_epoch,status,response,created_at,updated_at) VALUES(?,?,?,?,?,'{}',0,'completed','旧候选',?,?)",
+    run,
+    conv.id,
+    owner,
+    "superseded",
+    "旧输入",
+    now(),
+    now(),
+  );
+  app.store.run(
+    "INSERT INTO run_targets VALUES(?,'qq',?,'old-credential',?,'123')",
+    run,
+    app.store.seal({
+      kind: "c2c",
+      target: "synthetic",
+      message_id: "old",
+      sender: "synthetic",
+    }),
+    now() + 60,
+  );
+  app.store.run(
+    "INSERT INTO run_publications VALUES(?,'suppressed','明确更正',?)",
+    run,
+    now(),
+  );
+  app.runtime.resetConversationContexts();
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  assert.equal(
+    app.store.get(
+      "SELECT count(*) AS n FROM delivery_parts WHERE run_id=?",
+      run,
+    ).n,
+    0,
+  );
+});

@@ -7,7 +7,7 @@
 2026-10-31 00:10（Asia/Shanghai），Windows11 Pro 10.0.26200 x64、Node24.22.1、npm12.2.1。主机Intel Core Ultra7 155H、22逻辑CPU、31.6GiB内存；本轮检查可用内存约15.9GiB、D盘可用413GiB。运行链路使用Node，不调用Rust或更改系统应用控制策略。
 
 - `npm.cmd run typecheck`：TypeScript与Vue检查通过。
-- `npm.cmd test`：前端构建通过；后端36项通过、0失败、0跳过，约20.7秒。
+- `npm.cmd test`：前端构建通过；后端首轮36项通过，补测睡眠重置不得恢复已抑制回复后，最终37项通过、0失败、0跳过，约20.7秒。
 - `npm.cmd run test:e2e --workspace @prometheus/admin`：7项通过，约9.2秒。
 - `npm.cmd run format:check`、`git diff --check`（本轮文件）：通过。
 - `npm.cmd audit --omit=dev`：0漏洞。
