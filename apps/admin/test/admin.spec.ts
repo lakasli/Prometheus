@@ -1675,6 +1675,11 @@ test("profile mappings keep both source records and discard an uncancellable lat
           : init,
       );
   });
+  // A refresh emitted by the split may still be loading the selected person.
+  // Settle a different selection before intercepting p, so that background refresh
+  // cannot hold the busy flag behind the same gate as the intended click.
+  await list.getByRole("button", { name: /映射页-乙/ }).click();
+  await expect(panel.locator(".profile-detail > h3")).toHaveText("映射页-乙");
   let arrived!: () => void, release!: () => void, finished!: () => void;
   const incoming = new Promise<void>((r) => (arrived = r)),
     gate = new Promise<void>((r) => (release = r)),
