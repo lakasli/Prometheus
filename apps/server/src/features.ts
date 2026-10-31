@@ -379,7 +379,7 @@ export class Features {
     await this.diary.stop();
     await this.schedule.stop();
     this.relationships.affinity.stop();
-    this.media.stop();
+    await this.media.stop();
     this.automation.stop();
     await this.channels.stop();
     await this.knowledge.stop();
@@ -968,7 +968,12 @@ export class Features {
     if (path === "/media/assets" && method === "POST")
       return {
         status: 201,
-        data: this.media.upload(admin.id, await readBody()),
+        data: await this.media.upload(
+          admin.id,
+          await readBody(),
+          "image",
+          () => !request.socket.destroyed,
+        ),
       };
     if (path === "/media/generate" && method === "POST")
       return {

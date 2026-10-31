@@ -2751,3 +2751,65 @@ test("source review disables direct image turns and removes a visual follow-up u
     .selectOption("memory_candidates");
   await expect(user).toBeEnabled();
 });
+
+test("media limits describe common inputs and a real oriented JPEG is normalized through the authenticated API", async ({
+  page,
+}) => {
+  const session = await (
+      await page.request.get("/api/admin/v1/auth/me")
+    ).json(),
+    headers = {
+      origin: "http://127.0.0.1:18449",
+      "x-csrf-token": session.csrf_token,
+    };
+  await page.goto("/admin/");
+  await page.getByRole("button", { name: "渠道与媒体", exact: true }).click();
+  const panel = page.locator("section.form-panel").filter({
+    has: page.getByRole("heading", { name: "图片与生成模型", exact: true }),
+  });
+  await expect(panel.getByText(/PNG、JPEG、GIF、WebP和BMP/)).toBeVisible();
+  await expect(panel.getByText(/GIF与WebP仅读首帧/)).toBeVisible();
+  const conversation = await (
+    await page.request.post("/api/admin/v1/conversations", {
+      headers,
+      data: { title: "合成方向图片" },
+    })
+  ).json();
+  const response = await page.request.post("/api/admin/v1/media/assets", {
+    headers,
+    data: {
+      conversation_id: conversation.id,
+      data_base64:
+        "/9j/4QC8RXhpZgAASUkqAAgAAAAGABIBAwABAAAABgAAABoBBQABAAAAVgAAABsBBQABAAAAXgAAACgBAwABAAAAAgAAABMCAwABAAAAAQAAAGmHBAABAAAAZgAAAAAAAAA4YwAA6AMAADhjAADoAwAABgAAkAcABAAAADAyMTABkQcABAAAAAECAwAAoAcABAAAADAxMDABoAMAAQAAAP//AAACoAQAAQAAABQAAAADoAQAAQAAAAoAAAAAAAAA/+IB8ElDQ19QUk9GSUxFAAEBAAAB4GxjbXMEIAAAbW50clJHQiBYWVogB+IAAwAUAAkADgAdYWNzcE1TRlQAAAAAc2F3c2N0cmwAAAAAAAAAAAAAAAAAAPbWAAEAAAAA0y1oYW5keem/Vlo+AbaDI4VVRvdPqgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKZGVzYwAAAPwAAAAkY3BydAAAASAAAAAid3RwdAAAAUQAAAAUY2hhZAAAAVgAAAAsclhZWgAAAYQAAAAUZ1hZWgAAAZgAAAAUYlhZWgAAAawAAAAUclRSQwAAAcAAAAAgZ1RSQwAAAcAAAAAgYlRSQwAAAcAAAAAgbWx1YwAAAAAAAAABAAAADGVuVVMAAAAIAAAAHABzAFIARwBCbWx1YwAAAAAAAAABAAAADGVuVVMAAAAGAAAAHABDAEMAMAAAWFlaIAAAAAAAAPbWAAEAAAAA0y1zZjMyAAAAAAABDD8AAAXd///zJgAAB5AAAP2S///7of///aIAAAPcAADAcVhZWiAAAAAAAABvoAAAOPIAAAOPWFlaIAAAAAAAAGKWAAC3iQAAGNpYWVogAAAAAAAAJKAAAA+FAAC2xHBhcmEAAAAAAAMAAAACZmkAAPKnAAANWQAAE9AAAApb/9sAQwABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB/9sAQwEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB/8AAEQgACgAUAwEiAAIRAQMRAf/EABUAAQEAAAAAAAAAAAAAAAAAAAAJ/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/EABYBAQEBAAAAAAAAAAAAAAAAAAAJCv/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AIvgJTt/AAD/2Q==",
+    },
+  });
+  expect(response.status()).toBe(201);
+  const asset = await response.json();
+  expect([asset.width, asset.height]).toEqual([10, 20]);
+  expect(asset.mime).toBe("image/png");
+  const download = await page.request.get(
+    "/api/admin/v1/media/assets/" + asset.id,
+  );
+  expect(download.status()).toBe(200);
+  const bytes = await download.body();
+  expect(bytes.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+  expect(bytes.includes(Buffer.from("Exif"))).toBe(false);
+  await page.setViewportSize({ width: 320, height: 800 });
+  await expect
+    .poll(() =>
+      page
+        .locator("aside.sidebar")
+        .evaluate((el) => el.getBoundingClientRect().right),
+    )
+    .toBeLessThanOrEqual(0);
+  await expect(panel).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: resolve("../../.local/prometheus/e2e-media-common-320.png"),
+    fullPage: true,
+  });
+});

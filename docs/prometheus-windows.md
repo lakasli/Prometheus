@@ -69,7 +69,7 @@ node deploy/prometheus/backup-instance.mjs --data-dir D:/DSH/.local/prometheus/i
 
 脚本取得与服务相同的原子数据锁，复制主密钥等全部文件、生成SQLite一致性快照并检查integrity_check，保存私有清单与逐文件哈希。拒绝符号链接及数据目录内的目标；已有锁时失败，不杀进程。备份位于.local/prometheus/backups/instance-*，不输出秘密。
 
-当前实现schema16不能由schema1/2/3/4/5/6/7/8/9/10/11/12/13/14/15制品打开，实际部署SHA见对应验收记录。升级前自动创建原schema数据库快照，正式升级另备份完整实例；回退先保留新目录，向另一个私有目录恢复匹配旧制品的完整快照（含主密钥），再用上一版固定SHA启动和复验。不能覆盖运行数据或仅切换代码。
+当前实现schema17不能由schema1/2/3/4/5/6/7/8/9/10/11/12/13/14/15/16制品打开，实际部署SHA见对应验收记录。升级前自动创建原schema数据库快照，正式升级另备份完整实例；回退先保留新目录，向另一个私有目录恢复匹配旧制品的完整快照（含主密钥），再用上一版固定SHA启动和复验。不能覆盖运行数据或仅切换代码。
 
 ## 隔离工作器前置检查
 
@@ -106,3 +106,5 @@ node deploy/prometheus/backup-instance.mjs --data-dir D:/DSH/.local/prometheus/i
 PNG静态边界回归：`node --test apps/server/test/media-context.test.mjs`，8项HTTP/进程内场景支持固定runtime，校验构造/合成字节为本地。十类非法PNG拒绝、合法透明度及旧制品复核分别测试，保持schema15；正式切换仍完整备份并分别恢复新旧制品。仅结构与现有PNG链通过，其他格式、像素规范化及识图来源/清理边界见[本批记录](prometheus-png-validation.md)。
 
 识图来源与临时输入回归：`node --test apps/server/test/vision-provenance.test.mjs`，23个场景的服务夹具支持固定runtime；安全/ACL及合成数据构造为本地。冻结schema15 SQL检查迁移，实际旧制品产生图像/日记后再升级另行验收。schema16的描述资料角色、实际引用、用途限制和临时字节生命周期见[来源记录](prometheus-vision-provenance-validation.md)。普通上传首次用于识图后不再提供下载，相同客户端标识仍可幂等取得原Run；明确生成成果保留独立期限。
+
+常用图片回归：`node --test apps/server/test/image-codec.test.mjs`，22项HTTP/实际解码场景支持固定runtime服务，合成编码器/独立PNG读取器、安全和资源采样为本地辅助。schema16冻结SQL与真实旧制品升级分开验证；17标识2MiB规范图范围，旧16拒绝打开。输入解码不赋予通用worker权限，见[常用图片迁移记录](prometheus-common-images-validation.md)。

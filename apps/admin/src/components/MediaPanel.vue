@@ -36,7 +36,7 @@ onMounted(load);
       <div>
         <h2>图片与生成模型</h2>
         <p>
-          复用已保存的模型服务与凭据；视觉描述带来源，生成结果只接受可验证PNG。
+          复用已保存的模型服务与凭据；视觉描述带来源，生成结果需通过相同的图片校验。
         </p>
       </div>
     </div>
@@ -61,8 +61,9 @@ onMounted(load);
       />我确认此服务支持图像生成接口</label
     >
     <p class="muted">
-      当前已迁移的输入为不超过1MiB、2048×2048的非交错RGB / RGBA
-      PNG。其他格式、视频和语音工作器仍按各自Windows安全条件验收。
+      图片接入支持PNG、JPEG、GIF、WebP和BMP，原图最多8MiB、单边12000像素且总计2400万像素。
+      解码后保存为无元数据PNG，最多2048单边、2097152像素和2MiB；JPEG按方向信息旋转，GIF与WebP仅读首帧。
+      视频、语音及渠道附件仍按各自Windows条件验收。
     </p>
     <button class="primary" :disabled="busy" @click="save">保存媒体模型</button>
   </section>

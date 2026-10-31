@@ -1,5 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
-import { inflateSync } from "node:zlib";
+import { randomUUID } from "node:crypto";
 import {
   ApiError,
   bad,
@@ -17,151 +16,13 @@ import type { Knowledge } from "./knowledge.ts";
 import { hash, now } from "./security.ts";
 import { Vision, safeVisualText } from "./vision.ts";
 
-const signature = Buffer.from("89504e470d0a1a0a", "hex");
-const crcTable = Array.from({ length: 256 }, (_, n) => {
-  let c = n;
-  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-  return c >>> 0;
-});
-function crc(bytes: Buffer) {
-  let value = 0xffffffff;
-  for (const byte of bytes)
-    value = crcTable[(value ^ byte) & 255]! ^ (value >>> 8);
-  return (value ^ 0xffffffff) >>> 0;
-}
-/** Fixed PNG parser: bounded bytes/pixels/inflate, CRC, filters and metadata removal. */
-export function normalizedPng(input: Buffer): {
-  bytes: Buffer;
-  width: number;
-  height: number;
-  digest: string;
-} {
-  if (
-    input.length > 1048576 ||
-    input.length < 45 ||
-    !input.subarray(0, 8).equals(signature)
-  )
-    throw bad("只接受不超过1MiB的有效PNG");
-  let offset = 8,
-    width = 0,
-    height = 0,
-    channels = 0,
-    ended = false,
-    header = false,
-    idatStarted = false,
-    idatEnded = false,
-    palette = false,
-    transparency = false,
-    chunks = 0;
-  const output: Buffer[] = [signature],
-    compressed: Buffer[] = [];
-  while (offset < input.length) {
-    if (++chunks > 4096) throw bad("PNG块数量超过限制");
-    if (offset + 12 > input.length) throw bad("PNG块被截断");
-    const size = input.readUInt32BE(offset);
-    if (size > 1048576 || offset + size + 12 > input.length)
-      throw bad("PNG块长度无效");
-    const name = input.toString("latin1", offset + 4, offset + 8),
-      data = input.subarray(offset + 8, offset + 8 + size),
-      chunk = input.subarray(offset, offset + size + 12);
-    if (
-      !/^[A-Za-z]{4}$/.test(name) ||
-      name[2] !== name[2]!.toUpperCase() ||
-      ["acTL", "fcTL", "fdAT"].includes(name) ||
-      crc(input.subarray(offset + 4, offset + 8 + size)) !==
-        input.readUInt32BE(offset + 8 + size)
-    )
-      throw bad("PNG校验失败");
-    if (!header && name !== "IHDR") throw bad("PNG头顺序无效");
-    if (name === "IHDR") {
-      if (header || size !== 13) throw bad("PNG头无效");
-      header = true;
-      width = data.readUInt32BE(0);
-      height = data.readUInt32BE(4);
-      channels = data[9] === 2 ? 3 : data[9] === 6 ? 4 : 0;
-      if (
-        !width ||
-        !height ||
-        width > 2048 ||
-        height > 2048 ||
-        width * height > 4194304 ||
-        data[8] !== 8 ||
-        !channels ||
-        data[10] ||
-        data[11] ||
-        data[12]
-      )
-        throw bad("PNG尺寸、颜色或交错格式不受支持");
-      output.push(chunk);
-    } else if (name === "IDAT") {
-      if (idatEnded) throw bad("PNG数据块不连续");
-      idatStarted = true;
-      compressed.push(data);
-      output.push(chunk);
-    } else if (name === "IEND") {
-      if (size || !idatStarted) throw bad("PNG结尾无效");
-      ended = true;
-      output.push(chunk);
-      offset += size + 12;
-      break;
-    } else {
-      if (idatStarted) idatEnded = true;
-      if (name === "PLTE") {
-        if (
-          palette ||
-          transparency ||
-          idatStarted ||
-          !size ||
-          size > 768 ||
-          size % 3
-        )
-          throw bad("PNG调色板无效");
-        palette = true;
-        output.push(chunk);
-      } else if (name === "tRNS") {
-        if (
-          transparency ||
-          idatStarted ||
-          channels !== 3 ||
-          size !== 6 ||
-          [0, 2, 4].some((index) => data.readUInt16BE(index) > 255)
-        )
-          throw bad("PNG透明度数据无效");
-        transparency = true;
-        output.push(chunk);
-      } else if (name[0] === name[0]!.toUpperCase())
-        throw bad("PNG含未知关键块");
-    }
-    offset += size + 12;
-  }
-  if (!ended || offset !== input.length) throw bad("PNG尾部或数据无效");
-  const expected = (width * channels + 1) * height;
-  let decoded: Buffer;
-  try {
-    const inputData = Buffer.concat(compressed);
-    const result = inflateSync(inputData, {
-      maxOutputLength: expected,
-      info: true,
-    }) as unknown as { buffer: Buffer; engine: { bytesWritten: number } };
-    if (result.engine.bytesWritten !== inputData.length)
-      throw bad("PNG压缩流含尾随数据");
-    decoded = result.buffer;
-  } catch {
-    throw bad("PNG解压失败或超过资源限制");
-  }
-  if (decoded.length !== expected) throw bad("PNG像素数据长度无效");
-  for (let row = 0; row < height; row++)
-    if (decoded[row * (width * channels + 1)]! > 4) throw bad("PNG滤波器无效");
-  const bytes = Buffer.concat(output);
-  return {
-    bytes,
-    width,
-    height,
-    digest: createHash("sha256").update(bytes).digest("hex"),
-  };
-}
+import { normalizedPng } from "./png.ts";
+export { normalizedPng } from "./png.ts";
+import { ImageCodec, imageBase64, IMAGE_MAX_BASE64 } from "./image-codec.ts";
+
 export class Media {
   readonly vision: Vision;
+  private codec = new ImageCodec();
   private controller = new AbortController();
   private timer?: ReturnType<typeof setInterval>;
   constructor(
@@ -204,9 +65,10 @@ export class Media {
     this.timer = setInterval(() => this.prune(), 60000);
     this.timer.unref();
   }
-  stop() {
+  async stop() {
     this.controller.abort();
     if (this.timer) clearInterval(this.timer);
+    await this.codec.stop();
   }
   policy() {
     return this.knowledge.policy("media", {
@@ -239,7 +101,12 @@ export class Media {
     this.runtime.invalidate("*");
     return result;
   }
-  upload(owner: string, value: unknown, purpose = "image") {
+  async upload(
+    owner: string,
+    value: unknown,
+    purpose = "image",
+    available: () => boolean = () => true,
+  ) {
     if (this.vision.pendingBytes() >= 20)
       throw new ApiError(
         429,
@@ -249,9 +116,16 @@ export class Media {
     const body = fields(value, ["conversation_id", "data_base64"]),
       conversation = string(body.conversation_id, "会话", 36, 36);
     this.runtime.ownConversation(conversation, owner);
-    const encoded = string(body.data_base64, "PNG内容", 1450000, 1);
-    if (!/^[a-zA-Z0-9+/]*={0,2}$/.test(encoded)) throw bad("图片编码无效");
-    const image = normalizedPng(Buffer.from(encoded, "base64"));
+    const encoded = string(body.data_base64, "图片内容", IMAGE_MAX_BASE64, 1);
+    const image = await this.codec.normalize(
+      imageBase64(encoded),
+      this.controller.signal,
+    );
+    if (!available() || this.controller.signal.aborted)
+      throw bad("图片上传已取消", "image_cancelled");
+    this.runtime.ownConversation(conversation, owner);
+    if (this.vision.pendingBytes() >= 20)
+      throw new ApiError(429, "media_capacity", "当前图片容量已满，请稍后重试");
     const id = randomUUID();
     this.store.run(
       "INSERT INTO media_assets VALUES(?,?,?,?,?,?,?, ?,?)",
@@ -410,7 +284,7 @@ export class Media {
           },
           AbortSignal.any([signal, AbortSignal.timeout(30000)]),
           this.loopback,
-          { maxRequestBytes: 2 * 1024 * 1024 },
+          { maxRequestBytes: 4 * 1024 * 1024 },
         ),
       ) as Record<string, any>;
       const raw = response.choices?.[0]?.message?.content;
@@ -471,7 +345,7 @@ export class Media {
           },
           AbortSignal.any([this.controller.signal, AbortSignal.timeout(60000)]),
           this.loopback,
-          { maxResponseBytes: 2 * 1024 * 1024 },
+          { maxResponseBytes: 12 * 1024 * 1024 },
         ),
       ) as Record<string, any>;
       if (
@@ -481,14 +355,17 @@ export class Media {
         throw bad("生图配置已变化");
       const encoded = result.data?.[0]?.b64_json;
       if (typeof encoded !== "string")
-        throw bad("服务未返回可验证PNG；不会下载模型指定URL");
-      return this.upload(
+        throw bad("服务未返回可验证图片；不会下载模型指定URL");
+      return await this.upload(
         owner,
         {
           conversation_id: conversation,
           data_base64: encoded,
         },
         "generated_image",
+        () =>
+          this.policy().revision === policy.revision &&
+          this.store.config().revision === configRevision,
       );
     } finally {
       release();
