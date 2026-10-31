@@ -109,7 +109,7 @@ const stage = (value: string) =>
   (
     ({
       queued: "等待上传",
-      preparing: "申请分片",
+      preparing: "申请上传",
       uploading: "正在上传",
       confirming: "确认分片",
       finalizing: "取得媒体引用",
@@ -129,11 +129,14 @@ onUnmounted(() => {
 });
 </script>
 <template>
-  <section class="panel form-panel" aria-label="QQ媒体发送">
+  <section class="panel form-panel" aria-label="QQ与微信媒体发送">
     <div class="section-heading">
       <div>
-        <h2>QQ 媒体回复</h2>
-        <p>向已收到的单聊消息追加图片、视频或已有音频；收件人由原消息固定。</p>
+        <h2>QQ 与微信媒体回复</h2>
+        <p>
+          向 QQ
+          或微信本人私聊追加图片、视频或已有音频；微信支持普通文件，收件人由原消息固定。
+        </p>
       </div>
       <button class="secondary" :disabled="busy" @click="task(load)">
         刷新媒体记录
@@ -148,6 +151,7 @@ onUnmounted(() => {
         >本次私聊回复<select v-model="run" :disabled="busy">
           <option value="">选择实际收到的消息</option>
           <option v-for="c in contexts" :key="c.run_id" :value="c.run_id">
+            {{ c.channel === "weixin" ? "微信" : "QQ" }} ·
             {{ new Date(c.received_at).toLocaleString() }} · {{ c.target_id }} ·
             剩余{{ c.remaining_parts }}项
           </option>
@@ -161,17 +165,27 @@ onUnmounted(() => {
           <option value="image">图片</option>
           <option value="video">MP4 视频</option>
           <option value="voice">已有音频</option>
+          <option
+            v-if="contexts.find((c) => c.run_id === run)?.channel === 'weixin'"
+            value="file"
+          >
+            普通文件（含其他音频）
+          </option>
         </select></label
       >
       <label
         >选择媒体文件<input
           type="file"
-          accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,video/mp4,audio/wav,audio/mpeg,audio/ogg,audio/silk"
+          :accept="
+            kind === 'file'
+              ? undefined
+              : 'image/png,image/jpeg,image/gif,image/webp,image/bmp,video/mp4,audio/wav,audio/mpeg,audio/ogg,audio/silk'
+          "
           :disabled="busy"
           @change="selectFile"
       /></label>
       <small
-        >图片最多8MiB，会规范化；视频与音频最多20MiB，MP4限60秒、自包含H.264轨道。已有音频传输不启用语音合成或识别。暂存24小时，超过5MiB自动分片上传。</small
+        >图片最多8MiB，会规范化；视频与音频最多20MiB，MP4限60秒、自包含H.264轨道。已有音频传输不启用语音合成或识别。暂存24小时。QQ超过5MiB自动分片；微信加密上传，语音限SILK/MP3，其他音频须选择普通文件。</small
       >
       <button class="secondary" :disabled="busy || !run || !file">
         校验并暂存文件
@@ -182,7 +196,10 @@ onUnmounted(() => {
         已暂存 {{ asset.kind }} · {{ asset.bytes }} 字节；尚未发送。
       </p>
       <label
-        >图片说明<input v-model="caption" maxlength="1500" :disabled="busy"
+        >发送说明（微信单独占一项文字）<input
+          v-model="caption"
+          maxlength="1500"
+          :disabled="busy"
       /></label>
       <label class="checkbox"
         ><input
@@ -201,7 +218,11 @@ onUnmounted(() => {
       class="panel"
       data-testid="qq-media-transfer"
     >
-      <strong>第{{ entry.sequence }}项 · {{ entry.kind }}</strong>
+      <strong
+        >{{ entry.channel === "weixin" ? "微信" : "QQ" }} · 第{{
+          entry.sequence
+        }}项 · {{ entry.kind }}</strong
+      >
       <p>{{ stage(entry.stage) }} · 已确认{{ entry.completed_parts }}个分片</p>
       <p v-if="entry.error" class="muted">{{ entry.error }}</p>
       <small

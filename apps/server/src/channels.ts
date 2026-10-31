@@ -30,6 +30,9 @@ import { qqAttachment, mediaNotice } from "./qq-media-download.ts";
 import type { Media } from "./media.ts";
 import type { normalizedPng } from "./png.ts";
 import type { Row } from "./store.ts";
+import type { IncomingTransport } from "./qq-incoming.ts";
+import { weixinAttachment, downloadWeixin } from "./weixin-media.ts";
+import { qqWire } from "./qq-upload.ts";
 
 type Json = Record<string, any>;
 export interface ChannelEndpoints {
@@ -37,6 +40,7 @@ export interface ChannelEndpoints {
   weixin: string;
   qqMedia?: string;
   qqUpload?: string;
+  weixinCdn?: string;
 }
 interface Target {
   kind: string;
@@ -163,8 +167,27 @@ export class Channels {
     this.incoming = new QqIncoming(
       this.store,
       media,
-      (e, d, image, code) => this.commitMedia(e, d, image, code),
+      (e, d, image, code, transport) =>
+        this.commitMedia(e, d, image, code, transport),
       this.allowLoopback ? this.endpoints.qqMedia : undefined,
+      {
+        current: (e) => {
+          try {
+            return this.currentWxMedia(
+              e,
+              this.store.unseal<Json>(String(e.payload_json)).target,
+            );
+          } catch {
+            return false;
+          }
+        },
+        download: (m, s) =>
+          downloadWeixin(
+            m,
+            s,
+            this.allowLoopback ? this.endpoints.weixinCdn : undefined,
+          ),
+      },
     );
     this.outgoing = new QqOutgoing(
       this.store,
@@ -175,6 +198,11 @@ export class Channels {
       (run) => !this.canDeliver || this.canDeliver(run),
       this.allowLoopback,
       this.allowLoopback ? this.endpoints.qqUpload : undefined,
+      {
+        current: (r, t) => this.currentWxMedia(r, t),
+        call: (p, b, s) => this.wxMediaApi(p, b, s),
+        fixture: this.allowLoopback ? this.endpoints.weixinCdn : undefined,
+      },
     );
     this.runtime.getChannelMediaContext = (run) => this.outgoing!.context(run);
     this.runtime.resolveChannelReply = (run, raw) =>
@@ -298,6 +326,81 @@ export class Channels {
     )
       throw bad("微信返回了不可信端点");
     return url.origin;
+  }
+  private currentWxMedia(row: Row, target: Json) {
+    const state = this.wxState();
+    return !!(
+      state &&
+      this.store.config().config.weixin.enabled &&
+      state.generation !== this.blockedWeixinGeneration &&
+      state.generation === target.generation &&
+      state.account.account_id === row.account_id &&
+      state.account.credential_ref === row.credential_ref &&
+      target.account === row.account_id &&
+      target.sender === state.account.owner_id &&
+      target.target === state.account.owner_id &&
+      typeof target.context === "string" &&
+      target.context.length > 0
+    );
+  }
+  private async wxMediaApi(
+    path: string,
+    body: unknown,
+    signal: AbortSignal,
+  ): Promise<Json> {
+    const state = this.wxState();
+    if (!state)
+      throw new ApiError(409, "media_delivery_revoked", "微信账户已失效");
+    const response = await qqWire(
+      new URL(path, this.weixinBase(state.account.base)),
+      Buffer.from(
+        JSON.stringify({
+          ...object(body),
+          base_info: { channel_version: "2.4.10", bot_agent: "Prometheus/0.1" },
+        }),
+      ),
+      {
+        "content-type": "application/json",
+        ...this.wxHeaders(
+          this.store.secret(state.account.credential_ref, "weixin_token"),
+        ),
+      },
+      signal,
+      "POST",
+      this.allowLoopback,
+    );
+    const final = path.endsWith("/sendmessage");
+    if (response.status !== 200)
+      throw new ApiError(
+        502,
+        final &&
+          ([201, 202, 408, 429].includes(response.status) ||
+            response.status >= 500)
+          ? "wx_media_send_unknown"
+          : "channel_rejected",
+        "微信媒体请求未获确认，未自动重试。",
+      );
+    let result: Json;
+    try {
+      result = object(
+        JSON.parse(
+          response.body.toString("utf8"),
+          (key: string, value: any, context?: any) =>
+            key === "message_id" &&
+            context?.source &&
+            /^\d+$/.test(context.source)
+              ? context.source
+              : value,
+        ),
+      ) as Json;
+    } catch {
+      throw new ApiError(
+        502,
+        final ? "wx_media_send_unknown" : "invalid_channel_response",
+        "微信媒体回执无效",
+      );
+    }
+    return business(result, true);
   }
   private async qqToken(config: Config): Promise<string> {
     const identity = `${config.qq.app_id}:${config.qq.credential_ref}`;
@@ -606,6 +709,7 @@ export class Channels {
     data: Json,
     image?: ReturnType<typeof normalizedPng>,
     code?: string,
+    transport?: IncomingTransport,
   ) {
     this.store.transaction(() => {
       let conversation = this.store.get(
@@ -615,7 +719,7 @@ export class Channels {
       if (!conversation) {
         const c = this.runtime.createConversation(
           String(event.owner_id),
-          "qq " + data.target.kind,
+          String(event.channel) + " " + data.target.kind,
         );
         this.store.run(
           "UPDATE conversations SET source_key=? WHERE id=?",
@@ -660,7 +764,7 @@ export class Channels {
       this.store.run(
         "INSERT OR IGNORE INTO run_targets VALUES(?,?,?,?,?,?)",
         run.run_id,
-        "qq",
+        String(event.channel),
         this.store.seal(data.target),
         String(event.credential_ref),
         Number(event.deadline),
@@ -670,7 +774,7 @@ export class Channels {
         "INSERT OR IGNORE INTO channel_media_sources VALUES(?,?,?,?)",
         run.run_id,
         String(event.id),
-        image ? "image" : "notice",
+        image ? "image" : (transport?.kind ?? "notice"),
         code ?? null,
       );
       this.store.run(
@@ -679,6 +783,8 @@ export class Channels {
         code ?? null,
         String(event.id),
       );
+      if (transport)
+        this.outgoing!.receiveInbound(run.run_id, String(event.id), transport);
       this.store.audit(
         owner,
         "delivery",
@@ -727,7 +833,7 @@ export class Channels {
       }
       const data = this.store.unseal<Json>(String(event.payload_json)),
         batch = [event];
-      if (event.channel === "qq") {
+      if (event.channel === "qq" || event.channel === "weixin") {
         if (this.incoming?.active) continue;
         const earlier = this.store.get(
           "SELECT id FROM channel_events WHERE source_key=? AND status='queued' AND (received_at<? OR received_at=? AND rowid<(SELECT rowid FROM channel_events WHERE id=?)) LIMIT 1",
@@ -983,7 +1089,7 @@ export class Channels {
     );
     try {
       let platformId: string;
-      if (row.channel === "qq" && row.kind !== "text") {
+      if (row.kind !== "text") {
         platformId = await this.outgoing!.send(row, this.controller.signal);
       } else if (row.channel === "qq") {
         const token = await this.qqToken(config);
@@ -1678,14 +1784,6 @@ export class Channels {
   }
   ingestWeixin(account: Json, value: Json) {
     if (
-      Number(
-        this.store.get(
-          "SELECT count(*) AS n FROM channel_events WHERE status='queued'",
-        )!.n,
-      ) >= 1000
-    )
-      throw new ApiError(503, "receive_queue_full", "持久接收队列已满");
-    if (
       value.message_type !== 1 ||
       value.message_state !== 2 ||
       value.group_id ||
@@ -1696,9 +1794,14 @@ export class Channels {
       return;
     if (
       !Array.isArray(value.item_list) ||
+      !value.item_list.length ||
+      value.item_list.length > 16 ||
       value.item_list.some(
         (item: Json) =>
-          item.type !== 1 || typeof item.text_item?.text !== "string",
+          !item ||
+          typeof item !== "object" ||
+          Array.isArray(item) ||
+          (item.type === 1 && typeof item.text_item?.text !== "string"),
       )
     )
       return;
@@ -1708,38 +1811,97 @@ export class Channels {
       ),
       sender = idValue(value.from_user_id),
       context = string(value.context_token, "微信回复上下文", 65536, 1);
-    const content = string(
-      value.item_list.map((item: Json) => item.text_item.text).join("\n"),
+    const text = string(
+      value.item_list
+        .filter((item: Json) => item.type === 1)
+        .map((item: Json) => item.text_item.text)
+        .join("\n"),
       "微信文字",
       16000,
-      1,
     );
-    if (content.includes("\0")) return;
+    if (text.includes("\0")) return;
+    const media = weixinAttachment(value.item_list, text),
+      content = text || (media ? "发来一条附件。" : "");
+    if (!content) return;
+    const eventKey = `weixin:${account.account_id}:${message}`;
+    if (
+      this.store.get(
+        "SELECT id FROM channel_events WHERE event_key=?",
+        eventKey,
+      ) ||
+      this.incoming?.duplicate(account.account_id, "wx:c2c", message)
+    )
+      return;
+    const state = this.wxState();
+    if (
+      !state ||
+      state.account.account_id !== account.account_id ||
+      state.account.credential_ref !== account.credential_ref
+    )
+      throw conflict();
     const owner = `weixin:${account.account_id}:${sender}`;
-    this.store.run(
-      "INSERT OR IGNORE INTO channel_events VALUES(?,?,?,?,?,?,?,?, 'queued',NULL,?,?,?,NULL)",
-      randomUUID(),
-      "weixin",
-      account.account_id,
-      `weixin:${account.account_id}:${message}`,
-      owner,
-      owner,
-      this.store.seal({
-        content,
-        target: {
-          kind: "c2c",
-          target: sender,
-          sender,
-          message_id: message,
-          account: account.account_id,
-          context,
-        },
-      }),
-      account.credential_ref,
-      Date.now(),
-      Date.now(),
-      now() + 3600,
-    );
+    const event = randomUUID(),
+      received = Date.now(),
+      stamp = Number(value.create_time_ms),
+      deadline =
+        Math.floor(
+          Math.min(
+            received,
+            Number.isSafeInteger(stamp) && stamp > 0 ? stamp : received,
+          ) / 1000,
+        ) + 3600;
+    const sealed = this.store.seal({
+      content,
+      target: {
+        kind: "c2c",
+        target: sender,
+        sender,
+        message_id: message,
+        account: account.account_id,
+        context,
+        generation: state.generation,
+      },
+      ...(media ? { media } : {}),
+    });
+    this.store.transaction(() => {
+      const queue = this.store.get(
+        "SELECT count(*) AS n,coalesce(sum(length(payload_json)),0) AS bytes FROM channel_events WHERE status IN ('queued','processing')",
+      )!;
+      const pending = this.store.get(
+        "SELECT count(*) AS n FROM qq_inbound_receipts r JOIN channel_events e ON e.id=r.event_id WHERE r.media=1 AND e.status IN ('queued','processing')",
+      )!;
+      if (
+        Number(queue.n) >= 1000 ||
+        Number(queue.bytes) + Buffer.byteLength(sealed) > 32 * 1024 * 1024 ||
+        (media && Number(pending.n) >= 200)
+      )
+        throw new ApiError(
+          503,
+          "receive_queue_full",
+          "持久接收队列已满，游标尚未确认",
+        );
+      this.store.run(
+        "INSERT OR IGNORE INTO channel_events VALUES(?,?,?,?,?,?,?,?, 'queued',NULL,?,?,?,NULL)",
+        event,
+        "weixin",
+        account.account_id,
+        eventKey,
+        owner,
+        owner,
+        sealed,
+        account.credential_ref,
+        received,
+        received,
+        deadline,
+      );
+      this.incoming?.record(
+        event,
+        account.account_id,
+        "wx:c2c",
+        message,
+        !!media,
+      );
+    });
   }
   deliveries(owner: string) {
     return this.store

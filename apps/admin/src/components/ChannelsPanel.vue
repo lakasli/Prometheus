@@ -58,12 +58,15 @@ const receiveReason = (entry: any) =>
   entry.code
     ? ((
         {
+          media_video_unread: "视频已接收和校验，尚未读取画面或声音。",
+          media_voice_unread: "音频已接收和校验，尚未语音识别。",
+          media_file_unread: "文件已接收，尚未读取或执行内容。",
           vision_provider_unavailable: "视觉服务尚未配置，这次没有读取图片。",
           media_control_command: "附件消息没有执行控制命令。",
-          media_count_unsupported: "每条消息请单独发送一张图片。",
-          media_channel_unsupported: "当前只读取QQ单聊图片。",
+          media_count_unsupported: "每条消息仅接收一个媒体附件。",
+          media_channel_unsupported: "当前媒体仅支持QQ单聊和微信绑定本人私聊。",
           media_format_unsupported: "这类附件暂不读取。",
-          media_size_limit: "图片超过接收上限。",
+          media_size_limit: "附件超过接收上限。",
           legacy_media_reference_lost: "旧记录缺少原附件引用，请重新发送。",
           media_reply_failed: "图片回复未能完成，失败已如实保留。",
         } as Record<string, string>
@@ -126,7 +129,7 @@ async function poll() {
       qr.value = "";
       await load();
       if (current.status === "confirmed")
-        notice.value = "微信本人身份已绑定。确认后启用文字收发。";
+        notice.value = "微信本人身份已绑定。确认后启用文字与媒体收发。";
       return;
     }
     timer = setTimeout(() => void poll(), 1500);
@@ -208,7 +211,9 @@ onUnmounted(() => {
       <div class="section-heading">
         <div>
           <h2>微信 iLink</h2>
-          <p>单账号扫码，只接收绑定本人的私聊文字。</p>
+          <p>
+            单账号扫码，只接收绑定本人的私聊文字和媒体；图片可识图，视频、音频和文件仅受控传输。
+          </p>
         </div>
         <span class="badge">{{ status?.connection.weixin }}</span>
       </div>
@@ -276,7 +281,7 @@ onUnmounted(() => {
           v-model="config.weixin.enabled"
           type="checkbox"
           :disabled="!status?.weixin.configured"
-        />启用本人文字收发</label
+        />启用本人文字与媒体收发</label
       ><button v-if="config" class="primary" :disabled="busy" @click="save">
         保存微信状态
       </button>

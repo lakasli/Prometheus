@@ -19,7 +19,7 @@ export function safeVisualText(store: Store, text: string) {
 export function visualSourceAllowed(store: Store, message: Row, purpose = "") {
   if (
     store.get(
-      "SELECT run_id FROM channel_media_sources WHERE run_id=? AND kind IN ('notice','legacy_unverified')",
+      "SELECT run_id FROM channel_media_sources WHERE run_id=? AND kind IN ('notice','legacy_unverified','video','voice','file')",
       String(message.run_id),
     )
   )
@@ -322,25 +322,27 @@ export class Vision {
     );
     return {
       basis:
-        channel?.kind === "legacy_unverified"
-          ? "legacy_unverified"
-          : channel?.kind === "notice"
-            ? "unavailable_media"
-            : !image &&
-                this.store.get(
-                  "SELECT run_id FROM qq_media_plans WHERE run_id=? UNION SELECT p.run_id FROM qq_media_transfers t JOIN delivery_parts p ON p.id=t.part_id WHERE p.run_id=?",
-                  run,
-                  run,
-                )
-              ? "channel_media_reply"
-              : this.isDerived(run)
-                ? "vision_description"
-                : this.store.get(
-                      "SELECT r.id FROM runs r JOIN messages m ON m.run_id=r.id JOIN vision_legacy_fences f ON f.conversation_id=r.conversation_id WHERE r.id=? AND m.rowid<=f.message_cutoff LIMIT 1",
-                      run,
-                    )
-                  ? "legacy_unverified"
-                  : "text",
+        channel && ["video", "voice", "file"].includes(String(channel.kind))
+          ? "channel_media_transport"
+          : channel?.kind === "legacy_unverified"
+            ? "legacy_unverified"
+            : channel?.kind === "notice"
+              ? "unavailable_media"
+              : !image &&
+                  this.store.get(
+                    "SELECT run_id FROM qq_media_plans WHERE run_id=? UNION SELECT p.run_id FROM qq_media_transfers t JOIN delivery_parts p ON p.id=t.part_id WHERE p.run_id=?",
+                    run,
+                    run,
+                  )
+                ? "channel_media_reply"
+                : this.isDerived(run)
+                  ? "vision_description"
+                  : this.store.get(
+                        "SELECT r.id FROM runs r JOIN messages m ON m.run_id=r.id JOIN vision_legacy_fences f ON f.conversation_id=r.conversation_id WHERE r.id=? AND m.rowid<=f.message_cutoff LIMIT 1",
+                        run,
+                      )
+                    ? "legacy_unverified"
+                    : "text",
       ...(channel
         ? { attachment: { kind: channel.kind, code: channel.code } }
         : {}),

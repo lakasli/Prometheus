@@ -10,6 +10,9 @@ import type { Store, Row } from "./store.ts";
 import type { Runtime } from "./runtime.ts";
 import type { Media } from "./media.ts";
 import type { Config } from "./config.ts";
+import { sendWeixinMedia } from "./weixin-media.ts";
+import type { WeixinMediaBridge } from "./weixin-media.ts";
+import type { IncomingTransport } from "./qq-incoming.ts";
 export type Part = {
   type: string;
   text: string;
@@ -17,6 +20,7 @@ export type Part = {
   delay_ms: number;
 };
 interface Scope {
+  channel: string;
   id: string;
   owner_id: string;
   conversation_id: string;
@@ -61,6 +65,7 @@ export class QqOutgoing {
     readonly admitted: (run: string) => boolean,
     readonly loopback = false,
     readonly putFixture?: string,
+    readonly weixin?: WeixinMediaBridge,
   ) {
     // Store already marks an interrupted sending part unknown. A persisted fence
     // distinguishes upload-only work, which cannot have delivered a message.
@@ -119,7 +124,7 @@ export class QqOutgoing {
       );
     }
     const assets = this.store.all(
-      "SELECT id,kind,digest FROM qq_media_assets WHERE owner_id=? AND conversation_id=? AND context_epoch=? AND expires_at>? AND revoked_at IS NULL AND source_kind='received' ORDER BY created_at DESC LIMIT 8",
+      "SELECT id,kind,digest FROM qq_media_assets WHERE owner_id=? AND conversation_id=? AND context_epoch=? AND expires_at>? AND revoked_at IS NULL AND source_kind IN ('received','inbound') ORDER BY created_at DESC LIMIT 8",
       String(r.owner_id),
       String(r.conversation_id),
       Number(r.context_epoch),
@@ -134,7 +139,7 @@ export class QqOutgoing {
       );
     if (!assets.length) return "";
     return (
-      "\n宿主QQ媒体回复规则：只有明确需要回传时才引用下列同会话制品；这些是规范化来源图片，不能称原始附件。回复可为1至4项JSON数组，每项仅type(text/image)、text、asset_id(图片必填)、delay_ms。不能指定URL、路径或收件人；这不授予主动联系或其他执行权限。制品目录：" +
+      "\n宿主渠道媒体回复规则：只有明确需要回传时才引用下列同会话制品；图片为规范副本，视频/音频/文件仅保存用于回传，未读取帧、音轨或正文。回复可为1至4项JSON数组，每项仅type(text/image/video/voice/file)、text、asset_id(媒体必填)、delay_ms。微信媒体项text必须为空，说明另用text项。不能指定URL、路径或收件人；这不授予主动联系或执行权限。制品目录：" +
       JSON.stringify(assets) +
       "\n"
     );
@@ -142,7 +147,7 @@ export class QqOutgoing {
   resolve(run: string, raw: string) {
     if (
       !this.store.get(
-        "SELECT run_id FROM run_targets WHERE run_id=? AND channel='qq'",
+        "SELECT run_id FROM run_targets WHERE run_id=? AND channel IN ('qq','weixin')",
         run,
       )
     )
@@ -169,7 +174,7 @@ export class QqOutgoing {
         text = string(b.text ?? "", "回复", 6000).trim(),
         type = String(b.type);
       if (
-        !["text", "image", "video", "voice"].includes(type) ||
+        !["text", "image", "video", "voice", "file"].includes(type) ||
         [...text].length > 1500 ||
         (type === "text" && !text) ||
         !Number.isSafeInteger(b.delay_ms ?? 0) ||
@@ -179,6 +184,12 @@ export class QqOutgoing {
         throw bad("媒体回复字段无效", "media_plan_invalid");
       if (type === "text" && b.asset_id !== undefined)
         throw bad("文字不能携带媒体引用", "media_plan_invalid");
+      if (
+        type !== "text" &&
+        text &&
+        (type !== "image" || this.live(run, true).channel === "weixin")
+      )
+        throw bad("此媒体说明必须是单独的文字项", "media_plan_invalid");
       const asset_id =
         type === "text" ? undefined : string(b.asset_id, "媒体引用", 36, 36);
       if (asset_id) {
@@ -203,7 +214,7 @@ export class QqOutgoing {
         .map((p) =>
           p.type === "text"
             ? p.text
-            : `[${({ image: "图片", video: "视频", voice: "语音" } as Record<string, string>)[p.type]}]${p.text}`,
+            : `[${({ image: "图片", video: "视频", voice: "语音", file: "文件" } as Record<string, string>)[p.type]}]${p.text}`,
         )
         .join("\n"),
       parts,
@@ -233,15 +244,20 @@ export class QqOutgoing {
     const c = this.store.config().config,
       target = this.store.unseal<Record<string, string>>(String(r.target_json));
     if (
-      r.channel !== "qq" ||
       target.kind !== "c2c" ||
       !target.target ||
-      !/^[A-Za-z0-9_]{1,256}$/.test(target.target) ||
+      (r.channel === "qq"
+        ? !/^[A-Za-z0-9_]{1,256}$/.test(target.target)
+        : r.channel === "weixin"
+          ? target.target.length > 256 || /[\x00-\x20\x7f]/.test(target.target)
+          : true) ||
       target.account !== r.account_id ||
       !target.message_id ||
-      !c.qq.enabled ||
-      c.qq.app_id !== r.account_id ||
-      c.qq.credential_ref !== r.credential_ref ||
+      (r.channel === "qq"
+        ? !c.qq.enabled ||
+          c.qq.app_id !== r.account_id ||
+          c.qq.credential_ref !== r.credential_ref
+        : !this.weixin?.current(r, target)) ||
       Number(r.deadline) <= now() ||
       r.context_epoch !== r.current_epoch ||
       !(r.status === "completed" || (running && r.status === "running")) ||
@@ -272,7 +288,8 @@ export class QqOutgoing {
       run = string(b.run_id, "来源Run", 36, 36),
       request = string(b.request_id, "上传幂等标识", 128, 1),
       kind = string(b.kind, "媒体类型", 10, 1);
-    if (!["image", "video", "voice"].includes(kind)) throw bad("媒体类型无效");
+    if (!["image", "video", "voice", "file"].includes(kind))
+      throw bad("媒体类型无效");
     const r = this.live(run),
       encoded = string(
         b.data_base64,
@@ -304,6 +321,8 @@ export class QqOutgoing {
     this.prune();
     if (!this.capacity(bytes.length))
       throw new ApiError(429, "media_capacity", "媒体暂存容量已满");
+    if (kind === "file" && r.channel !== "weixin")
+      throw bad("此渠道不支持普通文件");
     this.receiving = true;
     try {
       let output = bytes,
@@ -316,7 +335,21 @@ export class QqOutgoing {
         output = image.bytes;
         meta = { mime: "image/png", extension: "png" };
       } else
-        meta = kind === "video" ? validateVideo(bytes) : validateVoice(bytes);
+        meta =
+          kind === "video"
+            ? validateVideo(bytes)
+            : kind === "voice"
+              ? validateVoice(bytes)
+              : { mime: "application/octet-stream", extension: "bin" };
+      if (
+        r.channel === "weixin" &&
+        kind === "voice" &&
+        !["silk", "mp3"].includes(meta.extension)
+      )
+        throw bad(
+          "微信语音仅传输SILK/MP3；其他音频请作为文件发送",
+          "wx_voice_format_unsupported",
+        );
       if (!available())
         throw bad("媒体上传连接已关闭", "media_upload_cancelled");
       const current = this.live(run);
@@ -388,7 +421,9 @@ export class QqOutgoing {
     if (a.kind === "image") normalizedPng(bytes);
     else if (a.kind === "video") validateVideo(bytes);
     else if (a.kind === "voice") validateVoice(bytes);
-    else throw bad("媒体类型无效");
+    else if (a.kind === "file" && r.channel === "weixin") {
+      if (bytes.length > MEDIA_LIMIT) throw bad("文件超限");
+    } else throw bad("媒体类型无效");
     if (
       a.source_kind === "received" &&
       !this.store.get(
@@ -398,6 +433,16 @@ export class QqOutgoing {
       )
     )
       throw bad("来源图片已撤销", "media_source_revoked");
+    if (
+      a.source_kind === "inbound" &&
+      !this.store.get(
+        "SELECT q.run_id FROM channel_media_sources q JOIN runs r ON r.id=q.run_id WHERE q.run_id=? AND q.event_id=? AND q.kind=? AND r.status='completed'",
+        String(a.source_run_id),
+        String(a.source_id),
+        String(a.kind),
+      )
+    )
+      throw bad("原媒体来源已失效", "media_source_revoked");
     return { ...a, bytes } as unknown as Asset;
   }
   queue(actor: string, value: unknown) {
@@ -429,6 +474,7 @@ export class QqOutgoing {
       };
     }
     const a = this.asset(run, assetId),
+      scope = this.live(run),
       id = randomUUID();
     return this.store.transaction(() => {
       const sequence = Number(
@@ -443,21 +489,33 @@ export class QqOutgoing {
           "media_reply_not_queued",
           "请等待原回复进入投递队列后再追加媒体",
         );
+      const caption =
+        scope.channel === "weixin" && text.trim() ? text.trim() : null;
       if (
-        sequence > 4 ||
+        sequence + (caption ? 1 : 0) > 4 ||
         this.store.get(
           "SELECT id FROM delivery_parts WHERE run_id=? AND status NOT IN ('queued','sending','sent')",
           run,
         )
       )
         throw bad("回复已达四项或前序投递未确认", "media_sequence_exhausted");
+      if (caption)
+        this.store.run(
+          "INSERT INTO delivery_parts VALUES(?,?,?,'text',?,'queued',NULL,NULL,?,?)",
+          randomUUID(),
+          run,
+          sequence,
+          caption,
+          Date.now() + 1500,
+          now(),
+        );
       this.store.run(
         "INSERT INTO delivery_parts VALUES(?,?,?,?,?,'queued',NULL,NULL,?,?)",
         id,
         run,
-        sequence,
+        sequence + (caption ? 1 : 0),
         String(a.kind),
-        `[${({ image: "图片", video: "视频", voice: "语音" } as Record<string, string>)[a.kind]}]${text}`,
+        `[${({ image: "图片", video: "视频", voice: "语音", file: "文件" } as Record<string, string>)[a.kind]}]${scope.channel === "qq" && a.kind === "image" ? text : ""}`,
         Date.now() + 1500,
         now(),
       );
@@ -485,6 +543,36 @@ export class QqOutgoing {
       "INSERT INTO qq_media_transfers(part_id,asset_id,stage,completed_parts) VALUES(?,?,'queued',0)",
       part,
       asset,
+    );
+  }
+  receiveInbound(run: string, event: string, transport: IncomingTransport) {
+    const r = this.live(run);
+    const received = Number(
+      this.store.get(
+        "SELECT received_at FROM channel_events WHERE id=?",
+        event,
+      )!.received_at,
+    );
+    if (!this.capacity(transport.bytes.length))
+      throw new ApiError(429, "media_capacity", "媒体暂存容量已满");
+    this.store.run(
+      "INSERT INTO qq_media_assets VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      randomUUID(),
+      r.owner_id,
+      r.conversation_id,
+      run,
+      "host",
+      "inbound",
+      event,
+      transport.kind,
+      transport.mime,
+      transport.extension,
+      hash(transport.bytes),
+      transport.bytes,
+      r.context_epoch,
+      now(),
+      Math.floor(received / 1000) + 86400,
+      null,
     );
   }
   refresh() {
@@ -522,7 +610,7 @@ export class QqOutgoing {
   contexts() {
     const result = [];
     for (const r of this.store.all(
-      "SELECT r.id,max(e.received_at) AS received_at FROM runs r JOIN channel_events e ON e.run_id=r.id WHERE r.status='completed' AND e.channel='qq' GROUP BY r.id ORDER BY received_at DESC LIMIT 50",
+      "SELECT r.id,max(e.received_at) AS received_at FROM runs r JOIN channel_events e ON e.run_id=r.id WHERE r.status='completed' AND e.channel IN ('qq','weixin') GROUP BY r.id ORDER BY received_at DESC LIMIT 50",
     )) {
       try {
         const live = this.live(String(r.id)),
@@ -541,6 +629,7 @@ export class QqOutgoing {
           )
         )
           result.push({
+            channel: live.channel,
             run_id: r.id,
             target_id: live.target.target,
             received_at: r.received_at,
@@ -567,7 +656,7 @@ export class QqOutgoing {
   }
   list() {
     return this.store.all(
-      "SELECT p.id,p.run_id,p.sequence,p.kind,p.status,p.platform_id,p.error,t.stage,t.completed_parts,t.message_started_at,t.request_started_at,t.request_finished_at,t.error_code,a.id AS asset_id,a.mime,a.digest,a.expires_at FROM qq_media_transfers t JOIN delivery_parts p ON p.id=t.part_id JOIN qq_media_assets a ON a.id=t.asset_id ORDER BY p.rowid DESC LIMIT 100",
+      "SELECT p.id,p.run_id,p.sequence,p.kind,p.status,p.platform_id,p.error,t.stage,t.completed_parts,t.message_started_at,t.request_started_at,t.request_finished_at,t.error_code,a.id AS asset_id,a.mime,a.digest,a.expires_at,rt.channel FROM qq_media_transfers t JOIN delivery_parts p ON p.id=t.part_id JOIN qq_media_assets a ON a.id=t.asset_id JOIN run_targets rt ON rt.run_id=p.run_id ORDER BY p.rowid DESC LIMIT 100",
     );
   }
   async send(row: Row, shutdown: AbortSignal) {
@@ -616,6 +705,23 @@ export class QqOutgoing {
           part,
         )!,
         asset = this.asset(run, String(transfer.asset_id));
+      if (r.channel === "weixin")
+        return await sendWeixinMedia({
+          bridge: this.weixin!,
+          asset,
+          target: r.target,
+          part,
+          signal,
+          admit,
+          stage,
+          started: () => {
+            this.store.run(
+              "UPDATE qq_media_transfers SET message_started_at=? WHERE part_id=?",
+              now(),
+              part,
+            );
+          },
+        });
       const token = await this.token(config);
       admit();
       const file_info = await uploadQq({
@@ -666,7 +772,13 @@ export class QqOutgoing {
           part,
         )?.message_started_at,
         code = error instanceof ApiError ? error.code : "upload_failed",
-        unknown = !!started && code !== "media_send_rejected";
+        unknown =
+          !!started &&
+          ![
+            "media_send_rejected",
+            "wx_media_send_rejected",
+            "channel_rejected",
+          ].includes(code);
       this.store.run(
         "UPDATE qq_media_transfers SET stage=?,error_code=? WHERE part_id=?",
         unknown ? "unknown" : "failed",

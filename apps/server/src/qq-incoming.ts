@@ -3,6 +3,7 @@ import { now, hash } from "./security.ts";
 import type { Store, Row } from "./store.ts";
 import type { Media } from "./media.ts";
 import type { normalizedPng } from "./png.ts";
+import { validateVideo, validateVoice } from "./media-container.ts";
 import {
   downloadQqImage,
   mediaFailure,
@@ -10,6 +11,12 @@ import {
 } from "./qq-media-download.ts";
 type Json = Record<string, any>;
 type Image = ReturnType<typeof normalizedPng>;
+export interface IncomingTransport {
+  kind: string;
+  bytes: Buffer;
+  mime: string;
+  extension: string;
+}
 export class QqIncoming {
   active?: {
     id: string;
@@ -26,8 +33,13 @@ export class QqIncoming {
       data: Json,
       image?: Image,
       code?: string,
+      transport?: IncomingTransport,
     ) => void,
     private loopbackOrigin?: string,
+    private weixin?: {
+      current: (event: Row) => boolean;
+      download: (data: Json, signal: AbortSignal) => Promise<Buffer>;
+    },
   ) {
     this.initialize();
   }
@@ -135,14 +147,14 @@ export class QqIncoming {
         }
       }
       this.store.run(
-        "UPDATE channel_events SET status='queued' WHERE channel='qq' AND status='processing'",
+        "UPDATE channel_events SET status='queued' WHERE channel IN ('qq','weixin') AND status='processing'",
       );
       this.store.run(
-        "UPDATE qq_inbound_receipts SET generation=generation+1,request_finished_at=CASE WHEN request_started_at IS NOT NULL AND request_finished_at IS NULL THEN ? ELSE request_finished_at END WHERE event_id IN (SELECT id FROM channel_events WHERE channel='qq' AND status='queued')",
+        "UPDATE qq_inbound_receipts SET generation=generation+1,request_finished_at=CASE WHEN request_started_at IS NOT NULL AND request_finished_at IS NULL THEN ? ELSE request_finished_at END WHERE event_id IN (SELECT id FROM channel_events WHERE channel IN ('qq','weixin') AND status='queued')",
         now(),
       );
       this.store.run(
-        "UPDATE channel_events SET payload_json=NULL WHERE channel='qq' AND status IN ('failed','expired','cancelled')",
+        "UPDATE channel_events SET payload_json=NULL WHERE channel IN ('qq','weixin') AND status IN ('failed','expired','cancelled')",
       );
     });
   }
@@ -189,7 +201,7 @@ export class QqIncoming {
       key,
     );
     this.store.run(
-      "UPDATE channel_events SET status='cancelled',payload_json=NULL,error='来源上下文已失效' WHERE channel='qq' AND status IN ('queued','processing') AND (?='*' OR owner_id=?) AND EXISTS(SELECT 1 FROM qq_inbound_receipts r WHERE r.event_id=channel_events.id AND r.media=1)",
+      "UPDATE channel_events SET status='cancelled',payload_json=NULL,error='来源上下文已失效' WHERE channel IN ('qq','weixin') AND status IN ('queued','processing') AND (?='*' OR owner_id=?) AND EXISTS(SELECT 1 FROM qq_inbound_receipts r WHERE r.event_id=channel_events.id AND r.media=1)",
       owner,
       owner,
     );
@@ -198,7 +210,7 @@ export class QqIncoming {
   }
   refresh() {
     this.store.run(
-      "UPDATE channel_events SET status='expired',payload_json=NULL,error='原回复期限已过期' WHERE channel='qq' AND status IN ('queued','processing') AND deadline<=?",
+      "UPDATE channel_events SET status='expired',payload_json=NULL,error='原回复期限已过期' WHERE channel IN ('qq','weixin') AND status IN ('queued','processing') AND deadline<=?",
       now(),
     );
     if (this.active && !this.current(this.active.id, this.active.generation))
@@ -219,9 +231,11 @@ export class QqIncoming {
       return false;
     const config = this.store.config();
     if (
-      !config.config.qq.enabled ||
-      config.config.qq.app_id !== e.account_id ||
-      config.config.qq.credential_ref !== e.credential_ref ||
+      (e.channel === "qq"
+        ? !config.config.qq.enabled ||
+          config.config.qq.app_id !== e.account_id ||
+          config.config.qq.credential_ref !== e.credential_ref
+        : !this.weixin?.current(e)) ||
       config.revision !== e.config_revision ||
       this.media.policy().revision !== e.media_revision ||
       this.epoch(String(e.owner_id)) !== e.owner_epoch ||
@@ -329,15 +343,17 @@ export class QqIncoming {
     const id = String(event.id),
       combined = AbortSignal.any([signal, AbortSignal.timeout(20000)]);
     let image: Image | undefined,
+      transport: IncomingTransport | undefined,
       code: string | undefined = data.media.code;
     try {
       if (!code) {
         const config = this.store.config().config,
           policy = this.media.policy();
         if (
-          !policy.value.vision_enabled ||
-          !policy.value.vision_model ||
-          !config.model.credential_ref
+          (data.media.kind ?? "image") === "image" &&
+          (!policy.value.vision_enabled ||
+            !policy.value.vision_model ||
+            !config.model.credential_ref)
         )
           code = "vision_provider_unavailable";
         else {
@@ -349,11 +365,15 @@ export class QqIncoming {
           );
           let bytes: Buffer;
           try {
-            bytes = await downloadQqImage(
-              String(data.media.url),
-              combined,
-              this.loopbackOrigin,
-            );
+            bytes =
+              event.channel === "weixin"
+                ? await this.weixin!.download(data.media, combined)
+                : await downloadQqImage(
+                    String(data.media.url),
+                    combined,
+                    this.loopbackOrigin,
+                    data.media.kind ?? "image",
+                  );
           } finally {
             this.store.run(
               "UPDATE qq_inbound_receipts SET request_finished_at=? WHERE event_id=? AND generation=?",
@@ -363,7 +383,33 @@ export class QqIncoming {
             );
           }
           if (!this.current(id, generation)) return;
-          image = await this.media.decodeIncoming(bytes, combined);
+          const kind =
+            data.media.kind === "auto"
+              ? bytes.length >= 12 && bytes.toString("ascii", 4, 8) === "ftyp"
+                ? "video"
+                : "image"
+              : (data.media.kind ?? "image");
+          if (kind === "image") {
+            if (
+              !policy.value.vision_enabled ||
+              !policy.value.vision_model ||
+              !config.model.credential_ref
+            )
+              code = "vision_provider_unavailable";
+            else image = await this.media.decodeIncoming(bytes, combined);
+          } else {
+            const metadata =
+              kind === "video"
+                ? validateVideo(bytes)
+                : kind === "voice"
+                  ? validateVoice(bytes)
+                  : kind === "file"
+                    ? { mime: "application/octet-stream", extension: "bin" }
+                    : undefined;
+            if (!metadata) throw mediaFailure("media_format_unsupported");
+            transport = { kind, bytes, ...metadata };
+            code = "media_" + kind + "_unread";
+          }
         }
       }
     } catch (error) {
@@ -397,7 +443,7 @@ export class QqIncoming {
       this.store.transaction(() => {
         if (!this.current(id, generation))
           throw mediaFailure("media_receive_revoked");
-        this.commit(event, data, image, code);
+        this.commit(event, data, image, code, transport);
         this.store.run(
           "UPDATE qq_inbound_receipts SET code=? WHERE event_id=? AND generation=?",
           code ?? null,
@@ -442,7 +488,7 @@ export class QqIncoming {
     this.active?.abort.abort();
     await this.active?.task;
     this.store.run(
-      "UPDATE channel_events SET status='queued' WHERE channel='qq' AND status='processing'",
+      "UPDATE channel_events SET status='queued' WHERE channel IN ('qq','weixin') AND status='processing'",
     );
   }
   notice(code: string) {

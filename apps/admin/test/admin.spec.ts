@@ -2957,7 +2957,7 @@ test("QQ media management uploads a large MP4, confirms its fixed passive recipi
     })
     .toBe(true);
   await page.getByRole("button", { name: "渠道与媒体", exact: true }).click();
-  const panel = page.getByRole("region", { name: "QQ媒体发送" });
+  const panel = page.getByRole("region", { name: "QQ与微信媒体发送" });
   await expect(panel).toBeVisible();
   await panel.getByLabel("本次私聊回复").selectOption(context.run_id);
   await expect(
@@ -3049,6 +3049,94 @@ test("QQ media management uploads a large MP4, confirms its fixed passive recipi
   expect(errors).toEqual([]);
   await page.screenshot({
     path: resolve("../../.local/prometheus/e2e-qq-outgoing-320.png"),
+    fullPage: true,
+  });
+});
+test("Weixin QR binding receives an encrypted file and sends a separately confirmed file with truthful status at 320px", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.getByRole("button", { name: "渠道与媒体", exact: true }).click();
+  await page
+    .getByRole("button", { name: "创建登录二维码", exact: true })
+    .click();
+  await expect(
+    page.getByText("微信本人身份已绑定。确认后启用文字与媒体收发。", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page.getByLabel("启用本人文字与媒体收发").check();
+  await page.getByRole("button", { name: "保存微信状态", exact: true }).click();
+  let source: any;
+  await expect
+    .poll(async () => {
+      const c = await (
+        await page.request.get("/api/admin/v1/qq/media/contexts")
+      ).json();
+      source = c.items.find((r: any) => r.channel === "weixin");
+      return !!source;
+    })
+    .toBe(true);
+  const panel = page.getByRole("region", { name: "QQ与微信媒体发送" });
+  await panel
+    .getByRole("button", { name: "刷新媒体记录", exact: true })
+    .click();
+  await panel.getByLabel("本次私聊回复").selectOption(source.run_id);
+  await expect(panel.getByText("接收方标识：browser@im.wechat")).toBeVisible();
+  await panel.getByLabel("文件类型").selectOption("file");
+  await panel.getByLabel("选择媒体文件").setInputFiles({
+    name: "browser-file.bin",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("Synthetic browser outgoing file."),
+  });
+  await panel
+    .getByRole("button", { name: "校验并暂存文件", exact: true })
+    .click();
+  await expect(panel.getByText("文件已校验并暂存，尚未发送。")).toBeVisible();
+  await panel
+    .getByLabel("发送说明（微信单独占一项文字）")
+    .fill("单独的微信说明。");
+  await expect(
+    panel.getByRole("button", { name: "确认排队发送" }),
+  ).toBeDisabled();
+  await panel.getByLabel("已核对接收方，确认在这次私聊回复中发送媒体").check();
+  await panel.getByRole("button", { name: "确认排队发送" }).click();
+  await expect
+    .poll(
+      async () => {
+        await panel
+          .getByRole("button", { name: "刷新媒体记录", exact: true })
+          .click();
+        return panel
+          .getByTestId("qq-media-transfer")
+          .filter({ hasText: "微信" })
+          .filter({ hasText: "平台已确认" })
+          .count();
+      },
+      { timeout: 15000 },
+    )
+    .toBe(1);
+  const received = await (
+    await page.request.get("/api/admin/v1/channels/inbox")
+  ).json();
+  expect(JSON.stringify(received)).toContain("media_file_unread");
+  for (const secret of [
+    "synthetic-browser-wx-token",
+    "synthetic-browser-wx-context",
+    "aes_key",
+    "/wx-download",
+  ])
+    expect(JSON.stringify(received)).not.toContain(secret);
+  await page.setViewportSize({ width: 320, height: 800 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  expect(errors).toEqual([]);
+  await page.screenshot({
+    path: resolve("../../.local/prometheus/e2e-weixin-media-320.png"),
     fullPage: true,
   });
 });

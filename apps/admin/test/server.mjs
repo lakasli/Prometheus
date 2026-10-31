@@ -1,8 +1,11 @@
 import { resolve } from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createCipheriv } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
+const wxBytes = Buffer.from("Synthetic browser opaque file; not interpreted."),
+  wxKey = Buffer.from("0123456789abcdef");
+let wxDelivered = false;
 const provider = createServer(async (request, response) => {
   let raw = "";
   for await (const chunk of request) raw += chunk;
@@ -11,8 +14,74 @@ const provider = createServer(async (request, response) => {
     response.end();
     return;
   }
-  const input = JSON.parse(raw);
+  if (request.url === "/wx-download") {
+    const cipher = createCipheriv("aes-128-ecb", wxKey, null);
+    response.writeHead(200);
+    response.end(Buffer.concat([cipher.update(wxBytes), cipher.final()]));
+    return;
+  }
+  if (request.url === "/wx-upload") {
+    response.writeHead(200, {
+      "x-encrypted-param": "synthetic-browser-encrypted-download",
+    });
+    response.end();
+    return;
+  }
+  const input = raw ? JSON.parse(raw) : {};
   const path = request.url;
+  if (path.startsWith("/ilink/")) {
+    let value = { ret: 0 };
+    if (path.startsWith("/ilink/bot/get_bot_qrcode"))
+      value = {
+        qrcode: "synthetic-browser-qr",
+        qrcode_img_content: "https://example.invalid/browser-qr",
+      };
+    else if (path.startsWith("/ilink/bot/get_qrcode_status"))
+      value = {
+        status: "confirmed",
+        ilink_bot_id: "browser@im.bot",
+        ilink_user_id: "browser@im.wechat",
+        bot_token: "synthetic-browser-wx-token",
+        baseurl: modelUrl,
+      };
+    else if (path === "/ilink/bot/getupdates") {
+      value = {
+        ret: 0,
+        get_updates_buf: "browser-cursor",
+        msgs: wxDelivered
+          ? []
+          : [
+              {
+                message_id: "browser-wx-file",
+                from_user_id: "browser@im.wechat",
+                to_user_id: "browser@im.bot",
+                message_type: 1,
+                message_state: 2,
+                create_time_ms: Date.now(),
+                context_token: "synthetic-browser-wx-context",
+                item_list: [
+                  {
+                    type: 4,
+                    file_item: {
+                      len: String(wxBytes.length),
+                      media: {
+                        full_url: modelUrl + "/wx-download",
+                        aes_key: wxKey.toString("base64"),
+                        encrypt_type: 1,
+                      },
+                    },
+                  },
+                ],
+              },
+            ],
+      };
+      wxDelivered = true;
+    } else if (path === "/ilink/bot/getuploadurl")
+      value = { ret: 0, upload_full_url: modelUrl + "/wx-upload" };
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(value));
+    return;
+  }
   if (path === "/app/getAppAccessToken" || path.startsWith("/v2/")) {
     let result = {};
     if (path === "/app/getAppAccessToken")
@@ -132,7 +201,12 @@ const app = await startServer({
   origin: "http://127.0.0.1:18449",
   secureCookie: false,
   allowLoopbackModel: true,
-  testChannelEndpoints: { qq: modelUrl, weixin: modelUrl, qqUpload: modelUrl },
+  testChannelEndpoints: {
+    qq: modelUrl,
+    weixin: modelUrl,
+    qqUpload: modelUrl,
+    weixinCdn: modelUrl,
+  },
 });
 const tokenFile = bootstrapToken(dataDir);
 const stateFile = resolve(".local/prometheus/e2e-state.json");

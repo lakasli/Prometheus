@@ -58,6 +58,7 @@ export function downloadQqImage(
   raw: string,
   signal: AbortSignal,
   loopbackOrigin?: string,
+  kind = "image",
 ): Promise<Buffer> {
   const { url, fixture } = qqCdnUrl(raw, loopbackOrigin);
   return new Promise((resolve, reject) => {
@@ -108,7 +109,8 @@ export function downloadQqImage(
           length !== undefined &&
           (!/^\d+$/.test(length) ||
             !Number.isSafeInteger(Number(length)) ||
-            Number(length) > QQ_IMAGE_BYTES)
+            Number(length) >
+              (kind === "image" ? QQ_IMAGE_BYTES : 20 * 1024 * 1024))
         ) {
           fail("media_size_limit");
           request.destroy();
@@ -118,6 +120,10 @@ export function downloadQqImage(
           (encoding && encoding !== "identity") ||
           (type &&
             !imageMime(type) &&
+            !(
+              kind !== "image" &&
+              type.split(";")[0]!.trim().toLowerCase() === "video/mp4"
+            ) &&
             type.split(";")[0]!.trim().toLowerCase() !==
               "application/octet-stream")
         ) {
@@ -129,7 +135,7 @@ export function downloadQqImage(
         let size = 0;
         response.on("data", (chunk: Buffer) => {
           size += chunk.length;
-          if (size > QQ_IMAGE_BYTES) {
+          if (size > (kind === "image" ? QQ_IMAGE_BYTES : 20 * 1024 * 1024)) {
             fail("media_size_limit");
             response.destroy();
           } else chunks.push(chunk);
@@ -172,6 +178,7 @@ export type IncomingMedia = {
   type?: string;
   size?: number;
   code?: string;
+  kind?: string;
 };
 export function qqAttachment(
   kind: string,
@@ -191,18 +198,43 @@ export function qqAttachment(
     typeof a.content_type === "string"
       ? a.content_type.split(";")[0]!.trim().toLowerCase()
       : undefined;
-  if (type && !imageMime(type) && type !== "application/octet-stream")
+  if (
+    type &&
+    !imageMime(type) &&
+    type !== "video/mp4" &&
+    type !== "application/octet-stream"
+  )
     return { code: "media_format_unsupported" };
   if (
     a.size !== undefined &&
-    (!Number.isSafeInteger(a.size) || a.size < 0 || a.size > QQ_IMAGE_BYTES)
+    (!Number.isSafeInteger(a.size) ||
+      a.size < 0 ||
+      a.size > (type && imageMime(type) ? QQ_IMAGE_BYTES : 20 * 1024 * 1024))
   )
     return { code: "media_size_limit" };
   if (typeof a.url !== "string" || a.url.length > 8192)
     return { code: "media_url_missing" };
-  return { url: a.url, type, size: a.size };
+  return {
+    url: a.url,
+    type,
+    size: a.size,
+    kind:
+      type && imageMime(type)
+        ? "image"
+        : type === "video/mp4"
+          ? "video"
+          : "auto",
+  };
 }
 export function mediaNotice(code: string) {
+  if (code.startsWith("wx_media_"))
+    return "这条微信附件未能下载或校验，我没有读取内容。可以重新发送或用文字说明。";
+  if (code === "media_video_unread")
+    return "视频已经收到，我还不能读取里面的画面和声音。可以保存并回传，但不能据此判断内容。";
+  if (code === "media_voice_unread")
+    return "音频已经收到，这次没有做语音识别，可以按原来源回传。";
+  if (code === "media_file_unread")
+    return "文件已经收到，没有读取或执行文件内容，可以按原来源回传。";
   return code === "media_reply_failed"
     ? "这张图的回复没能完成，这次先不下判断。你可以重发一下，或者用文字告诉我。"
     : code === "media_count_unsupported"
