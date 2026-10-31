@@ -102,3 +102,5 @@ node deploy/prometheus/backup-instance.mjs --data-dir D:/DSH/.local/prometheus/i
 提前一分钟选择回归：`node --test apps/server/test/schedule-notices.test.mjs`。HTTP/进程内服务夹具支持固定runtime，选择JSON纯函数、安全辅助、合成SQL及少量内部构造来自本地。真实民用分钟唤醒及真实越过原定时间的第二次延期独立计时，多日与未来成果夹具不算长期运行证明。schema11升级至12保留原wake_at上限，旧制品拒绝打开12；正式升级前备份完整实例并另起目录验证恢复。日程页明确开启选项，不自动启用模型许可，见[提前选择迁移记录](prometheus-schedule-notices-validation.md)。
 
 明确记录入账回归：`node --test apps/server/test/diary-records.test.mjs`，17个HTTP/进程内场景支持固定runtime，安全/ACL和合成SQL构造为本地。schema14冻结SQL保留升级前结构；旧14实际成功模型检查点另用新旧固定制品兼容演练，不以当前结构重建旧库代替。schema15保留原字段上限、旧快照和源数据，详见[明确记录迁移记录](prometheus-record-import-validation.md)。
+
+PNG静态边界回归：`node --test apps/server/test/media-context.test.mjs`，8项HTTP/进程内场景支持固定runtime，校验构造/合成字节为本地。十类非法PNG拒绝、合法透明度及旧制品复核分别测试，保持schema15；正式切换仍完整备份并分别恢复新旧制品。仅结构与现有PNG链通过，其他格式、像素规范化及识图来源/清理边界见[本批记录](prometheus-png-validation.md)。
