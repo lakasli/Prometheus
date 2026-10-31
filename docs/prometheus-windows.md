@@ -69,7 +69,7 @@ node deploy/prometheus/backup-instance.mjs --data-dir D:/DSH/.local/prometheus/i
 
 脚本取得与服务相同的原子数据锁，复制主密钥等全部文件、生成SQLite一致性快照并检查integrity_check，保存私有清单与逐文件哈希。拒绝符号链接及数据目录内的目标；已有锁时失败，不杀进程。备份位于.local/prometheus/backups/instance-*，不输出秘密。
 
-当前实现schema18不能由schema1/2/3/4/5/6/7/8/9/10/11/12/13/14/15/16/17制品打开，实际部署SHA见对应验收记录。升级前自动创建原schema数据库快照，正式升级另备份完整实例；回退先保留新目录，向另一个私有目录恢复匹配旧制品的完整快照（含主密钥），再用上一版固定SHA启动和复验。不能覆盖运行数据或仅切换代码。
+当前实现schema19不能由schema1/2/3/4/5/6/7/8/9/10/11/12/13/14/15/16/17/18制品打开，实际部署SHA见对应验收记录。升级前自动创建原schema数据库快照，正式升级另备份完整实例；回退先保留新目录，向另一个私有目录恢复匹配旧制品的完整快照（含主密钥），再用上一版固定SHA启动和复验。不能覆盖运行数据或仅切换代码。
 
 ## 隔离工作器前置检查
 
@@ -110,3 +110,5 @@ PNG静态边界回归：`node --test apps/server/test/media-context.test.mjs`，
 常用图片回归：`node --test apps/server/test/image-codec.test.mjs`，22项HTTP/实际解码场景支持固定runtime服务，合成编码器/独立PNG读取器、安全和资源采样为本地辅助。schema16冻结SQL与真实旧制品升级分开验证；17标识2MiB规范图范围，旧16拒绝打开。输入解码不赋予通用worker权限，见[常用图片迁移记录](prometheus-common-images-validation.md)。
 
 QQ单聊收图回归：`node --test apps/server/test/qq-incoming-media.test.mjs`，20项实际HTTP/解码/恢复场景支持固定runtime；安全/ACL、签名、合成图片和旧schema SQL为本地夹具。schema17冻结SQL与真实旧17制品升级分别验证，18保留旧附件原文并排除未核实来源及其递归派生记录。正式QQ接收仍需已有渠道配置及明确启用视觉模型，默认状态不改变；来源图片仅为有界规范化副本，不等于原附件或外发broker。固定Windows探针本批仍初始化失败，未启用语音或执行功能，见[QQ收图迁移记录](prometheus-qq-images-validation.md)。
+
+QQ媒体外发回归：`node --test apps/server/test/qq-outgoing-media.test.mjs`，20项场景支持固定runtime服务夹具；安全/签名、直接DNS wire和合成编码/旧MP4样本为本地辅助。schema18冻结SQL保留；正式发布另由真实旧18制品生成来源图，在完整副本升级后验证图片/6.3MB填充MP4/WAV发送、新Native实际目录及旧制品恢复。管理页在“渠道与媒体”中先暂存文件，再核对固定接收方并确认排队；只追加到有效C2C被动回复，最多四项。不会启用语音合成或通用工作器，真实QQ/客户端仍须另验，见[QQ媒体验收](prometheus-qq-media-validation.md)。
