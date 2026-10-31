@@ -31,6 +31,7 @@ export interface RecordItem {
   data: Record<string, unknown>;
   created_at: number;
   updated_at: number;
+  diary_ingestion?: Record<string, unknown>;
 }
 export function kind(value: string): RecordKind {
   if (!recordKinds.includes(value as RecordKind)) throw missing();
@@ -173,6 +174,13 @@ const item = (row: Row): RecordItem => ({
   updated_at: Number(row.updated_at),
 });
 export class Records {
+  contextFilter = "1=1";
+  contextAllowed?: (record: Row) => boolean;
+  diaryStatus?: (record: Row) => Record<string, unknown> | undefined;
+  private dto(row: Row): RecordItem {
+    const status = this.diaryStatus?.(row);
+    return { ...item(row), ...(status ? { diary_ingestion: status } : {}) };
+  }
   protectMutation?: (id: string) => void;
   invalidateDependents(id: string) {
     this.clearDependents(id, false);
@@ -197,7 +205,7 @@ export class Records {
       owner,
     );
     if (!row) throw missing();
-    return item(row);
+    return this.dto(row);
   }
   list(type: RecordKind, owner: string, query: URLSearchParams) {
     const q = string(query.get("q") ?? "", "查询", 200),
@@ -224,7 +232,7 @@ export class Records {
             limit,
             offset,
           )
-          .map(item),
+          .map((row) => this.dto(row)),
         total: Number(
           this.store.get(
             `SELECT count(*) AS n FROM records WHERE ${where}`,
@@ -249,7 +257,7 @@ export class Records {
           .includes(q.toLocaleLowerCase()),
     );
     return {
-      items: matches.slice(offset, offset + limit).map(item),
+      items: matches.slice(offset, offset + limit).map((row) => this.dto(row)),
       total: matches.length,
       limit,
       offset,
@@ -412,7 +420,7 @@ export class Records {
   }
   nativeContext(owner: string, query: string) {
     const rows = this.store.all(
-      "SELECT * FROM records WHERE deleted_at IS NULL AND kind='memory' AND (owner_id=? OR visibility='shared') ORDER BY updated_at DESC LIMIT 20",
+      `SELECT r.* FROM records r WHERE r.deleted_at IS NULL AND r.kind='memory' AND (r.owner_id=? OR r.visibility='shared') AND (${this.contextFilter}) ORDER BY r.updated_at DESC LIMIT 20`,
       owner,
     );
     const selected: string[] = [];
@@ -424,6 +432,7 @@ export class Records {
     }[] = [];
     let bytes = 0;
     for (const row of rows) {
+      if (this.contextAllowed && !this.contextAllowed(row)) continue;
       const line = `[来源 ${String(row.id)}；${String(row.visibility)}] ${String(object(JSON.parse(String(row.payload))).content)}`;
       if (bytes + Buffer.byteLength(line) > 20000) break;
       selected.push(line);
@@ -450,7 +459,7 @@ export class Records {
     let diaries =
       phrase && [...phrase].length >= 3
         ? this.store.all(
-            "SELECT * FROM records WHERE kind='diary' AND deleted_at IS NULL AND (owner_id=? OR visibility='shared') AND rowid IN (SELECT rowid FROM record_fts WHERE record_fts MATCH ?) ORDER BY updated_at DESC,rowid DESC LIMIT 4",
+            `SELECT r.* FROM records r WHERE r.kind='diary' AND r.deleted_at IS NULL AND (r.owner_id=? OR r.visibility='shared') AND (${this.contextFilter}) AND r.rowid IN (SELECT rowid FROM record_fts WHERE record_fts MATCH ?) ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 4`,
             owner,
             token,
           )
@@ -458,11 +467,12 @@ export class Records {
     const reason = diaries.length ? "lexical_match" : "recent_visible_day";
     if (!diaries.length)
       diaries = this.store.all(
-        "SELECT * FROM records WHERE kind='diary' AND deleted_at IS NULL AND (owner_id=? OR visibility='shared') AND json_extract(payload,'$.period')='day' ORDER BY json_extract(payload,'$.date') DESC,updated_at DESC,rowid DESC LIMIT 4",
+        `SELECT r.* FROM records r WHERE r.kind='diary' AND r.deleted_at IS NULL AND (r.owner_id=? OR r.visibility='shared') AND (${this.contextFilter}) AND json_extract(r.payload,'$.period')='day' ORDER BY json_extract(r.payload,'$.date') DESC,r.updated_at DESC,r.rowid DESC LIMIT 4`,
         owner,
       );
     const snapshots: Record<string, unknown>[] = [];
     for (const row of diaries) {
+      if (this.contextAllowed && !this.contextAllowed(row)) continue;
       const data = object(JSON.parse(String(row.payload))),
         facts = String(data.content ?? ""),
         feelings = String(data.feelings ?? ""),

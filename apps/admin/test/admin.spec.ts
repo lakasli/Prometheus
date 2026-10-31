@@ -2466,3 +2466,99 @@ test("leaving sleep batch history discards a delayed real pagination response an
     panel.getByRole("button", { name: "加载更多周期状态", exact: true }),
   ).toBeVisible();
 });
+
+test("a valid long explicit diary shows its ledger state and full source linkage, while a sensitive original stays visibly excluded", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "日记", exact: true })
+    .click();
+  await page.getByRole("button", { name: "＋ 新增日记", exact: true }).click();
+  await page.getByLabel("标题", { exact: true }).fill("长日记入账浏览器验收");
+  await page.getByLabel("日期", { exact: true }).fill("2024-02-16");
+  await page
+    .getByRole("dialog")
+    .getByRole("combobox", { name: /周期/ })
+    .selectOption("week");
+  const body =
+    "L".repeat(13000) +
+    '<script>document.body.dataset.legacyUnsafe="executed"</script>';
+  await page.getByLabel("事实与经历", { exact: true }).fill(body);
+  await page.getByLabel("感受", { exact: true }).fill("明确感受单独保留。");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  const card = page.locator(".record-card").filter({
+    has: page.getByRole("heading", {
+      name: "长日记入账浏览器验收",
+      exact: true,
+    }),
+  });
+  await expect(card.getByTestId("diary-ingestion-state")).toContainText(
+    "已记入来源账本",
+  );
+  await expect(card.locator(".record-body")).toContainText(
+    '<script>document.body.dataset.legacyUnsafe="executed"</script>',
+  );
+  expect(
+    await page.locator("body").getAttribute("data-legacy-unsafe"),
+  ).toBeNull();
+  const listing = await (
+      await page.request.get("/api/admin/v1/records/diary?limit=10")
+    ).json(),
+    record = listing.items.find(
+      (r: any) => r.data.title === "长日记入账浏览器验收",
+    );
+  expect(record.data.content).toBe(body);
+  expect(record.diary_ingestion.state).toBe("imported");
+  const event = await (
+    await page.request.get(
+      "/api/admin/v1/diary/events/" + record.diary_ingestion.event_id,
+    )
+  ).json();
+  expect(event.origin_id).toBe(record.id);
+  expect(event.content).toContain(body);
+  expect(event.content).toContain("历史明确周记导入");
+  expect(event.content).toContain("原参考日期2024-02-16");
+  await page.setViewportSize({ width: 320, height: 844 });
+  await expect
+    .poll(async () => {
+      const b = await page.locator(".sidebar").boundingBox();
+      return b!.x + b!.width;
+    })
+    .toBeLessThanOrEqual(0);
+  expect(
+    await page.locator("body").evaluate((el) => el.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await card.getByTestId("diary-ingestion-state").screenshot({
+    path: resolve(
+      "../../.local/prometheus/screenshots/record-ingestion-mobile.png",
+    ),
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await card.getByTestId("diary-ingestion-state").screenshot({
+    path: resolve(
+      "../../.local/prometheus/screenshots/record-ingestion-desktop.png",
+    ),
+  });
+  await page.getByRole("button", { name: "＋ 新增日记", exact: true }).click();
+  await page.getByLabel("标题", { exact: true }).fill("敏感资料留存边界验收");
+  await page
+    .getByLabel("事实与经历", { exact: true })
+    .fill("password=synthetic-browser-private-only");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  const excluded = page.locator(".record-card").filter({
+    has: page.getByRole("heading", {
+      name: "敏感资料留存边界验收",
+      exact: true,
+    }),
+  });
+  await expect(excluded.getByTestId("diary-ingestion-state")).toContainText(
+    "原记录保留，未导入来源账本",
+  );
+  await expect(excluded.getByTestId("diary-ingestion-state")).toContainText(
+    "疑似包含秘密",
+  );
+  expect(errors).toEqual([]);
+});

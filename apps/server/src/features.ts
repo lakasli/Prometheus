@@ -169,6 +169,11 @@ export class Features {
           "canonical_diary_action_required",
         );
     };
+    runtime.records.diaryStatus = (record) =>
+      this.diary.recordImportStatus(record);
+    runtime.records.contextFilter = this.diary.recordContextFilter();
+    runtime.records.contextAllowed = (record) =>
+      this.diary.recordContextAllowed(record);
     runtime.records.validateSchedule = (owner, data, id) =>
       this.schedule.checkSimple(owner, data, id);
     runtime.onInvalidation = (owner, change) => {

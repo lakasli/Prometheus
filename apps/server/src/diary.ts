@@ -21,8 +21,11 @@ import { zone, localInstant } from "./schedule-time.ts";
 import { strictModelJson } from "./schedule-json.ts";
 import { DiaryRest } from "./diary-rest.ts";
 import type { RestSlice } from "./diary-rest.ts";
+import { DiaryUnitReduction } from "./diary-unit-reduction.ts";
+import type { UnitStep } from "./diary-unit-reduction.ts";
 type Json = Record<string, any>;
 type Step = {
+  nested?: UnitStep;
   level: number;
   ordinal: number;
   start: number;
@@ -42,6 +45,7 @@ const SYSTEM =
 const MAX_INPUT = 48000;
 export class Diary {
   readonly rest: DiaryRest;
+  readonly unitReduction: DiaryUnitReduction;
   onSourceInvalidated?: (kind: string, id: string, revision: number) => void;
   onPolicyInvalidated?: (id: string) => void;
   sourceFor(
@@ -119,11 +123,13 @@ export class Diary {
     private clockTrusted = () => true,
     private canModel = (_task: Row) => true,
   ) {
+    this.unitReduction = new DiaryUnitReduction(store);
     this.rest = new DiaryRest(store, {
       discover: () => this.discoverRestPolicies(),
       effective: (p, model) => this.effective(p, model),
       floor: (p) => this.captureFloor(p),
       capture: (p, m, cycle) => this.captureRestMessage(p, m, cycle),
+      captureRecord: (p, r, cycle) => this.captureRestRecord(p, r, cycle),
       seal: (p, period, date, slice) =>
         this.seal(p, period, date, false, true, slice),
       request: (e, p) => this.requestModel(e, p, true),
@@ -153,6 +159,10 @@ export class Diary {
   private discoverRestPolicies() {
     for (const actor of this.store.all("SELECT id FROM admins"))
       this.ensureSelf(String(actor.id));
+    for (const r of this.store.all(
+      "SELECT DISTINCT owner_id,visibility FROM records r WHERE kind IN ('memory','diary') AND deleted_at IS NULL AND EXISTS(SELECT 1 FROM admins a WHERE a.id=r.owner_id) AND NOT EXISTS(SELECT 1 FROM diary_entries e WHERE e.id=r.id)",
+    ))
+      this.ensureSelf(String(r.owner_id), String(r.visibility));
     const primary = this.store.get(
       "SELECT id FROM admins ORDER BY created_at LIMIT 1",
     )?.id;
@@ -901,6 +911,7 @@ export class Diary {
       id,
     );
     this.store.run("DELETE FROM diary_fragments WHERE entry_id=?", id);
+    this.store.run("DELETE FROM diary_unit_fragments WHERE entry_id=?", id);
     this.store.run(
       "UPDATE diary_tasks SET state='invalidated',error_code=?,updated_at=? WHERE entry_id=?",
       reason,
@@ -1058,94 +1069,237 @@ export class Diary {
         );
       }
     }
-    if (change.action === "created" || change.action === "corrected")
+    if (
+      change.action === "created" ||
+      change.action === "corrected" ||
+      change.action === "forgotten"
+    )
       this.importRecord(record);
   }
-  private importRecord(record: Row) {
-    if (
-      !["memory", "diary"].includes(String(record.kind)) ||
-      record.deleted_at !== null ||
-      !this.store.get(
-        "SELECT id FROM admins WHERE id=?",
-        String(record.owner_id),
+  recordContextFilter() {
+    const effective =
+      "p.enabled=1 AND p.allow_model=1 AND (substr(p.source_key,1,5)='self:' OR EXISTS(SELECT 1 FROM source_grants g WHERE g.source_key=p.source_key AND g.capture=1 AND g.allow_model=1 AND g.revision=p.grant_revision AND (g.expires_at IS NULL OR g.expires_at>CAST(strftime('%s','now') AS INTEGER))))";
+    return `json_valid(r.payload) AND NOT EXISTS(SELECT 1 FROM diary_record_imports i WHERE i.record_id=r.id AND i.record_revision=r.revision AND (i.state='blocked' OR i.reason_code IN ('sensitive_content','invalid_origin','future_origin'))) AND (r.kind='memory' OR json_extract(r.payload,'$.generator')='model_reviewed' OR EXISTS(SELECT 1 FROM diary_entries e JOIN diary_policies p ON p.id=e.policy_id WHERE e.id=r.id AND e.deleted_at IS NULL AND e.state<>'invalidated' AND ${effective}) OR (NOT EXISTS(SELECT 1 FROM diary_entries e WHERE e.id=r.id) AND EXISTS(SELECT 1 FROM diary_policies p WHERE p.source_key='self:'||r.owner_id AND p.visibility=r.visibility AND ${effective})))`;
+  }
+  recordContextAllowed(record: Row) {
+    try {
+      const data = parse(record.payload);
+      this.clean(
+        `${data.content ?? ""}\n${data.feelings ?? ""}`,
+        "资料正文",
+        24000,
+      );
+      return true;
+    } catch (error) {
+      if (
+        error instanceof ApiError ||
+        error instanceof SyntaxError ||
+        error instanceof TypeError
       )
-    )
-      return;
-    const data = parse(record.payload);
-    if (data.generator === "model_reviewed") return;
-    if (record.kind === "diary" && data.generator !== "manual") return;
-    if (
-      record.kind === "diary" &&
-      Array.isArray(data.sources) &&
-      data.sources.length
-    )
-      return;
+        return false;
+      throw error;
+    }
+  }
+  recordImportStatus(record: Row) {
+    if (!["memory", "diary"].includes(String(record.kind))) return undefined;
+    const projection = this.store.get(
+      "SELECT state,revision FROM diary_entries WHERE id=?",
+      String(record.id),
+    );
+    if (projection)
+      return {
+        state:
+          projection.state === "invalidated" ? "invalidated" : "projection",
+        reason_code: null,
+        event_id: null,
+        event_revision: null,
+        record_revision: Number(record.revision),
+      };
+    return (
+      this.store.get(
+        "SELECT state,reason_code,event_id,event_revision,record_revision,updated_at FROM diary_record_imports WHERE record_id=? AND record_revision=?",
+        String(record.id),
+        Number(record.revision),
+      ) ?? {
+        state: "pending",
+        reason_code: null,
+        event_id: null,
+        event_revision: null,
+        record_revision: Number(record.revision),
+      }
+    );
+  }
+  private importStatus(
+    record: Row,
+    state: string,
+    reason: string | null,
+    event?: Row,
+  ) {
+    this.store.run(
+      "INSERT INTO diary_record_imports VALUES(?,?,?,?,?,?,?) ON CONFLICT(record_id) DO UPDATE SET record_revision=excluded.record_revision,state=excluded.state,reason_code=excluded.reason_code,event_id=excluded.event_id,event_revision=excluded.event_revision,updated_at=excluded.updated_at",
+      String(record.id),
+      Number(record.revision),
+      state,
+      reason,
+      event?.id ?? null,
+      event?.revision ?? null,
+      now(),
+    );
+  }
+  private importRecord(record: Row) {
+    if (!["memory", "diary"].includes(String(record.kind))) return;
     if (
       this.store.get(
-        "SELECT record_id FROM derivations WHERE record_id=? LIMIT 1",
+        "SELECT id FROM diary_entries WHERE id=?",
         String(record.id),
       )
     )
       return;
-    const p = this.ensureSelf(
+    if (record.deleted_at !== null) {
+      this.importStatus(record, "forgotten", "origin_forgotten");
+      return;
+    }
+    if (
+      !this.store.get(
+        "SELECT id FROM admins WHERE id=?",
         String(record.owner_id),
-        String(record.visibility),
-      ),
-      id = stableId(`diary-record:${record.id}:${record.revision}`);
-    const prior = this.store.get(
-      "SELECT id FROM diary_events WHERE policy_id=? AND origin_kind='record' AND origin_id=?",
-      String(p.id),
-      String(record.id),
-    );
+      )
+    ) {
+      this.importStatus(record, "excluded", "non_admin_origin");
+      return;
+    }
+    let data: Json, content: string, at: number;
     try {
-      const content = this.clean(
-          record.kind === "memory"
-            ? data.content
-            : `${data.title}\n${data.content}${data.feelings ? `\n明确主观感受：${data.feelings}` : ""}`,
-        ),
-        at =
-          record.kind === "diary"
-            ? diaryBounds("day", data.date, "Asia/Shanghai").start_at
-            : Number(record.created_at);
-      if (at > now()) return;
-      if (prior) {
-        const existing = this.store.get(
-          "SELECT * FROM diary_events WHERE id=?",
-          String(prior.id),
-        )!;
-        if (
-          existing.deleted_at !== null ||
-          existing.origin_revision === record.revision
+      data = parse(record.payload);
+      if (data.generator === "model_reviewed") {
+        this.importStatus(record, "excluded", "reviewed_view");
+        return;
+      }
+      if (record.kind === "diary" && data.generator !== "manual") {
+        this.importStatus(record, "excluded", "non_manual_view");
+        return;
+      }
+      if (
+        (record.kind === "diary" &&
+          Array.isArray(data.sources) &&
+          data.sources.length) ||
+        this.store.get(
+          "SELECT record_id FROM derivations WHERE record_id=? LIMIT 1",
+          String(record.id),
         )
-          return;
-        this.store.run(
-          "UPDATE diary_events SET content=?,origin_revision=?,happened_at=?,observed_at=? WHERE id=?",
-          content,
-          Number(record.revision),
-          at,
-          now(),
-          String(existing.id),
+      ) {
+        this.importStatus(record, "excluded", "derived_view");
+        return;
+      }
+      if (record.kind === "memory") {
+        content = this.clean(data.content, "明确记忆", 24000);
+        at = Number(record.created_at);
+      } else {
+        const bounds = diaryBounds(
+            data.period ?? "day",
+            data.date,
+            "Asia/Shanghai",
+          ),
+          label =
+            data.period === "week"
+              ? "周记"
+              : data.period === "month"
+                ? "月记"
+                : "日记";
+        content = this.clean(
+          `[历史明确${label}导入；原参考日期${data.date}；原周期${bounds.date}至${bounds.end_date}（Asia/Shanghai，不含终点）；原创建时间${new Date(Number(record.created_at) * 1000).toISOString()}。这是原记录的陈述，不表示当时已观测全天或已完成周期整理。]\n${data.title}\n${data.content}${data.feelings ? `\n明确主观感受：${data.feelings}` : ""}`,
+          "明确日记",
+          24000,
         );
-        this.store.run(
-          "INSERT INTO diary_event_versions VALUES(?,?,?,?,?,?)",
-          String(existing.id),
-          Number(existing.revision),
-          content,
-          at,
-          String(record.owner_id),
-          now(),
-        );
-        this.invalidateDates(
-          String(p.id),
-          at,
-          "record_corrected",
-          String(existing.id),
+        at = diaryBounds("day", data.date, "Asia/Shanghai").start_at;
+      }
+      if (at > now()) {
+        this.importStatus(record, "excluded", "future_origin");
+        return;
+      }
+    } catch (error) {
+      if (error instanceof ApiError) {
+        this.importStatus(
+          record,
+          "excluded",
+          error.code === "diary_sensitive_content"
+            ? "sensitive_content"
+            : "invalid_origin",
         );
         return;
       }
+      if (
+        error instanceof SyntaxError ||
+        error instanceof TypeError ||
+        error instanceof RangeError
+      ) {
+        this.importStatus(record, "excluded", "invalid_origin");
+        return;
+      }
+      throw error;
+    }
+    const policy = this.ensureSelf(
+        String(record.owner_id),
+        String(record.visibility),
+      ),
+      prior = this.store.get(
+        "SELECT * FROM diary_events WHERE policy_id=? AND origin_kind='record' AND origin_id=?",
+        String(policy.id),
+        String(record.id),
+      );
+    if (prior?.deleted_at !== undefined && prior.deleted_at !== null) {
+      this.importStatus(record, "blocked", "event_forgotten", prior);
+      return;
+    }
+    if (
+      prior &&
+      prior.origin_revision === record.revision &&
+      prior.content !== null
+    ) {
+      this.importStatus(record, "imported", null, prior);
+      return;
+    }
+    if (prior) {
+      this.invalidateEvents([String(prior.id)], "record_reimported");
+      this.store.run(
+        "UPDATE diary_event_versions SET content=NULL WHERE event_id=?",
+        String(prior.id),
+      );
+      const revision =
+        Number(prior.revision) +
+        +!!this.store.get(
+          "SELECT revision FROM diary_event_versions WHERE event_id=? AND revision=?",
+          String(prior.id),
+          Number(prior.revision),
+        );
+      this.store.run(
+        "UPDATE diary_events SET revision=?,content=?,origin_revision=?,happened_at=?,observed_at=? WHERE id=?",
+        revision,
+        content,
+        Number(record.revision),
+        at,
+        now(),
+        String(prior.id),
+      );
+      this.store.run(
+        "INSERT INTO diary_event_versions VALUES(?,?,?,?,?,?)",
+        String(prior.id),
+        revision,
+        content,
+        at,
+        String(record.owner_id),
+        now(),
+      );
+      this.invalidateDates(
+        String(policy.id),
+        at,
+        "record_corrected",
+        String(prior.id),
+      );
+    } else
       this.insertEvent(
-        p,
-        id,
+        policy,
+        stableId(`diary-record:${record.id}:${record.revision}`),
         "record",
         String(record.id),
         Number(record.revision),
@@ -1155,9 +1309,76 @@ export class Diary {
         at,
         String(record.owner_id),
       );
-    } catch {
-      /* Original explicit record remains available; invalid or sensitive text is not duplicated. */
-    }
+    this.importStatus(
+      record,
+      "imported",
+      null,
+      this.store.get(
+        "SELECT * FROM diary_events WHERE policy_id=? AND origin_kind='record' AND origin_id=?",
+        String(policy.id),
+        String(record.id),
+      )!,
+    );
+  }
+  private repairRecords() {
+    const marker = Number(
+      this.store.get(
+        "SELECT value FROM metadata WHERE key='diary.record_cursor'",
+      )?.value ?? 0,
+    );
+    for (const record of this.store.all(
+      "SELECT *,rowid AS sequence FROM records WHERE rowid>? ORDER BY rowid LIMIT 64",
+      marker,
+    ))
+      this.store.transaction(() => {
+        this.importRecord(record);
+        this.store.run(
+          "INSERT INTO metadata VALUES('diary.record_cursor',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+          String(record.sequence),
+        );
+      });
+  }
+  private captureRestRecord(policy: Row, ref: Row, cycle: string) {
+    const record = this.store.get(
+      "SELECT * FROM records WHERE id=?",
+      String(ref.record_id),
+    );
+    if (
+      !record ||
+      record.revision !== ref.record_revision ||
+      record.deleted_at !== null ||
+      record.owner_id !== policy.owner_id ||
+      record.visibility !== policy.visibility ||
+      policy.source_key !== `self:${record.owner_id}`
+    )
+      throw bad("冻结的明确记录版本已变化", "rest_diary_reference_changed");
+    this.importRecord(record);
+    const state = this.store.get(
+      "SELECT * FROM diary_record_imports WHERE record_id=? AND record_revision=?",
+      String(record.id),
+      Number(record.revision),
+    );
+    if (state?.state !== "imported") return false;
+    const event = this.store.get(
+      "SELECT * FROM diary_events WHERE id=?",
+      String(state.event_id),
+    )!;
+    if (
+      event.policy_id !== policy.id ||
+      event.origin_revision !== record.revision ||
+      event.deleted_at !== null ||
+      event.content === null
+    )
+      throw bad("明确记录的账本来源已失效", "rest_diary_reference_changed");
+    this.store.run(
+      "INSERT OR IGNORE INTO rest_diary_refs VALUES(?,?,?,?,?)",
+      cycle,
+      String(policy.id),
+      String(event.id),
+      Number(event.revision),
+      Number(event.happened_at),
+    );
+    return true;
   }
   private abortInvalid() {
     if (this.active && !this.active.valid()) this.active.controller.abort();
@@ -1320,6 +1541,12 @@ export class Diary {
           String(e.id),
         ),
       },
+      unit_fragments_count: Number(
+        this.store.get(
+          "SELECT count(*) AS n FROM diary_unit_fragments WHERE entry_id=?",
+          String(e.id),
+        )!.n,
+      ),
       task:
         this.store.get(
           "SELECT * FROM diary_tasks WHERE entry_id=?",
@@ -1784,7 +2011,7 @@ export class Diary {
     )
       return;
     this.store.run(
-      "UPDATE diary_tasks SET state=CASE WHEN state='waiting_parents' THEN state ELSE 'queued' END,requested=max(requested,?),cycle_id=NULL,updated_at=? WHERE entry_id=?",
+      "UPDATE diary_tasks SET next_at=CASE WHEN state='interrupted' THEN 0 ELSE next_at END,error_code=CASE WHEN state='interrupted' THEN NULL ELSE error_code END,state=CASE WHEN state='waiting_parents' THEN state ELSE 'queued' END,requested=max(requested,?),cycle_id=NULL,updated_at=? WHERE entry_id=?",
       +explicit,
       now(),
       String(entry.id),
@@ -1833,7 +2060,7 @@ export class Diary {
       if (b.retry_failed === true) {
         if (!this.effective(p, true)) throw bad("未获模型许可");
         this.store.run(
-          "UPDATE diary_tasks SET state='queued',failures=0,next_at=0,error_code=NULL,requested=1,updated_at=? WHERE entry_id=? AND state='failed'",
+          "UPDATE diary_tasks SET state='queued',failures=0,next_at=0,error_code=NULL,requested=1,cycle_id=NULL,updated_at=? WHERE entry_id=? AND (state='failed' OR state='blocked' AND error_code IN ('diary_input_limit','diary_unit_reduction_stalled'))",
           now(),
           String(entry.id),
         );
@@ -2025,6 +2252,7 @@ export class Diary {
     end: number,
     total: number,
     level: number,
+    sourceUnit?: Json,
   ): ModelMessage[] {
     const cutoff = this.store.get(
       "SELECT as_of FROM diary_version_cutoffs WHERE entry_id=? AND revision=?",
@@ -2032,12 +2260,36 @@ export class Diary {
       Number(entry.revision),
     );
     const through = Math.min(now(), Number(cutoff?.as_of ?? now()));
+    const sourceRecords: Json[] = [],
+      seen = new Set<string>();
+    for (const unit of [...units, ...(sourceUnit ? [sourceUnit] : [])]) {
+      const id = unit.source_id ?? unit.id;
+      if (typeof id !== "string" || seen.has(id)) continue;
+      seen.add(id);
+      const row = this.store.get(
+        "SELECT e.id,e.origin_revision,e.observed_at,r.kind,r.payload,r.created_at FROM diary_events e JOIN records r ON r.id=e.origin_id WHERE e.id=? AND e.origin_kind='record' AND e.origin_revision=r.revision AND e.deleted_at IS NULL AND r.deleted_at IS NULL",
+        id,
+      );
+      if (!row) continue;
+      const data = parse(row.payload);
+      sourceRecords.push({
+        source_event_id: row.id,
+        kind: "legacy_explicit_record",
+        original_kind: row.kind,
+        record_revision: row.origin_revision,
+        reference_date: data.date ?? null,
+        reference_period: data.period ?? null,
+        reference_time_zone: row.kind === "diary" ? "Asia/Shanghai" : null,
+        created_at: row.created_at,
+        imported_at: row.observed_at,
+      });
+    }
     return [
       {
         role: "system",
         content:
           SYSTEM +
-          " period_closed=false时只记录截至observed_through的资料，不得声称全天或整个周期已经结束。",
+          " period_closed=false时只记录截至observed_through的资料，不得声称全天或整个周期已经结束。source_records保留原记录的日期/周期与创建、导入时间，不可据此推断当时已经写过日记或已完整观测。",
       },
       {
         role: "user",
@@ -2062,6 +2314,7 @@ export class Diary {
             final_batch: start === 0 && end === total,
           },
           units,
+          source_records: sourceRecords,
         }),
       },
     ];
@@ -2075,6 +2328,27 @@ export class Diary {
         stream: false,
       }),
     );
+  }
+  private inputLimit(config: Config) {
+    const context = this.knowledge.policy("context", {}).value;
+    let limit = Math.min(
+      MAX_INPUT,
+      Number(context.max_input_bytes ?? 96000),
+      Number(context.estimated_input_limit ?? 96000),
+    );
+    if (context.provider_context_window != null) {
+      if (context.provider_fingerprint !== hash(JSON.stringify(config.model)))
+        throw bad("模型窗口绑定已改变", "context_provider_mismatch");
+      limit = Math.min(
+        limit,
+        Number(context.provider_context_window) -
+          2400 -
+          Number(context.protocol_reserve_tokens ?? 1024) -
+          Number(context.safety_reserve_tokens ?? 4096),
+      );
+    }
+    if (limit <= 0) throw bad("当前日记输入预算不足", "diary_input_limit");
+    return limit;
   }
   private planStep(entry: Row, config: Config): Step | null {
     const task = this.store.get(
@@ -2113,27 +2387,72 @@ export class Diary {
       );
       return this.planStep(entry, config);
     }
+    const limit = this.inputLimit(config),
+      presented: Json[] = [];
     let end = start;
-    while (
-      end < units.length &&
-      this.inputBytes(
-        config,
-        this.envelope(
+    while (end < units.length) {
+      let unit = units[end]!;
+      if (
+        this.inputBytes(
+          config,
+          this.envelope(entry, [unit], end, end + 1, units.length, level),
+        ) > limit
+      ) {
+        const reduced = this.unitReduction.plan(
           entry,
-          units.slice(start, end + 1),
-          start,
-          end + 1,
-          units.length,
           level,
-        ),
-      ) <= MAX_INPUT
-    )
+          end,
+          unit,
+          limit,
+          (chunks) =>
+            this.envelope(
+              entry,
+              chunks,
+              end,
+              end + 1,
+              units.length,
+              level,
+              unit,
+            ),
+          (messages) => this.inputBytes(config, messages),
+        );
+        if ("request" in reduced) {
+          if (end > start) break;
+          return {
+            level,
+            ordinal,
+            start,
+            end: start + 1,
+            total: units.length,
+            messages: reduced.request.messages,
+            input_digest: reduced.request.digest,
+            final: false,
+            nested: reduced.request.nested,
+          };
+        }
+        unit = reduced.summary;
+      }
+      if (
+        this.inputBytes(
+          config,
+          this.envelope(
+            entry,
+            [...presented, unit],
+            start,
+            end + 1,
+            units.length,
+            level,
+          ),
+        ) > limit
+      )
+        break;
+      presented.push(unit);
       end++;
-    if (end === start)
-      throw bad("单个日记输入超过48KB限制", "diary_input_limit");
+    }
+    if (end === start) throw bad("当前日记输入预算不足", "diary_input_limit");
     const messages = this.envelope(
       entry,
-      units.slice(start, end),
+      presented,
       start,
       end,
       units.length,
@@ -2177,10 +2496,24 @@ export class Diary {
       !this.rest.admitTask(task)
     )
       return false;
-    return !this.store.get(
-      "SELECT s.event_id FROM diary_entry_sources s JOIN diary_events e ON e.id=s.event_id WHERE s.entry_id=? AND (e.revision<>s.event_revision OR e.deleted_at IS NOT NULL OR e.content IS NULL) LIMIT 1",
-      String(entry.id),
-    );
+    if (
+      this.store.get(
+        "SELECT s.event_id FROM diary_entry_sources s JOIN diary_events e ON e.id=s.event_id WHERE s.entry_id=? AND (e.revision<>s.event_revision OR e.deleted_at IS NOT NULL OR e.content IS NULL) LIMIT 1",
+        String(entry.id),
+      )
+    )
+      return false;
+    try {
+      for (const source of this.store.all(
+        "SELECT e.content FROM diary_entry_sources s JOIN diary_events e ON e.id=s.event_id WHERE s.entry_id=?",
+        String(entry.id),
+      ))
+        this.clean(source.content, "来源正文", 24000);
+    } catch (error) {
+      if (error instanceof ApiError) return false;
+      throw error;
+    }
+    return true;
   }
   private output(text: string, finish: ModelFinishReason) {
     if (finish === "length")
@@ -2397,6 +2730,7 @@ export class Diary {
               fenced: text.trim().startsWith("```"),
               complete_json: false,
               parse_category: "pending",
+              source_unit: step!.nested ?? null,
             };
             try {
               strictModelJson(text);
@@ -2427,6 +2761,28 @@ export class Diary {
             this.store.transaction(() => {
               if (!valid())
                 throw bad("日记来源已变化", "diary_request_invalidated");
+              if (step!.nested) {
+                this.unitReduction.save(
+                  entry,
+                  step!.nested,
+                  step!.input_digest,
+                  output,
+                  config.model.model,
+                );
+                this.store.run(
+                  "UPDATE diary_tasks SET state='queued',failures=0,next_at=0,error_code=NULL,updated_at=? WHERE entry_id=?",
+                  now(),
+                  String(entry.id),
+                );
+                this.store.audit(
+                  String(p.manager_id),
+                  "diary",
+                  "partial",
+                  "单来源片段成功，完整来源尚待归并",
+                  String(entry.id),
+                );
+                return;
+              }
               this.store.run(
                 "INSERT INTO diary_fragments VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 String(entry.id),
@@ -2609,28 +2965,6 @@ export class Diary {
       "SELECT id FROM admins ORDER BY created_at LIMIT 1000",
     ))
       this.ensureSelf(String(a.id));
-    const marker = Number(
-        this.store.get(
-          "SELECT value FROM metadata WHERE key='diary.record_cursor'",
-        )?.value ?? 0,
-      ),
-      records = this.store.all(
-        "SELECT *,rowid AS sequence FROM records WHERE rowid>? ORDER BY rowid LIMIT 64",
-        marker,
-      );
-    for (const record of records) {
-      if (
-        !this.store.get(
-          "SELECT id FROM diary_entries WHERE id=?",
-          String(record.id),
-        )
-      )
-        this.importRecord(record);
-      this.store.run(
-        "INSERT INTO metadata VALUES('diary.record_cursor',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        String(record.sequence),
-      );
-    }
     let policies = this.store.all(
       "SELECT * FROM diary_policies ORDER BY created_at,id LIMIT 16 OFFSET ?",
       this.policyOffset,
@@ -2765,6 +3099,12 @@ export class Diary {
       }
       this.lastTick = at;
     }
+    if (
+      !this.store.get(
+        "SELECT id FROM rest_cycles WHERE completed_at IS NULL LIMIT 1",
+      )
+    )
+      this.repairRecords();
     this.rest.tick();
     if (
       at - this.lastSweep >= 30 &&

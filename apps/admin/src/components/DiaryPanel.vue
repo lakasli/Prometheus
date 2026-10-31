@@ -657,6 +657,11 @@ onMounted(() => act(load));
         </button></template
       >
       <p v-if="selected.task">
+        <span v-if="selected.unit_fragments_count"
+          >单来源分片请求已完成{{
+            selected.unit_fragments_count
+          }}次，完整覆盖以本周期状态为准。
+        </span>
         {{ description(selected.task.state) }} ·
         {{
           reasons[selected.task.error_code] ||

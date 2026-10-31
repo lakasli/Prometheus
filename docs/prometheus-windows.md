@@ -69,7 +69,7 @@ node deploy/prometheus/backup-instance.mjs --data-dir D:/DSH/.local/prometheus/i
 
 脚本取得与服务相同的原子数据锁，复制主密钥等全部文件、生成SQLite一致性快照并检查integrity_check，保存私有清单与逐文件哈希。拒绝符号链接及数据目录内的目标；已有锁时失败，不杀进程。备份位于.local/prometheus/backups/instance-*，不输出秘密。
 
-当前实现schema14不能由schema1/2/3/4/5/6/7/8/9/10/11/12/13制品打开，实际部署SHA见对应验收记录。升级前自动创建原schema数据库快照，正式升级另备份完整实例；回退先保留新目录，向另一个私有目录恢复匹配旧制品的完整快照（含主密钥），再用上一版固定SHA启动和复验。不能覆盖运行数据或仅切换代码。
+当前实现schema15不能由schema1/2/3/4/5/6/7/8/9/10/11/12/13/14制品打开，实际部署SHA见对应验收记录。升级前自动创建原schema数据库快照，正式升级另备份完整实例；回退先保留新目录，向另一个私有目录恢复匹配旧制品的完整快照（含主密钥），再用上一版固定SHA启动和复验。不能覆盖运行数据或仅切换代码。
 
 ## 隔离工作器前置检查
 
@@ -100,3 +100,5 @@ node deploy/prometheus/backup-instance.mjs --data-dir D:/DSH/.local/prometheus/i
 原生文字安排回归：`node --test apps/server/test/daily-life.test.mjs apps/server/test/channels.test.mjs`。HTTP及进程内服务夹具支持固定runtime；严格JSON纯函数、安全/ACL和合成场景构造来自本地dist。未来执行使用明确的夹具时钟，实际短窗口等待与生产至少7分钟缓冲分开验证，不提供HTTP时钟入口。schema10升级至11前完整备份，旧10制品拒绝打开11；完整实例恢复须另起私有目录。来源授权、已准备、实际保存和渠道投递分别记账，见[文字安排迁移记录](prometheus-daily-text-validation.md)。
 
 提前一分钟选择回归：`node --test apps/server/test/schedule-notices.test.mjs`。HTTP/进程内服务夹具支持固定runtime，选择JSON纯函数、安全辅助、合成SQL及少量内部构造来自本地。真实民用分钟唤醒及真实越过原定时间的第二次延期独立计时，多日与未来成果夹具不算长期运行证明。schema11升级至12保留原wake_at上限，旧制品拒绝打开12；正式升级前备份完整实例并另起目录验证恢复。日程页明确开启选项，不自动启用模型许可，见[提前选择迁移记录](prometheus-schedule-notices-validation.md)。
+
+明确记录入账回归：`node --test apps/server/test/diary-records.test.mjs`，16个HTTP/进程内场景支持固定runtime，安全/ACL和合成SQL构造为本地。schema14冻结SQL保留升级前结构；旧14实际成功模型检查点另用新旧固定制品兼容演练，不以当前结构重建旧库代替。schema15保留原字段上限、旧快照和源数据，详见[明确记录迁移记录](prometheus-record-import-validation.md)。

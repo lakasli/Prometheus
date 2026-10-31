@@ -814,7 +814,7 @@ test("a schema12 active rest cycle is preserved on upgrade without inventing a s
   assert.equal(
     app.store.get("SELECT value FROM metadata WHERE key='prometheus.schema'")
       .value,
-    "14",
+    "15",
   );
   await until(
     () => app.features.automation.restStatus().state.phase,
@@ -1480,7 +1480,7 @@ test("schema13 window snapshots resume within their original dates without backf
   assert.equal(
     app.store.get("SELECT value FROM metadata WHERE key='prometheus.schema'")
       .value,
-    "14",
+    "15",
   );
   assert.deepEqual(
     { ...app.store.get("SELECT * FROM diary_entries WHERE id=?", entry) },

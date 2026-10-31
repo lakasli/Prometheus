@@ -9,6 +9,7 @@ type Hooks = {
   effective: (p: Row, model?: boolean) => boolean;
   floor: (p: Row) => number;
   capture: (p: Row, m: Row, cycle: string) => boolean;
+  captureRecord: (p: Row, r: Row, cycle: string) => boolean;
   seal: (p: Row, period: string, date: string, slice: RestSlice) => Row;
   request: (e: Row, p: Row) => void;
 };
@@ -78,6 +79,14 @@ export class DiaryRest {
           cycle,
           String(p.id),
         );
+        if (String(p.source_key).startsWith("self:"))
+          this.store.run(
+            "INSERT INTO rest_diary_records(cycle_id,policy_id,record_id,record_revision,sequence,happened_at) SELECT ?,?,r.id,r.revision,r.rowid,CASE WHEN r.kind='diary' AND json_valid(r.payload) THEN coalesce(unixepoch(json_extract(r.payload,'$.date')||'T00:00:00+08:00'),r.created_at) ELSE r.created_at END FROM records r WHERE r.kind IN ('memory','diary') AND r.owner_id=? AND r.visibility=? AND r.deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM diary_entries e WHERE e.id=r.id)",
+            cycle,
+            String(p.id),
+            String(p.owner_id),
+            String(p.visibility),
+          );
         if (!String(p.source_key).startsWith("self:")) {
           this.store.run(
             "INSERT INTO rest_diary_messages(cycle_id,policy_id,message_id,sequence,happened_at) SELECT ?,?,m.id,m.rowid,m.created_at FROM messages m JOIN runs r ON r.id=m.run_id JOIN conversations c ON c.id=m.conversation_id WHERE coalesce(c.source_key,c.id)=? AND c.owner_id=? AND r.status='completed' AND m.rowid>? AND m.created_at<=? AND NOT EXISTS(SELECT 1 FROM local_runs l WHERE l.run_id=r.id) AND NOT EXISTS(SELECT 1 FROM automatic_runs a WHERE a.run_id=r.id) AND NOT EXISTS(SELECT 1 FROM diary_events e WHERE e.policy_id=? AND e.origin_kind='message' AND e.origin_id=m.id AND (e.revision>1 OR e.deleted_at IS NOT NULL)) AND (m.role='user' OR m.role='assistant' AND NOT EXISTS(SELECT 1 FROM run_publications v WHERE v.run_id=r.id AND v.state='suppressed') AND (NOT EXISTS(SELECT 1 FROM run_targets t WHERE t.run_id=r.id) OR NOT EXISTS(SELECT 1 FROM delivery_parts d WHERE d.run_id=r.id AND d.status IN ('queued','sending')) AND EXISTS(SELECT 1 FROM delivery_parts d WHERE d.run_id=r.id AND d.status='sent')))",
@@ -393,6 +402,41 @@ export class DiaryRest {
       try {
         const p = this.policy(s);
         if (["pending", "capturing"].includes(String(s.status))) {
+          for (const record of this.store.all(
+            "SELECT * FROM rest_diary_records WHERE cycle_id=? AND policy_id=? AND status='pending' ORDER BY sequence LIMIT ?",
+            String(c.cycle_id),
+            String(s.policy_id),
+            budget.messages,
+          )) {
+            this.store.transaction(() => {
+              let state = "captured",
+                error: string | null = null;
+              try {
+                if (!this.hooks.captureRecord(p, record, String(c.cycle_id)))
+                  state = "excluded";
+              } catch (e) {
+                state = "invalidated";
+                error = code(e);
+              }
+              this.store.run(
+                "UPDATE rest_diary_records SET status=?,error_code=? WHERE cycle_id=? AND policy_id=? AND record_id=?",
+                state,
+                error,
+                String(c.cycle_id),
+                String(p.id),
+                String(record.record_id),
+              );
+              this.store.run(
+                "UPDATE rest_diary_sources SET status='capturing',processed=processed+1,excluded=excluded+?,error_code=coalesce(error_code,?),updated_at=? WHERE cycle_id=? AND policy_id=?",
+                +(state === "excluded"),
+                error,
+                now(),
+                String(c.cycle_id),
+                String(p.id),
+              );
+            });
+            budget.messages--;
+          }
           for (const m of this.store.all(
             "SELECT * FROM rest_diary_messages WHERE cycle_id=? AND policy_id=? AND sequence>? ORDER BY sequence LIMIT ?",
             String(c.cycle_id),
@@ -431,6 +475,11 @@ export class DiaryRest {
             budget.messages--;
           }
           if (
+            this.store.get(
+              "SELECT record_id FROM rest_diary_records WHERE cycle_id=? AND policy_id=? AND status='pending' LIMIT 1",
+              String(c.cycle_id),
+              String(p.id),
+            ) ||
             this.store.get(
               "SELECT message_id FROM rest_diary_messages WHERE cycle_id=? AND policy_id=? AND sequence>? LIMIT 1",
               String(c.cycle_id),
@@ -536,7 +585,7 @@ export class DiaryRest {
       );
     if (!prep && !pending) {
       const problem = this.store.get(
-        "SELECT policy_id FROM rest_diary_sources WHERE cycle_id=? AND status<>'prepared' UNION ALL SELECT policy_id FROM rest_diary_targets WHERE cycle_id=? AND state NOT IN ('local','completed') LIMIT 1",
+        "SELECT policy_id FROM rest_diary_sources WHERE cycle_id=? AND (status<>'prepared' OR error_code IS NOT NULL) UNION ALL SELECT policy_id FROM rest_diary_targets WHERE cycle_id=? AND state NOT IN ('local','completed') LIMIT 1",
         cycle,
         cycle,
       );
@@ -575,6 +624,10 @@ export class DiaryRest {
   }
   end(cycle: string) {
     this.refresh(cycle);
+    this.store.run(
+      "UPDATE rest_diary_records SET status='interrupted',error_code='rest_cycle_ended' WHERE cycle_id=? AND status='pending'",
+      cycle,
+    );
     this.store.run(
       "UPDATE rest_diary_requests SET status='interrupted' WHERE cycle_id=? AND status='pending'",
       cycle,

@@ -65,13 +65,14 @@ export class Store {
           "12",
           "13",
           "14",
+          "15",
         ].includes(String(previousSchema))
       ) {
         this.database.close();
         throw new Error("Unsupported Prometheus schema; do not downgrade");
       }
     }
-    if (tables.length && previousSchema !== "14") {
+    if (tables.length && previousSchema !== "15") {
       const backupDir = privateDirectory(join(path, "backups"));
       const target = join(
         backupDir,
@@ -130,8 +131,12 @@ export class Store {
         now(),
       );
       this.run(
-        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','14') ON CONFLICT(key) DO UPDATE SET value='14'",
+        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','15') ON CONFLICT(key) DO UPDATE SET value='15'",
       );
+      if (previousSchema && previousSchema !== "15")
+        this.run(
+          "INSERT INTO metadata VALUES('diary.record_cursor','0') ON CONFLICT(key) DO UPDATE SET value='0'",
+        );
       if (
         previousSchema &&
         ["1", "2", "3", "4"].includes(String(previousSchema))

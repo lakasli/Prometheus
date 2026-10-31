@@ -45,6 +45,13 @@ export interface RecordItem {
   data: Record<string, any>;
   created_at: number;
   updated_at: number;
+  diary_ingestion?: {
+    state: string;
+    reason_code: string | null;
+    event_id: string | null;
+    event_revision: number | null;
+    record_revision: number;
+  };
 }
 export interface Log {
   id: number;

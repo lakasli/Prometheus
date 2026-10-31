@@ -278,6 +278,25 @@ const labels: Record<string, string> = {
   unknown: "结果未知",
   received: "已接收",
 };
+const ingestionStates: Record<string, string> = {
+  imported: "已记入来源账本",
+  pending: "等待本地补齐",
+  excluded: "原记录保留，未导入来源账本",
+  blocked: "来源账本导入受阻",
+  projection: "来自日记周期账本",
+  invalidated: "原来源已失效",
+  forgotten: "原记录已遗忘",
+};
+const ingestionReasons: Record<string, string> = {
+  sensitive_content: "疑似包含秘密，未复制到日记来源",
+  derived_view: "已有依赖来源的派生视图不重复作为事实",
+  reviewed_view: "已审核模型视图保留原来源关系",
+  non_manual_view: "非人工原始记录不重复导入",
+  invalid_origin: "原日期或正文需核对",
+  future_origin: "原参考日期尚未到达",
+  event_forgotten: "已遗忘的来源不重新生成",
+  non_admin_origin: "此来源由独立许可管理",
+};
 const date = (value: number) =>
   new Date(value * 1000).toLocaleString("zh-CN", {
     timeZone: "Asia/Shanghai",
@@ -1137,6 +1156,22 @@ onUnmounted(() => {
               </p>
               <p v-if="item.kind === 'schedule'" class="muted">
                 {{ date(item.data.start_at) }} — {{ date(item.data.end_at) }}
+              </p>
+              <p
+                v-if="item.diary_ingestion"
+                class="muted"
+                data-testid="diary-ingestion-state"
+              >
+                {{
+                  ingestionStates[item.diary_ingestion.state] ??
+                  "来源状态待核对"
+                }}<span v-if="item.diary_ingestion.reason_code">
+                  ·
+                  {{
+                    ingestionReasons[item.diary_ingestion.reason_code] ??
+                    "请核对来源条件"
+                  }}</span
+                >
               </p>
               <p class="record-body">
                 {{

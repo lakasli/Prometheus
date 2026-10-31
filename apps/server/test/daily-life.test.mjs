@@ -1371,7 +1371,7 @@ test("schema10 upgrade preserves old writing grants, notes and affinity without 
   assert.equal(
     app.store.get("SELECT value FROM metadata WHERE key='prometheus.schema'")
       .value,
-    "14",
+    "15",
   );
   assert.equal(
     app.store.get("SELECT policy_json FROM schedule_grants WHERE id=?", gid)
