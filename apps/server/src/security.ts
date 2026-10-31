@@ -22,7 +22,7 @@ import { ApiError, bad } from "./errors.ts";
 
 export const now = () => Math.floor(Date.now() / 1000);
 export const token = () => randomBytes(32).toString("hex");
-export const hash = (value: string) =>
+export const hash = (value: string | Uint8Array) =>
   createHash("sha256").update(value).digest("hex");
 export function secureEqual(left: string, right: string): boolean {
   const a = Buffer.from(left),

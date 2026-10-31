@@ -389,7 +389,7 @@ export class Features {
     await this.knowledge.stop();
   }
   matches(path: string) {
-    return /^\/(diary|schedule|channels|knowledge|automation|context|rest|media|plugins|relationships|qq\/api)(?:\/|$)/.test(
+    return /^\/(diary|schedule|channels|knowledge|automation|context|rest|media|plugins|relationships|qq\/(?:api|media))(?:\/|$)/.test(
       path,
     );
   }
@@ -1237,6 +1237,24 @@ export class Features {
       return { data: { items: this.channels.deliveries(admin.id) } };
     if (path === "/channels/inbox" && method === "GET")
       return { data: { items: this.channels.inbox() } };
+    if (path === "/qq/media/assets" && method === "POST")
+      return {
+        status: 201,
+        data: await this.channels.outgoing!.acceptUpload(
+          admin.id,
+          readBody,
+          () => !request.socket.destroyed,
+        ),
+      };
+    if (path === "/qq/media/deliveries" && method === "POST")
+      return {
+        status: 202,
+        data: this.channels.outgoing!.queue(admin.id, await readBody()),
+      };
+    if (path === "/qq/media/deliveries" && method === "GET")
+      return { data: { items: this.channels.outgoing!.list() } };
+    if (path === "/qq/media/contexts" && method === "GET")
+      return { data: { items: this.channels.outgoing!.contexts() } };
     if (path === "/channels/weixin/login" && method === "POST") {
       const body = fields(await readBody(), ["expected_revision"]);
       return {

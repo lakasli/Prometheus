@@ -793,7 +793,7 @@ test("schema8 upgrade retains profile bodies and version history without fabrica
   assert.equal(
     app.store.get("SELECT value FROM metadata WHERE key='prometheus.schema'")
       .value,
-    "18",
+    "19",
   );
   assert.equal(app.store.assistantId, "stable-before-profile-jobs");
   const p = app.features.profiles.detail(owner, personId);

@@ -1091,7 +1091,7 @@ test("schema16 source data and its diary repair checkpoint survive the format-ve
   assert.equal(
     app.store.get("SELECT value FROM metadata WHERE key='prometheus.schema'")
       .value,
-    "18",
+    "19",
   );
   assert.equal(app.store.assistantId, "image-format-upgrade-stable");
   assert.equal(

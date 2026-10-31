@@ -53,6 +53,15 @@ export class Runtime {
   ) => void;
   refreshSourceGrants?: () => void;
   getDailyLifeContext?: (run: string) => string;
+  getChannelMediaContext?: (run: string) => string;
+  resolveChannelReply?: (
+    run: string,
+    raw: string,
+  ) => { reply: string; parts: import("./qq-outgoing.ts").Part[] } | null;
+  commitChannelReply?: (
+    run: string,
+    parts: import("./qq-outgoing.ts").Part[],
+  ) => void;
   resolveDailyLifeReply?: (
     run: string,
     raw: string,
@@ -621,7 +630,8 @@ export class Runtime {
             (!isolated
               ? `\n${this.getAnnotations?.(conversation) ?? ""}`
               : "") +
-            dailyContext,
+            dailyContext +
+            (this.getChannelMediaContext?.(id) ?? ""),
         },
       ];
       // Discard complete old turns until the request fits, preserving system and current input.
@@ -794,8 +804,13 @@ export class Runtime {
           "model_output_incomplete",
           "模型回复未完整结束，未发布或推进任务",
         );
-      const planned =
-        dailyEligible && this.resolveDailyLifeReply
+      const channelPlan = this.resolveChannelReply?.(
+        id,
+        this.store.redact(response.content),
+      );
+      const planned = channelPlan
+        ? { reply: channelPlan.reply, parts: null, selection: null }
+        : dailyEligible && this.resolveDailyLifeReply
           ? await this.resolveDailyLifeReply(
               id,
               this.store.redact(response.content),
@@ -824,7 +839,8 @@ export class Runtime {
         )
           return;
         const safeResponse = this.store.redact(planned.reply);
-        if (dailyEligible)
+        if (channelPlan) this.commitChannelReply?.(id, channelPlan.parts);
+        else if (dailyEligible)
           this.commitDailyLifeReply?.(id, planned.selection, planned.parts);
         this.store.run(
           "UPDATE runs SET status='completed',response=?,updated_at=? WHERE id=?",

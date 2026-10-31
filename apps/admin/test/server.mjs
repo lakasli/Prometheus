@@ -6,7 +6,34 @@ import { createServer } from "node:http";
 const provider = createServer(async (request, response) => {
   let raw = "";
   for await (const chunk of request) raw += chunk;
+  if (request.method === "PUT") {
+    response.writeHead(200);
+    response.end();
+    return;
+  }
   const input = JSON.parse(raw);
+  const path = request.url;
+  if (path === "/app/getAppAccessToken" || path.startsWith("/v2/")) {
+    let result = {};
+    if (path === "/app/getAppAccessToken")
+      result = { access_token: "synthetic-browser-qq-token", expires_in: 3600 };
+    else if (path.endsWith("/upload_prepare"))
+      result = {
+        upload_id: "synthetic-browser-upload",
+        block_size: "2097152",
+        parts: Array.from(
+          { length: Math.ceil(Number(input.file_size) / 2097152) },
+          (_, i) => ({ index: i + 1, presigned_url: modelUrl + "/put/" + i }),
+        ),
+      };
+    else if (path.endsWith("/files"))
+      result = { file_info: "synthetic-browser-file-info" };
+    else if (path.endsWith("/messages"))
+      result = { id: "synthetic-browser-sent-" + randomUUID() };
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(result));
+    return;
+  }
   const system = String(input.messages?.[0]?.content ?? "");
   let content = "合成浏览器回复。";
   if (
@@ -105,6 +132,7 @@ const app = await startServer({
   origin: "http://127.0.0.1:18449",
   secureCookie: false,
   allowLoopbackModel: true,
+  testChannelEndpoints: { qq: modelUrl, weixin: modelUrl, qqUpload: modelUrl },
 });
 const tokenFile = bootstrapToken(dataDir);
 const stateFile = resolve(".local/prometheus/e2e-state.json");

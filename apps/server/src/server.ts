@@ -212,11 +212,13 @@ export async function startServer(options: ServerOptions) {
                 request,
                 apiPath === "/schedule/resources"
                   ? 4 * 1024 * 1024
-                  : apiPath === "/media/assets" && method === "POST"
-                    ? 12 * 1024 * 1024
-                    : apiPath.startsWith("/media/")
-                      ? 2 * 1024 * 1024
-                      : 128 * 1024,
+                  : apiPath === "/qq/media/assets" && method === "POST"
+                    ? 29 * 1024 * 1024
+                    : apiPath === "/media/assets" && method === "POST"
+                      ? 12 * 1024 * 1024
+                      : apiPath.startsWith("/media/")
+                        ? 2 * 1024 * 1024
+                        : 128 * 1024,
               ),
           );
           if (result.raw) {
@@ -588,7 +590,7 @@ export async function startServer(options: ServerOptions) {
         if (apiPath === "/export" && method === "GET")
           return json(response, {
             name: "Prometheus",
-            schema: 17,
+            schema: 19,
             assistant_id: store.assistantId,
             exported_at: now(),
             config: store.config(),

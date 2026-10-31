@@ -2881,3 +2881,174 @@ test("channel receipt status separates attachment handling from actual delivery 
     fullPage: true,
   });
 });
+
+test("QQ media management uploads a large MP4, confirms its fixed passive recipient, and shows actual multipart and image receipts", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const session = await (
+      await page.request.get("/api/admin/v1/auth/me")
+    ).json(),
+    headers = {
+      origin: "http://127.0.0.1:18449",
+      "x-csrf-token": session.csrf_token,
+    };
+  const secret = await (
+    await page.request.post("/api/admin/v1/secrets", {
+      headers,
+      data: { kind: "qq_app_secret", value: "synthetic-browser-media-secret" },
+    })
+  ).json();
+  const config = await (await page.request.get("/api/admin/v1/config")).json();
+  config.config.qq = {
+    enabled: true,
+    app_id: "123456",
+    credential_ref: secret.id,
+    transport: "webhook",
+  };
+  expect(
+    (
+      await page.request.put("/api/admin/v1/config", {
+        headers: { ...headers, "if-match": '"' + config.revision + '"' },
+        data: { config: config.config },
+      })
+    ).status(),
+  ).toBe(200);
+  const { qqSignature } = await import("../../server/dist/channels.js");
+  const raw = JSON.stringify({
+      op: 0,
+      id: "browser-media-event",
+      t: "C2C_MESSAGE_CREATE",
+      d: {
+        id: "browser-media-source",
+        timestamp: new Date().toISOString(),
+        author: { user_openid: "browser_media_recipient" },
+        content: "B".repeat(400),
+      },
+    }),
+    timestamp = String(Math.floor(Date.now() / 1000));
+  expect(
+    (
+      await page.request.post("/webhooks/qq", {
+        headers: {
+          "content-type": "application/json",
+          "x-signature-timestamp": timestamp,
+          "x-signature-ed25519": qqSignature(
+            "synthetic-browser-media-secret",
+            timestamp,
+            Buffer.from(raw),
+          ),
+        },
+        data: raw,
+      })
+    ).status(),
+  ).toBe(200);
+  let context: any;
+  await expect
+    .poll(async () => {
+      const c = await (
+        await page.request.get("/api/admin/v1/qq/media/contexts")
+      ).json();
+      context = c.items.find(
+        (r: any) => r.target_id === "browser_media_recipient",
+      );
+      return !!context;
+    })
+    .toBe(true);
+  await page.getByRole("button", { name: "渠道与媒体", exact: true }).click();
+  const panel = page.getByRole("region", { name: "QQ媒体发送" });
+  await expect(panel).toBeVisible();
+  await panel.getByLabel("本次私聊回复").selectOption(context.run_id);
+  await expect(
+    panel.getByText("接收方标识：browser_media_recipient"),
+  ).toBeVisible();
+  const source = readFileSync(
+      resolve("../server/test/fixtures/synthetic-h264.mp4"),
+    ),
+    padding = Buffer.alloc(6_300_000 - source.length);
+  padding.writeUInt32BE(padding.length);
+  padding.write("free", 4);
+  const { default: sharp } = await import("sharp");
+  const images = await sharp({
+    create: { width: 2, height: 2, channels: 4, background: "red" },
+  })
+    .png()
+    .toBuffer();
+  for (const [kind, name, mime, bytes, parts] of [
+    [
+      "video",
+      "synthetic-large.mp4",
+      "video/mp4",
+      Buffer.concat([source, padding]),
+      4,
+    ],
+    ["image", "synthetic-browser.png", "image/png", images, 0],
+  ] as const) {
+    await panel.getByLabel("文件类型").selectOption(kind);
+    await panel
+      .getByLabel("选择媒体文件")
+      .setInputFiles({ name, mimeType: mime, buffer: bytes });
+    await panel
+      .getByRole("button", { name: "校验并暂存文件", exact: true })
+      .click();
+    await expect(panel.getByText("文件已校验并暂存，尚未发送。")).toBeVisible();
+    await expect(
+      panel.getByRole("button", { name: "确认排队发送" }),
+    ).toBeDisabled();
+    await panel
+      .getByLabel("已核对接收方，确认在这次私聊回复中发送媒体")
+      .check();
+    await panel.getByRole("button", { name: "确认排队发送" }).click();
+    await expect
+      .poll(
+        async () => {
+          await panel
+            .getByRole("button", { name: "刷新媒体记录", exact: true })
+            .click();
+          return await panel
+            .getByTestId("qq-media-transfer")
+            .filter({ hasText: kind })
+            .filter({ hasText: "平台已确认" })
+            .count();
+        },
+        { timeout: 15000 },
+      )
+      .toBe(1);
+    await expect(
+      panel.getByTestId("qq-media-transfer").filter({ hasText: kind }),
+    ).toContainText("已确认" + parts + "个分片");
+  }
+  const received = await (
+    await page.request.get("/api/admin/v1/qq/media/deliveries")
+  ).json();
+  expect(received.items).toHaveLength(2);
+  expect(JSON.stringify(received)).not.toContain("synthetic-browser-file-info");
+  expect(JSON.stringify(received)).not.toContain("synthetic-browser-qq-token");
+  expect(
+    (
+      await page.request.get("/api/admin/v1/qq/media/contexts", {
+        headers: { cookie: "" },
+      })
+    ).status(),
+  ).toBe(401);
+  await page.setViewportSize({ width: 320, height: 800 });
+  await expect
+    .poll(() =>
+      page
+        .locator("aside.sidebar")
+        .evaluate((el) => el.getBoundingClientRect().right),
+    )
+    .toBeLessThanOrEqual(0);
+  await expect(panel).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  expect(errors).toEqual([]);
+  await page.screenshot({
+    path: resolve("../../.local/prometheus/e2e-qq-outgoing-320.png"),
+    fullPage: true,
+  });
+});

@@ -967,7 +967,7 @@ test("schema17 upgrade backs up the real prior schema, preserves identity and re
   assert.equal(
     app.store.get("SELECT value FROM metadata WHERE key='prometheus.schema'")
       .value,
-    "18",
+    "19",
   );
   assert.equal(
     app.store.get("SELECT value FROM metadata WHERE key='diary.record_cursor'")

@@ -4,7 +4,7 @@ import type { ModelMessage } from "./model.ts";
 import type { Row, Store } from "./store.ts";
 
 export const visionDerivedSql = (run: string) =>
-  `(EXISTS(SELECT 1 FROM run_media vm WHERE vm.run_id=${run}) OR EXISTS(SELECT 1 FROM vision_uses vu WHERE vu.run_id=${run}) OR EXISTS(SELECT 1 FROM channel_media_sources cm WHERE cm.run_id=${run}))`;
+  `(EXISTS(SELECT 1 FROM run_media vm WHERE vm.run_id=${run}) OR EXISTS(SELECT 1 FROM vision_uses vu WHERE vu.run_id=${run}) OR EXISTS(SELECT 1 FROM channel_media_sources cm WHERE cm.run_id=${run}) OR EXISTS(SELECT 1 FROM qq_media_plans qp WHERE qp.run_id=${run}) OR EXISTS(SELECT 1 FROM qq_media_transfers qt JOIN delivery_parts p ON p.id=qt.part_id WHERE p.run_id=${run}))`;
 export function safeVisualText(store: Store, text: string) {
   return (
     !!text &&
@@ -32,6 +32,11 @@ export function visualSourceAllowed(store: Store, message: Row, purpose = "") {
     direct ||
     !!store.get(
       "SELECT run_id FROM vision_uses WHERE run_id=? LIMIT 1",
+      String(message.run_id),
+    ) ||
+    !!store.get(
+      "SELECT run_id FROM qq_media_plans WHERE run_id=? UNION SELECT p.run_id FROM qq_media_transfers t JOIN delivery_parts p ON p.id=t.part_id WHERE p.run_id=?",
+      String(message.run_id),
       String(message.run_id),
     );
   const unverified =
@@ -321,14 +326,21 @@ export class Vision {
           ? "legacy_unverified"
           : channel?.kind === "notice"
             ? "unavailable_media"
-            : this.isDerived(run)
-              ? "vision_description"
-              : this.store.get(
-                    "SELECT r.id FROM runs r JOIN messages m ON m.run_id=r.id JOIN vision_legacy_fences f ON f.conversation_id=r.conversation_id WHERE r.id=? AND m.rowid<=f.message_cutoff LIMIT 1",
-                    run,
-                  )
-                ? "legacy_unverified"
-                : "text",
+            : !image &&
+                this.store.get(
+                  "SELECT run_id FROM qq_media_plans WHERE run_id=? UNION SELECT p.run_id FROM qq_media_transfers t JOIN delivery_parts p ON p.id=t.part_id WHERE p.run_id=?",
+                  run,
+                  run,
+                )
+              ? "channel_media_reply"
+              : this.isDerived(run)
+                ? "vision_description"
+                : this.store.get(
+                      "SELECT r.id FROM runs r JOIN messages m ON m.run_id=r.id JOIN vision_legacy_fences f ON f.conversation_id=r.conversation_id WHERE r.id=? AND m.rowid<=f.message_cutoff LIMIT 1",
+                      run,
+                    )
+                  ? "legacy_unverified"
+                  : "text",
       ...(channel
         ? { attachment: { kind: channel.kind, code: channel.code } }
         : {}),

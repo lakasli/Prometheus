@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue";
 import QRCode from "qrcode";
+import QqMediaPanel from "./QqMediaPanel.vue";
 import { api } from "../api";
 import type { ConfigState } from "../types";
 const emit = defineEmits<{ error: [unknown] }>();
@@ -316,6 +317,7 @@ onUnmounted(() => {
         </p>
       </div>
     </section>
+    <QqMediaPanel @error="emit('error', $event)" />
     <section class="panel">
       <h2>发送与隐私</h2>
       <p class="muted">

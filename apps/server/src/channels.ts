@@ -25,6 +25,7 @@ import type { Store } from "./store.ts";
 import type { Runtime } from "./runtime.ts";
 import { explicitCorrection } from "./runtime.ts";
 import { QqIncoming } from "./qq-incoming.ts";
+import { QqOutgoing } from "./qq-outgoing.ts";
 import { qqAttachment, mediaNotice } from "./qq-media-download.ts";
 import type { Media } from "./media.ts";
 import type { normalizedPng } from "./png.ts";
@@ -35,6 +36,7 @@ export interface ChannelEndpoints {
   qq: string;
   weixin: string;
   qqMedia?: string;
+  qqUpload?: string;
 }
 interface Target {
   kind: string;
@@ -143,7 +145,7 @@ export function replyParts(content: string): { kind: string; text: string }[] {
 }
 function business(value: unknown, requireRet = false): Json {
   const result = object(value) as Json;
-  for (const name of ["ret", "errcode", "code"])
+  for (const name of ["ret", "errcode", "code", "err_code", "retcode"])
     if (result[name] !== undefined && Number(result[name]) !== 0)
       throw new ApiError(
         502,
@@ -156,6 +158,7 @@ function business(value: unknown, requireRet = false): Json {
 }
 export class Channels {
   incoming?: QqIncoming;
+  outgoing?: QqOutgoing;
   attachMedia(media: Media) {
     this.incoming = new QqIncoming(
       this.store,
@@ -163,9 +166,25 @@ export class Channels {
       (e, d, image, code) => this.commitMedia(e, d, image, code),
       this.allowLoopback ? this.endpoints.qqMedia : undefined,
     );
+    this.outgoing = new QqOutgoing(
+      this.store,
+      this.runtime,
+      media,
+      this.endpoints.qq,
+      (c) => this.qqToken(c),
+      (run) => !this.canDeliver || this.canDeliver(run),
+      this.allowLoopback,
+      this.allowLoopback ? this.endpoints.qqUpload : undefined,
+    );
+    this.runtime.getChannelMediaContext = (run) => this.outgoing!.context(run);
+    this.runtime.resolveChannelReply = (run, raw) =>
+      this.outgoing!.resolve(run, raw);
+    this.runtime.commitChannelReply = (run, parts) =>
+      this.outgoing!.commit(run, parts);
   }
   invalidateIncoming(owner: string) {
     this.incoming?.invalidate(owner);
+    this.outgoing?.invalidate(owner);
   }
   private stopping = false;
   private timer?: ReturnType<typeof setTimeout>;
@@ -843,7 +862,12 @@ export class Channels {
     for (const row of this.store.all(
       "SELECT r.id,r.response,r.owner_id,r.status FROM runs r JOIN run_targets t ON t.run_id=r.id WHERE (r.status='completed' OR r.status='failed' AND EXISTS(SELECT 1 FROM channel_media_sources q WHERE q.run_id=r.id AND q.kind='image')) AND NOT EXISTS(SELECT 1 FROM run_publications v WHERE v.run_id=r.id AND v.state='suppressed') AND NOT EXISTS(SELECT 1 FROM delivery_parts p WHERE p.run_id=r.id) LIMIT 20",
     )) {
-      let parts: { kind: string; text: string; delay_ms?: number }[];
+      let parts: {
+        kind: string;
+        text: string;
+        delay_ms?: number;
+        asset_id?: string;
+      }[];
       try {
         const presentation = this.store.get(
           "SELECT items_json FROM native_text_presentations WHERE run_id=?",
@@ -859,6 +883,16 @@ export class Channels {
             "UPDATE qq_inbound_receipts SET code='media_reply_failed' WHERE event_id=(SELECT event_id FROM channel_media_sources WHERE run_id=?)",
             String(row.id),
           );
+        } else if (this.outgoing?.plan(String(row.id))) {
+          parts = this.outgoing.plan(String(row.id))!.map((p) => ({
+            kind: p.type,
+            text:
+              p.type === "text"
+                ? p.text
+                : `[${({ image: "图片", video: "视频", voice: "语音" } as Record<string, string>)[p.type]}]${p.text}`,
+            delay_ms: p.delay_ms,
+            asset_id: p.asset_id,
+          }));
         } else if (presentation) {
           const saved = JSON.parse(String(presentation.items_json));
           parts = replyParts(JSON.stringify({ items: saved })).map((p, i) => {
@@ -877,9 +911,10 @@ export class Channels {
         let due = Date.now();
         for (const [index, part] of parts.entries()) {
           if (index) due += part.delay_ms ?? 1000;
+          const partId = randomUUID();
           this.store.run(
             "INSERT OR IGNORE INTO delivery_parts VALUES(?,?,?,?,?,'queued',NULL,NULL,?,?)",
-            randomUUID(),
+            partId,
             String(row.id),
             index + 1,
             part.kind,
@@ -887,6 +922,7 @@ export class Channels {
             due,
             now(),
           );
+          if (part.asset_id) this.outgoing!.transfer(partId, part.asset_id);
         }
       });
     }
@@ -947,7 +983,9 @@ export class Channels {
     );
     try {
       let platformId: string;
-      if (row.channel === "qq") {
+      if (row.channel === "qq" && row.kind !== "text") {
+        platformId = await this.outgoing!.send(row, this.controller.signal);
+      } else if (row.channel === "qq") {
         const token = await this.qqToken(config);
         const admitted =
           !this.canDeliver || this.canDeliver(String(row.run_id));
@@ -1056,6 +1094,22 @@ export class Channels {
             Number(row.sequence) + 1,
           );
       }
+      if (
+        this.store.get(
+          "SELECT part_id FROM qq_media_transfers WHERE part_id IN (SELECT id FROM delivery_parts WHERE run_id=?) LIMIT 1",
+          String(row.run_id),
+        )
+      ) {
+        const next = this.outgoing?.plan(String(row.run_id))?.[
+          Number(row.sequence)
+        ];
+        this.store.run(
+          "UPDATE delivery_parts SET not_before=max(not_before,?) WHERE run_id=? AND sequence=? AND status='queued'",
+          Date.now() + Math.max(1500, next?.delay_ms ?? 1500),
+          String(row.run_id),
+          Number(row.sequence) + 1,
+        );
+      }
       this.store.audit(
         String(row.owner_id),
         "delivery",
@@ -1066,7 +1120,12 @@ export class Channels {
     } catch (error) {
       const known =
         error instanceof ApiError &&
-        ["channel_rejected", "delivery_revoked"].includes(error.code);
+        [
+          "channel_rejected",
+          "delivery_revoked",
+          "media_upload_failed",
+          "media_send_rejected",
+        ].includes(error.code);
       this.store.run(
         "UPDATE delivery_parts SET status=?,error=?,updated_at=? WHERE id=?",
         known ? "failed" : "unknown",
@@ -1090,6 +1149,7 @@ export class Channels {
     if (this.stopping) return;
     try {
       this.incoming?.refresh();
+      this.outgoing?.refresh();
       this.processEvents();
       this.seedDeliveries();
       this.track(this.deliver());
