@@ -60,7 +60,7 @@ export function normalizedPng(input: Buffer): {
     const size = input.readUInt32BE(offset);
     if (size > 1048576 || offset + size + 12 > input.length)
       throw bad("PNG块长度无效");
-    const name = input.toString("ascii", offset + 4, offset + 8),
+    const name = input.toString("latin1", offset + 4, offset + 8),
       data = input.subarray(offset + 8, offset + 8 + size),
       chunk = input.subarray(offset, offset + size + 12);
     if (

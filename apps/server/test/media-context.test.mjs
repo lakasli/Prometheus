@@ -59,6 +59,12 @@ test("PNG ingress preserves the old strict static-image boundary and never store
   frame.writeUInt32BE(1, 8);
   const cases = [
     [
+      "non-ASCII chunk name",
+      insertPng(png(), "IDAT", [
+        chunk(Buffer.from([0xf4, 0x45, 0x58, 0x74]), Buffer.alloc(0)),
+      ]),
+    ],
+    [
       "APNG controls",
       insertPng(png(), "IDAT", [
         chunk("acTL", animation),
