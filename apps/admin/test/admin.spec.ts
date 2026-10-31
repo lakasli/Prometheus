@@ -2176,3 +2176,73 @@ test("authorized Native text preparation stays private, renders literally and ca
   expect(external).toEqual([]);
   expect(errors).toEqual([]);
 });
+
+test("minute choices are explicitly enabled and persist through authenticated management without implying execution", async ({
+  page,
+}) => {
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "日程", exact: true })
+    .click();
+  const panel = page.locator("section.panel").filter({
+    has: page.getByRole("heading", { name: "作息与睡眠", exact: true }),
+  });
+  const anticipation = panel.getByLabel(
+    "提前一分钟由模型选择如期、取消本次或推迟",
+    { exact: true },
+  );
+  await panel.getByLabel("启用上海时间定时作息", { exact: true }).uncheck();
+  await anticipation.check();
+  await panel
+    .getByRole("button", { name: "保存作息策略", exact: true })
+    .click();
+  await expect(panel.getByRole("status")).toContainText("作息策略已保存");
+  const stored = await (
+    await page.request.get("/api/admin/v1/rest/policy")
+  ).json();
+  expect(stored.value.anticipation_enabled).toBe(true);
+  expect(stored.value.schedule_enabled).toBe(false);
+  await page.reload();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "日程", exact: true })
+    .click();
+  await expect(anticipation).toBeChecked();
+  const history = panel.locator('details[aria-label="提前选择记录"]');
+  await history.locator("summary").click();
+  await expect(history).toContainText("选择成功不代表活动已经执行");
+  await history
+    .getByRole("button", { name: "刷新选择记录", exact: true })
+    .click();
+  await expect(history).toContainText("尚无提前选择记录");
+  const before = await (
+    await page.request.get("/api/admin/v1/schedule/decisions")
+  ).json();
+  expect(before.items).toEqual([]);
+  await page.setViewportSize({ width: 320, height: 844 });
+  await expect
+    .poll(async () => {
+      const b = await page.locator(".sidebar").boundingBox();
+      return b!.x + b!.width;
+    })
+    .toBeLessThanOrEqual(0);
+  expect(
+    await page.locator("body").evaluate((el) => el.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await panel.screenshot({
+    path: resolve(
+      "../../.local/prometheus/screenshots/schedule-notices-mobile.png",
+    ),
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await panel.screenshot({
+    path: resolve(
+      "../../.local/prometheus/screenshots/schedule-notices-desktop.png",
+    ),
+  });
+  await anticipation.uncheck();
+  await panel
+    .getByRole("button", { name: "保存作息策略", exact: true })
+    .click();
+  await expect(panel.getByRole("status")).toContainText("作息策略已保存");
+});

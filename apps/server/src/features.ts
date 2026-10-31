@@ -17,6 +17,7 @@ import { Profiles } from "./profiles.ts";
 import { ProfileModel } from "./profile-model.ts";
 import { AffinitySources } from "./affinity-sources.ts";
 import { DailyLife } from "./daily-life.ts";
+import { ScheduleNotices } from "./schedule-notices.ts";
 
 export interface FeatureResult {
   data: unknown;
@@ -39,6 +40,7 @@ export class Features {
   readonly profileModel: ProfileModel;
   readonly affinitySources: AffinitySources;
   readonly dailyLife: DailyLife;
+  readonly scheduleNotices: ScheduleNotices;
   constructor(
     readonly store: Store,
     readonly runtime: Runtime,
@@ -92,6 +94,14 @@ export class Features {
         this.automation.restStatus().state.phase === "awake",
     );
     this.schedule.onGrantChanged = () => this.dailyLife.refresh();
+    this.scheduleNotices = new ScheduleNotices(
+      store,
+      runtime,
+      this.schedule,
+      this.automation,
+      this.dailyLife,
+    );
+    this.automation.onRoutineTick = () => this.scheduleNotices.tick();
     const scheduleChanged = this.schedule.onChanged;
     this.schedule.onChanged = (ids) => {
       scheduleChanged?.(ids);
@@ -356,6 +366,7 @@ export class Features {
     }
   }
   async stop() {
+    this.scheduleNotices.stop();
     this.dailyLife.stop();
     await this.profileModel.stop();
     await this.diary.stop();
@@ -1067,6 +1078,8 @@ export class Features {
       };
     if (path === "/rest/status" && method === "GET")
       return { data: this.automation.restStatus() };
+    if (path === "/schedule/decisions" && method === "GET")
+      return { data: this.scheduleNotices.list(admin.id, url.searchParams) };
     if (path === "/rest/policy" && method === "GET")
       return { data: this.automation.restPolicy() };
     if (path === "/rest/policy" && method === "PUT")

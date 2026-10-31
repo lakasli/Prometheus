@@ -54,6 +54,23 @@ interface Plan {
   duration_minutes: number;
   planning_mode: "bounded_rule" | "model";
 }
+interface ModelWork {
+  owner: string;
+  kind: "reading" | "planning" | "decision";
+  activity?: string;
+  plan?: string;
+  resource?: string;
+  revision: number;
+  grantRevision: number | null;
+  timeZone: string;
+  grant: Grant | null;
+  messages: ModelMessage[];
+  valid: () => boolean;
+  prepare: (fence: string) => void;
+  commit: (text: string, config: Config) => void;
+  failed: (code: string) => void;
+  admit?: () => boolean;
+}
 const parse = (value: unknown) => JSON.parse(String(value));
 const day = (at: number, timeZone = "Asia/Shanghai") =>
   zoned(at, timeZone).toPlainDate().toString();
@@ -799,7 +816,7 @@ export class Schedule extends ScheduleCalendar {
   private budget(
     owner: string,
     timeZone: string,
-    g: Grant | null,
+    g: Pick<Grant, "max_daily_model_calls" | "max_daily_tokens"> | null,
     messages: ModelMessage[],
     outputLimit: number,
   ) {
@@ -869,23 +886,9 @@ export class Schedule extends ScheduleCalendar {
       },
     };
   }
-  private startModel(options: {
-    owner: string;
-    kind: "reading" | "planning";
-    activity?: string;
-    plan?: string;
-    resource?: string;
-    revision: number;
-    grantRevision: number | null;
-    timeZone: string;
-    grant: Grant | null;
-    messages: ModelMessage[];
-    valid: () => boolean;
-    prepare: (fence: string) => void;
-    commit: (text: string, config: Config) => void;
-    failed: (code: string) => void;
-  }) {
-    if (this.active || this.stopping || !this.admit()) return false;
+  private startModel(options: ModelWork) {
+    const admit = options.admit ?? this.admit;
+    if (this.active || this.stopping || !admit()) return false;
     let release: () => void;
     try {
       release = this.runtime.beginCheck(true);
@@ -896,12 +899,18 @@ export class Schedule extends ScheduleCalendar {
     const id = randomUUID(),
       controller = new AbortController();
     let reserved: ReturnType<Schedule["budget"]>,
-      outputLimit = options.grant?.max_output_tokens ?? 1200;
+      outputLimit =
+        options.kind === "decision"
+          ? 512
+          : (options.grant?.max_output_tokens ?? 1200);
     try {
       reserved = this.budget(
         options.owner,
         options.timeZone,
-        options.grant,
+        options.grant ??
+          (options.kind === "decision"
+            ? { max_daily_model_calls: 24, max_daily_tokens: 250000 }
+            : null),
         options.messages,
         outputLimit,
       );
@@ -941,8 +950,7 @@ export class Schedule extends ScheduleCalendar {
       return false;
     }
     const watcher = setInterval(() => {
-      if (this.stopping || !this.admit() || !options.valid())
-        controller.abort();
+      if (this.stopping || !admit() || !options.valid()) controller.abort();
     }, 200);
     watcher.unref();
     const task = Promise.resolve()
@@ -964,7 +972,10 @@ export class Schedule extends ScheduleCalendar {
             AbortSignal.any([
               controller.signal,
               AbortSignal.timeout(
-                reserved.config.runtime.timeout_seconds * 1000,
+                Math.min(
+                  options.kind === "decision" ? 45000 : Infinity,
+                  reserved.config.runtime.timeout_seconds * 1000,
+                ),
               ),
             ]),
             this.loopback,
@@ -973,12 +984,16 @@ export class Schedule extends ScheduleCalendar {
           const text = completed.content;
           outputHash = hash(text);
           outputBytes = Buffer.byteLength(text);
-          if (!["stop", "missing"].includes(completed.finish_reason))
+          if (
+            !(
+              options.kind === "decision" ? ["stop"] : ["stop", "missing"]
+            ).includes(completed.finish_reason)
+          )
             throw bad(
               "模型输出未完整结束，未推进阅读或规划状态",
               "schedule_model_incomplete_output",
             );
-          if (controller.signal.aborted || !options.valid() || !this.admit())
+          if (controller.signal.aborted || !options.valid() || !admit())
             throw bad("来源、活动或授权已变化", "schedule_request_invalidated");
           this.store.transaction(() =>
             options.commit(this.store.redact(text), reserved.config),
@@ -1027,6 +1042,70 @@ export class Schedule extends ScheduleCalendar {
       task,
     };
     return true;
+  }
+  startDecision(options: Omit<ModelWork, "kind">) {
+    return this.startModel({ ...options, kind: "decision" });
+  }
+  decisionActivity(owner: string, id: string, nominal: number) {
+    const view = this.load(owner, id);
+    const slot =
+      this.expanded(view, nominal, nominal + 1).find(
+        (s) => s.nominal_at === nominal,
+      ) ??
+      view.exceptions
+        .filter((e) => e.nominal_at === nominal)
+        .map((e) => ({ ...e }))[0];
+    if (
+      !slot ||
+      slot.state !== "enabled" ||
+      view.state !== "enabled" ||
+      view.creator !== "autonomous" ||
+      !slot.definition.movable ||
+      !["reading", "writing"].includes(slot.definition.type) ||
+      !slot.definition.grant_id
+    )
+      throw bad("此机会不允许自主修改", "notice_activity_unavailable");
+    const a = slot.definition,
+      grant = this.grant(owner, a.grant_id!);
+    this.references(owner, a);
+    if (
+      grant.revoked_at !== null ||
+      grant.revision !== view.grant_revision ||
+      now() < grant.policy.valid_from ||
+      now() >= grant.policy.valid_until ||
+      !grant.policy.allowed_types.includes(a.type) ||
+      (a.type === "writing" && !this.registeredText?.(id, a))
+    )
+      throw bad("自主范围或文字来源已失效", "notice_activity_unavailable");
+    return { view, nominal_at: nominal, definition: a, grant };
+  }
+  decisionCandidates(at: number) {
+    const items: ReturnType<Schedule["decisionActivity"]>[] = [];
+    for (const row of this.store.all(
+      "SELECT * FROM schedule_activities WHERE state='enabled' AND creator='autonomous' ORDER BY created_at,rowid LIMIT 5000",
+    )) {
+      const view = this.view(row);
+      if (
+        !view.definition.movable ||
+        !["reading", "writing"].includes(view.definition.type)
+      )
+        continue;
+      for (const slot of this.expanded(view, at + 1, at + 61)) {
+        if (
+          slot.definition.start_at <= at ||
+          slot.definition.start_at > at + 60
+        )
+          continue;
+        try {
+          items.push(
+            this.decisionActivity(view.owner, view.id, slot.nominal_at),
+          );
+        } catch {
+          /* No authority is added by a notice. */
+        }
+      }
+    }
+    return items.sort((a, b) => a.definition.start_at - b.definition.start_at);
   }
   private usable(
     view: ScheduleView,

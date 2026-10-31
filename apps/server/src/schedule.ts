@@ -63,7 +63,17 @@ export const block = (a: Activity): string | null =>
 export class ScheduleCalendar {
   onChanged?: (ids: string[]) => void;
   registeredText?: (id: string, definition: Activity) => boolean;
-  protected capability(view: ScheduleView, definition = view.definition) {
+  routineItems?: (
+    owner: string,
+    start: number,
+    end: number,
+  ) => Record<string, any>[];
+  protected capability(view: ScheduleView, definition?: Activity) {
+    definition ??=
+      view.exceptions.find(
+        (e) =>
+          e.nominal_at === view.definition.start_at && e.state === "enabled",
+      )?.definition ?? view.definition;
     return definition.type === "writing" &&
       this.registeredText?.(view.id, definition)
       ? null
@@ -753,7 +763,10 @@ export class ScheduleCalendar {
       if (view.state === "enabled") {
         const permission = this.permission(
           owner,
-          view.definition,
+          scope === "single" && view.id === current.id
+            ? view.exceptions.find((e) => e.nominal_at === body.nominal_at)!
+                .definition
+            : view.definition,
           view.creator,
           view.id,
         );
@@ -793,6 +806,7 @@ export class ScheduleCalendar {
     expected: number,
     value: unknown,
     autonomous = false,
+    beforeChanged?: () => void,
   ) {
     let result: unknown;
     let affected: string[] = [];
@@ -805,7 +819,19 @@ export class ScheduleCalendar {
           "改期与已有活动冲突，原计划保持不变",
         );
       for (const view of plan.changed) {
-        this.chargeMutation(view, "change", autonomous);
+        const effective =
+          plan.scope === "single"
+            ? view.exceptions.find(
+                (e) =>
+                  e.nominal_at ===
+                  (value as Record<string, unknown>).nominal_at,
+              )?.definition
+            : undefined;
+        this.chargeMutation(
+          effective ? { ...view, definition: effective } : view,
+          "change",
+          autonomous,
+        );
         this.write(view, view.id !== id);
         affected.push(view.id);
       }
@@ -824,6 +850,7 @@ export class ScheduleCalendar {
           : "活动修改已保存，既有执行历史保留",
         id,
       );
+      beforeChanged?.();
       result = {
         ...this.detail(owner, id),
         following_id: plan.following?.id ?? null,
@@ -1005,6 +1032,7 @@ export class ScheduleCalendar {
           "范围内项目超过500，请缩短范围或按类型筛选",
         );
     };
+    for (const item of this.routineItems?.(owner, start, end) ?? []) add(item);
     const rows = this.store.all(
       "SELECT * FROM schedule_activities WHERE owner_id=? ORDER BY created_at,id LIMIT 5001",
       owner,

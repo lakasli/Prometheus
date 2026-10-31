@@ -50,15 +50,26 @@ export class Store {
       : undefined;
     if (tables.length) {
       if (
-        !["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"].includes(
-          String(previousSchema),
-        )
+        ![
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10",
+          "11",
+          "12",
+        ].includes(String(previousSchema))
       ) {
         this.database.close();
         throw new Error("Unsupported Prometheus schema; do not downgrade");
       }
     }
-    if (tables.length && previousSchema !== "11") {
+    if (tables.length && previousSchema !== "12") {
       const backupDir = privateDirectory(join(path, "backups"));
       const target = join(
         backupDir,
@@ -80,6 +91,17 @@ export class Store {
         schema
           .filter((line) => !line.trimStart().startsWith("PRAGMA "))
           .join("\n"),
+      );
+      if (
+        !this.all("PRAGMA table_info(rest_cycles)").some(
+          (row) => row.name === "absolute_wake_at",
+        )
+      )
+        this.database.exec(
+          "ALTER TABLE rest_cycles ADD COLUMN absolute_wake_at INTEGER",
+        );
+      this.run(
+        "UPDATE rest_cycles SET absolute_wake_at=wake_at WHERE absolute_wake_at IS NULL",
       );
       const draftColumns = new Set(
         this.all("PRAGMA table_info(config_drafts)").map((row) =>
@@ -106,7 +128,7 @@ export class Store {
         now(),
       );
       this.run(
-        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','11') ON CONFLICT(key) DO UPDATE SET value='11'",
+        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','12') ON CONFLICT(key) DO UPDATE SET value='12'",
       );
       if (
         previousSchema &&

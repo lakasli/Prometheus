@@ -195,6 +195,7 @@ export class Automation {
   diaryRestPending?: (cycle: string) => boolean;
   onRestEnd?: (cycle: string) => void;
   onScheduleTick?: () => void;
+  onRoutineTick?: () => void;
   get workClockTrusted() {
     return this.clockTrusted && !this.stopped;
   }
@@ -390,6 +391,7 @@ export class Automation {
   restPolicy() {
     return this.knowledge.policy("rest", {
       schedule_enabled: false,
+      anticipation_enabled: false,
       natural_enabled: false,
       sleep_local: "23:00",
       wake_local: "07:00",
@@ -403,6 +405,7 @@ export class Automation {
   saveRestPolicy(expected: number, value: unknown) {
     const body = fields(value, [
       "schedule_enabled",
+      "anticipation_enabled",
       "natural_enabled",
       "sleep_local",
       "wake_local",
@@ -412,8 +415,10 @@ export class Automation {
       "consolidation_seconds",
       "reset_context_on_sleep",
     ]);
+    body.anticipation_enabled = body.anticipation_enabled ?? false;
     for (const key of [
       "schedule_enabled",
+      "anticipation_enabled",
       "natural_enabled",
       "reset_context_on_sleep",
     ])
@@ -445,6 +450,7 @@ export class Automation {
             revision: cycle.revision,
             wake_at: cycle.wake_at,
             started_at: cycle.started_at,
+            absolute_wake_at: cycle.absolute_wake_at,
           }
         : { id: null, phase: "awake", revision: 0, wake_at: null },
       clock: {
@@ -518,12 +524,13 @@ export class Automation {
           Number(policy.max_sleep_seconds),
         );
         this.store.run(
-          "INSERT INTO rest_cycles VALUES(?,'draining',1,?,?,?,NULL,?,NULL)",
+          "INSERT INTO rest_cycles(id,phase,revision,started_at,wake_at,drain_until,completed_at,source_key,result,absolute_wake_at) VALUES(?,'draining',1,?,?,?,NULL,?,NULL,?)",
           randomUUID(),
           now(),
           now() + duration,
           now() + Number(policy.drain_seconds),
           scope,
+          now() + Number(policy.max_sleep_seconds),
         );
       }
       const result = {
@@ -557,6 +564,7 @@ export class Automation {
     this.lastWall = wall;
     this.lastMono = mono;
     try {
+      this.onRoutineTick?.();
       this.restTick();
       this.triggerTick();
       this.collect();
@@ -620,7 +628,7 @@ export class Automation {
       }
       return;
     }
-    if (policy.schedule_enabled && this.clockTrusted) {
+    if (!this.onRoutineTick && policy.schedule_enabled && this.clockTrusted) {
       const civil = new Date(Date.now() + 8 * 3600000).toISOString(),
         time = civil.slice(11, 16),
         date = civil.slice(0, 10);

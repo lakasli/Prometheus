@@ -1482,7 +1482,7 @@ onUnmounted(() => {
         />
         <KnowledgePanel v-if="page === 'diary'" @error="failure" />
         <AutomationPanel v-if="page === 'schedule'" @error="failure" />
-        <RestPanel v-if="page === 'models'" @error="failure" />
+        <RestPanel v-if="page === 'schedule'" @error="failure" />
         <PluginsPanel v-if="page === 'plugins'" @error="failure" />
         <ArtworkPanel v-if="page === 'skills'" @error="failure" />
         <CalendarPanel

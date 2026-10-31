@@ -272,7 +272,9 @@ export class DailyLife {
           "SELECT state,definition_json FROM schedule_activities WHERE id=?",
           String(a.activity_id),
         )!;
-        const d = parse(activity.definition_json);
+        const d =
+          this.effective(String(a.activity_id)) ??
+          parse(activity.definition_json);
         return [
           {
             title: a.title,
@@ -592,7 +594,8 @@ export class DailyLife {
     if (
       !a ||
       a.state === "cancelled" ||
-      hash(JSON.stringify(parse(a.definition_json))) !== row.definition_hash ||
+      hash(JSON.stringify(this.effective(String(row.activity_id)))) !==
+        row.definition_hash ||
       a.grant_revision !== row.grant_revision
     )
       return false;
@@ -605,6 +608,42 @@ export class DailyLife {
         time_zone: null,
       };
     return this.sourceCurrent(ref) && this.grantLive(ref, offer);
+  }
+  private effective(id: string): Activity | null {
+    const a = this.store.get(
+      "SELECT definition_json FROM schedule_activities WHERE id=?",
+      id,
+    );
+    if (!a) return null;
+    const base = parse(a.definition_json) as Activity;
+    const e = this.store.get(
+      "SELECT definition_json,state FROM schedule_exceptions WHERE activity_id=? AND nominal_at=?",
+      id,
+      base.start_at,
+    );
+    return e
+      ? e.state === "enabled"
+        ? (parse(e.definition_json) as Activity)
+        : null
+      : base;
+  }
+  acceptDecisionMove(
+    id: string,
+    previousHash: string,
+    definition: Activity,
+    revision: number,
+  ) {
+    const row = this.store.get(
+      "SELECT * FROM daily_text_artifacts WHERE activity_id=? AND state='prepared'",
+      id,
+    );
+    if (!row || row.definition_hash !== previousHash) throw unavailable();
+    this.store.run(
+      "UPDATE daily_text_artifacts SET definition_hash=?,activity_revision=?,revision=revision+1 WHERE activity_id=?",
+      hash(JSON.stringify(definition)),
+      revision,
+      id,
+    );
   }
   registered(id: string, definition: Activity) {
     const row = this.store.get(
@@ -934,7 +973,7 @@ export class DailyLife {
         "SELECT revision,state,definition_json FROM schedule_activities WHERE id=?",
         id,
       )!,
-      definition = parse(a.definition_json),
+      definition = this.effective(id) ?? parse(a.definition_json),
       check = this.store.get(
         "SELECT status,input_bytes,output_hash,output_bytes,finish_reason,error_code FROM daily_reply_checks WHERE run_id=?",
         String(row.source_run_id),

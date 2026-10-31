@@ -1,9 +1,37 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { api } from "../api";
+import { scheduleReason } from "../schedule-labels";
+const eventLabels: Record<string, string> = {
+    sleep: "入睡",
+    wake: "起床",
+    reading: "阅读",
+    writing: "文字安排",
+  },
+  choiceLabels: Record<string, string> = {
+    execute: "如期",
+    cancel: "取消本次",
+    postpone: "推迟",
+  },
+  decisionLabels: Record<string, string> = {
+    pending: "等待通知",
+    running: "模型核对中",
+    completed: "选择已受理",
+    failed: "核对失败，默认如期",
+    interrupted: "请求中断，未重复",
+    skipped: "未派发",
+  },
+  attemptLabels: Record<string, string> = {
+    completed: "已结束",
+    failed: "失败",
+    interrupted: "已中断",
+    invalidated: "已失效",
+    running: "进行中",
+  };
 const emit = defineEmits<{ error: [unknown] }>(),
   policy = ref<any>(null),
   status = ref<any>(null),
+  decisions = ref<any[]>([]),
   busy = ref(false),
   notice = ref("");
 async function task(action: () => Promise<void>) {
@@ -23,6 +51,11 @@ async function load() {
     api("/rest/policy"),
     api("/rest/status"),
   ]);
+  policy.value.value.anticipation_enabled ??= false;
+  await loadDecisions();
+}
+async function loadDecisions() {
+  decisions.value = (await api<any>("/schedule/decisions")).items;
 }
 async function save() {
   await task(async () => {
@@ -69,8 +102,15 @@ onMounted(() => task(load));
     </div>
     <p v-if="notice" class="alert success" role="status">{{ notice }}</p>
     <p v-if="status.state.wake_at" class="muted">
-      原唤醒期限：{{
+      当前唤醒期限：{{
         new Date(status.state.wake_at * 1000).toLocaleString("zh-CN", {
+          timeZone: "Asia/Shanghai",
+        })
+      }}
+    </p>
+    <p v-if="status.state.absolute_wake_at" class="muted">
+      绝对最长睡眠期限：{{
+        new Date(status.state.absolute_wake_at * 1000).toLocaleString("zh-CN", {
           timeZone: "Asia/Shanghai",
         })
       }}
@@ -81,6 +121,15 @@ onMounted(() => task(load));
         type="checkbox"
       />启用上海时间定时作息</label
     ><label class="checkbox"
+      ><input
+        v-model="policy.value.anticipation_enabled"
+        type="checkbox"
+      />提前一分钟由模型选择如期、取消本次或推迟</label
+    >
+    <p class="muted">
+      只作用于已授权、可移动的自主阅读和文字安排，以及已启用的作息。每次推迟1–30分钟、最多两次；失败默认如期，取消起床仍保留最长睡眠期限，不发送渠道消息。
+    </p>
+    <label class="checkbox"
       ><input
         v-model="policy.value.natural_enabled"
         type="checkbox"
@@ -148,5 +197,38 @@ onMounted(() => task(load));
         保存作息策略
       </button>
     </div>
+    <details aria-label="提前选择记录">
+      <summary>提前选择记录</summary>
+      <p class="muted">
+        最近50项本人管理的通知。选择成功不代表活动已经执行；模型失败、中断或未获得槽位时仍按原计划处理。
+      </p>
+      <button class="secondary" :disabled="busy" @click="task(loadDecisions)">
+        刷新选择记录
+      </button>
+      <p v-if="!decisions.length">尚无提前选择记录。</p>
+      <article v-for="item in decisions" :key="item.id" class="job-card">
+        <strong>{{ eventLabels[item.kind] ?? item.kind }}</strong>
+        <p>
+          本次期限：{{
+            new Date(item.due_at * 1000).toLocaleString("zh-CN", {
+              timeZone: "Asia/Shanghai",
+            })
+          }}
+          · 已推迟{{ item.postponements }}次
+        </p>
+        <p>
+          选择：{{ choiceLabels[item.decision] }} ·
+          {{ decisionLabels[item.decision_status] ?? item.decision_status }}
+        </p>
+        <p v-if="item.error_code" class="muted">
+          {{ scheduleReason(item.error_code) }}
+        </p>
+        <p v-for="attempt in item.attempts" :key="attempt.id" class="muted">
+          请求{{ attemptLabels[attempt.status] ?? attempt.status }} · 预留预算{{
+            attempt.reserved_tokens
+          }}
+        </p>
+      </article>
+    </details>
   </section>
 </template>
