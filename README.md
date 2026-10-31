@@ -4,7 +4,7 @@
 
 新入口为根目录 npm 工作区：`apps/server` 后端、`apps/admin` 管理页面；运行链路不编译或调用 Rust。原代码、素材和未提交的 Breeze 改动保留，旧说明见 [DSH历史README](docs/legacy/README-DSH.md)。用户于2026-10-31指定新仓库[GitHub Prometheus](https://github.com/lakasli/Prometheus)，旧远端保留为dsh-legacy，本地仍为D:\DSH。
 
-**当前已推进到第二十三批，补齐QQ入站MP4与微信图片/视频/已有音频/文件收发；完整旧功能的迁移仍未完成。** 本批固定Windows交付、362项后端/29项浏览器和完整19→20升级/旧版恢复见[渠道媒体验收](docs/prometheus-channel-media-validation.md)。 真实QQ / 微信、正式外部模型与媒体平台验收单独记录；语音、Harness和生成插件执行在Windows隔离验证前保持禁用。原目标继续保留，见 [逐项迁移范围](docs/prometheus-migration.md)。
+**当前已推进到第二十四批，补齐Windows固定媒体工作器隔离、本机ASR/TTS与视频采样理解；完整旧功能的迁移仍未完成。** 固定SHA `f10885b` 已在Windows部署，383项后端、30项浏览器、18项制品、7项隔离探针及10项真实媒体检查，以及完整20→21升级/旧20恢复见[工作器媒体验收](docs/prometheus-worker-media-validation.md)。真实QQ/微信与外部Vision/Native仍待验；ASR/视频/TTS须明确开启，Harness、用户代码与生成插件执行继续禁用。原目标继续保留，见[逐项迁移范围](docs/prometheus-migration.md)。
 
 ## 开发与启动
 
@@ -41,6 +41,7 @@ npm.cmd start
 - 明确来源的模型记忆候选、摘要、多批日记与人物整理；来源授权、审核、遗忘水位及后台预算独立。
 - 停用触发草稿、预演后启用、隔离文字任务与有界阅读、上海日历、作息与原期限恢复。
 - PNG来源绑定、视觉描述进入Native、显式生图、HTML / SVG隔离预览、好感事件与衰减。
+- QQ/微信受控媒体收发与大文件上传；独立启用的本机语音转写、Piper语音生成、私有试听及有来源/覆盖范围的视频采样理解。
 
 管理页不恢复旧Web对话工作台。配置模型后，可通过认证API或CLI使用文字链路：
 
@@ -59,5 +60,7 @@ node deploy/prometheus/verify-release.mjs <runtime绝对路径>
 ```
 
 发布从已推送SHA构建，前后端版本一致，生成逐文件哈希和ZIP。包内Start-Prometheus.ps1验证后前台启动；数据在制品之外，不安装服务或自启动。
+
+本地媒体包加`-IncludeMediaRuntime`，需要MSVC/Windows SDK，按锁文件安装固定Windows引擎和权重；普通npm构建不下载模型。任务在私有短路径AppContainer/Job内执行，不将用户程序放进媒体worker。许可、模型来源、配置开关与额外复验命令见[Windows流程](docs/prometheus-windows.md)。
 
 旧备份包含Git bundle、工作区差异、原有未跟踪源码和SQLite一致性快照。第三方运行库及原始音频素材保留原位。详见 [架构](docs/prometheus-architecture.md)、[Windows流程](docs/prometheus-windows.md)、[首轮验收](docs/prometheus-validation.md) 与 [第二批验收](docs/prometheus-phase2-validation.md)。

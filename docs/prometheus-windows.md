@@ -69,13 +69,21 @@ node deploy/prometheus/backup-instance.mjs --data-dir D:/DSH/.local/prometheus/i
 
 脚本取得与服务相同的原子数据锁，复制主密钥等全部文件、生成SQLite一致性快照并检查integrity_check，保存私有清单与逐文件哈希。拒绝符号链接及数据目录内的目标；已有锁时失败，不杀进程。备份位于.local/prometheus/backups/instance-*，不输出秘密。
 
-当前实现schema20不能由schema1/2/3/4/5/6/7/8/9/10/11/12/13/14/15/16/17/18/19制品打开，实际部署SHA见对应验收记录。升级前自动创建原schema数据库快照，正式升级另备份完整实例；回退先保留新目录，向另一个私有目录恢复匹配旧制品的完整快照（含主密钥），再用上一版固定SHA启动和复验。不能覆盖运行数据或仅切换代码。
+当前实现schema21不能由schema1/2/3/4/5/6/7/8/9/10/11/12/13/14/15/16/17/18/19/20制品打开，实际部署SHA见对应验收记录。升级前自动创建原schema数据库快照，正式升级另备份完整实例；回退先保留新目录，向另一个私有目录恢复匹配旧制品的完整快照（含主密钥），再用上一版固定SHA启动和复验。不能覆盖运行数据或仅切换代码。
 
 ## 隔离工作器前置检查
 
-语音、Harness、Python和Component执行仍禁用。可在安装MSVC Build Tools/Windows SDK的本机执行`npm.cmd run build:worker`构建固定空权限探针；打包加`-IncludeWorkerProbe`时会从同一Git SHA重新编译并记录制品哈希。正常TypeScript构建不自动启动该探针。
+Harness、用户Python和Component执行仍禁用。固定媒体工作器独立验收并明确启用；不会因此开放用户代码。可在安装MSVC Build Tools/Windows SDK的本机执行`npm.cmd run build:worker`构建空权限探针；打包加`-IncludeWorkerProbe`从同一Git SHA重新编译并记录哈希，`-IncludeMediaRuntime`另装锁定的本地媒体运行库和权重。正常TypeScript构建不下载模型、不自动启用ASR/视频/TTS。
 
-`node deploy/prometheus/verify-worker.mjs <runtime绝对目录>`核对探针哈希并写入独立私有报告；阻塞退出2，不计为应用或隔离通过。当前主机已记录签名策略4551/CodeIntegrity事件及子进程0xC0000142初始化失败，权限和完整生命周期尚未验收，不调整安全策略。详见[迁移审查](prometheus-migration-audit.md)。
+`node deploy/prometheus/verify-worker.mjs <runtime绝对目录>`核对探针哈希与七项权限/资源/生命周期，阻塞退出2，不计为通过。媒体运行库另执行下列十项真实引擎及取消/停止/broker死亡检查；参数只用公开/合成夹具，不上传用户媒体。历史4551/CodeIntegrity及0xC0000142保留，当前结果、许可、长路径修复与完整恢复见[工作器媒体验收](prometheus-worker-media-validation.md)，不改变系统策略。
+
+```powershell
+pwsh -File deploy/prometheus/package-windows.ps1 -Commit <已推送完整SHA> -PreviousVerifiedCommit <上一可用SHA> -IncludeMediaRuntime
+node deploy/prometheus/verify-worker.mjs <runtime绝对目录>
+node deploy/prometheus/verify-media-worker.mjs <runtime绝对目录> <公开WAV> <合成SILK> <合成41秒MP4>
+```
+
+每任务新建只读运行库与输入、独占可写输出，AppContainer零capabilities；Job为1536MiB/系统CPU20%/单进程/60秒，本地并发一项。临时目录为`%LOCALAPPDATA%/Prometheus/workers/<数据目录哈希>`，验证私有NTFS ACL、短路径与至少1GiB空闲空间；避免Python和原生codec随数据目录加深而无法启动。只清理已确认退出的本实例UUID，不在制品或备份中保存任务输入。运行库、模型和全部许可随私有包交付；huayan数据集许可Unknown，仅本机个人评估。ASR转写和采样画面将进入已配置的远程模型，需在管理页分别明确开启；音轨仅随ASR开启处理。试听为认证私有制品，不等于平台外发或设备播放验收。
 
 针对本批逻辑的固定制品回归可设置`PROMETHEUS_RELEASE_ROOT`后执行`node --test apps/server/test/migration-logic.test.mjs`；测试数据仍放在工作区忽略目录，不写入制品。
 
