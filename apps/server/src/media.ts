@@ -48,10 +48,14 @@ export function normalizedPng(input: Buffer): {
     ended = false,
     header = false,
     idatStarted = false,
-    idatEnded = false;
+    idatEnded = false,
+    palette = false,
+    transparency = false,
+    chunks = 0;
   const output: Buffer[] = [signature],
     compressed: Buffer[] = [];
   while (offset < input.length) {
+    if (++chunks > 4096) throw bad("PNG块数量超过限制");
     if (offset + 12 > input.length) throw bad("PNG块被截断");
     const size = input.readUInt32BE(offset);
     if (size > 1048576 || offset + size + 12 > input.length)
@@ -61,6 +65,8 @@ export function normalizedPng(input: Buffer): {
       chunk = input.subarray(offset, offset + size + 12);
     if (
       !/^[A-Za-z]{4}$/.test(name) ||
+      name[2] !== name[2]!.toUpperCase() ||
+      ["acTL", "fcTL", "fdAT"].includes(name) ||
       crc(input.subarray(offset + 4, offset + 8 + size)) !==
         input.readUInt32BE(offset + 8 + size)
     )
@@ -99,8 +105,31 @@ export function normalizedPng(input: Buffer): {
       break;
     } else {
       if (idatStarted) idatEnded = true;
-      if (name === "PLTE" || name === "tRNS") output.push(chunk);
-      else if (name[0] === name[0]!.toUpperCase()) throw bad("PNG含未知关键块");
+      if (name === "PLTE") {
+        if (
+          palette ||
+          transparency ||
+          idatStarted ||
+          !size ||
+          size > 768 ||
+          size % 3
+        )
+          throw bad("PNG调色板无效");
+        palette = true;
+        output.push(chunk);
+      } else if (name === "tRNS") {
+        if (
+          transparency ||
+          idatStarted ||
+          channels !== 3 ||
+          size !== 6 ||
+          [0, 2, 4].some((index) => data.readUInt16BE(index) > 255)
+        )
+          throw bad("PNG透明度数据无效");
+        transparency = true;
+        output.push(chunk);
+      } else if (name[0] === name[0]!.toUpperCase())
+        throw bad("PNG含未知关键块");
     }
     offset += size + 12;
   }
@@ -108,9 +137,14 @@ export function normalizedPng(input: Buffer): {
   const expected = (width * channels + 1) * height;
   let decoded: Buffer;
   try {
-    decoded = inflateSync(Buffer.concat(compressed), {
+    const inputData = Buffer.concat(compressed);
+    const result = inflateSync(inputData, {
       maxOutputLength: expected,
-    });
+      info: true,
+    }) as unknown as { buffer: Buffer; engine: { bytesWritten: number } };
+    if (result.engine.bytesWritten !== inputData.length)
+      throw bad("PNG压缩流含尾随数据");
+    decoded = result.buffer;
   } catch {
     throw bad("PNG解压失败或超过资源限制");
   }
@@ -227,6 +261,11 @@ export class Media {
       )
       .get(id, owner, now());
     if (!row) throw missing();
+    if (
+      row.mime !== "image/png" ||
+      normalizedPng(Buffer.from(row.bytes as Uint8Array)).digest !== row.digest
+    )
+      throw bad("图片制品校验失败，请重新提供原图", "media_asset_invalid");
     return row as unknown as {
       id: string;
       owner_id: string;

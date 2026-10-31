@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createServer } from "node:http";
+import { createHash } from "node:crypto";
 import { deflateSync } from "node:zlib";
 import { fixture, until } from "./helpers.mjs";
 function chunk(type, data) {
@@ -31,6 +32,224 @@ function png() {
     chunk("IEND", Buffer.alloc(0)),
   ]);
 }
+
+function insertPng(input, before, chunks) {
+  let offset = 8;
+  while (offset < input.length) {
+    if (input.toString("ascii", offset + 4, offset + 8) === before)
+      return Buffer.concat([
+        input.subarray(0, offset),
+        ...chunks,
+        input.subarray(offset),
+      ]);
+    offset += input.readUInt32BE(offset) + 12;
+  }
+  throw new Error("Missing PNG insertion point");
+}
+
+test("PNG ingress preserves the old strict static-image boundary and never stores APNG or structurally invalid ancillary data", async (t) => {
+  const app = await fixture();
+  t.after(() => app.close());
+  await app.bootstrap();
+  const conversation = (await app.call("/conversations", "POST", {})).data;
+  const animation = Buffer.alloc(8);
+  animation.writeUInt32BE(1);
+  const frame = Buffer.alloc(26);
+  frame.writeUInt32BE(1, 4);
+  frame.writeUInt32BE(1, 8);
+  const cases = [
+    [
+      "APNG controls",
+      insertPng(png(), "IDAT", [
+        chunk("acTL", animation),
+        chunk("fcTL", frame),
+      ]),
+    ],
+    [
+      "APNG frame data",
+      insertPng(png(), "IDAT", [chunk("fdAT", Buffer.from([0, 0, 0, 0]))]),
+    ],
+    [
+      "reserved chunk bit",
+      insertPng(png(), "IDAT", [chunk("text", Buffer.alloc(0))]),
+    ],
+    [
+      "palette after pixels",
+      insertPng(png(), "IEND", [chunk("PLTE", Buffer.from([1, 2, 3]))]),
+    ],
+    [
+      "duplicate palette",
+      insertPng(png(), "IDAT", [
+        chunk("PLTE", Buffer.from([1, 2, 3])),
+        chunk("PLTE", Buffer.from([1, 2, 3])),
+      ]),
+    ],
+    [
+      "invalid palette length",
+      insertPng(png(), "IDAT", [chunk("PLTE", Buffer.from([1]))]),
+    ],
+    [
+      "redundant RGBA transparency",
+      insertPng(png(), "IDAT", [
+        chunk("tRNS", Buffer.from([0, 0, 0, 0, 0, 0])),
+      ]),
+    ],
+    [
+      "excessive chunks",
+      insertPng(
+        png(),
+        "IDAT",
+        Array.from({ length: 4097 }, () => chunk("tEXt", Buffer.alloc(0))),
+      ),
+    ],
+    [
+      "compressed stream suffix",
+      (() => {
+        const input = png();
+        let offset = 8;
+        while (input.toString("ascii", offset + 4, offset + 8) !== "IDAT")
+          offset += input.readUInt32BE(offset) + 12;
+        const length = input.readUInt32BE(offset);
+        return Buffer.concat([
+          input.subarray(0, offset),
+          chunk(
+            "IDAT",
+            Buffer.concat([
+              input.subarray(offset + 8, offset + 8 + length),
+              Buffer.from("HIDDEN_TRAILING_BYTES"),
+            ]),
+          ),
+          input.subarray(offset + 12 + length),
+        ]);
+      })(),
+    ],
+  ];
+  for (const [label, bytes] of cases) {
+    const response = await app.call("/media/assets", "POST", {
+      conversation_id: conversation.id,
+      data_base64: bytes.toString("base64"),
+    });
+    assert.equal(response.status, 400, label);
+  }
+  assert.equal(app.store.get("SELECT count(*) AS n FROM media_assets").n, 0);
+});
+test("valid RGB transparency and suggested RGBA palettes remain usable without retaining textual metadata", async (t) => {
+  const app = await fixture();
+  t.after(() => app.close());
+  await app.bootstrap();
+  const conversation = (await app.call("/conversations", "POST", {})).data;
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(1);
+  header.writeUInt32BE(1, 4);
+  header[8] = 8;
+  header[9] = 2;
+  const rgb = Buffer.concat([
+    Buffer.from("89504e470d0a1a0a", "hex"),
+    chunk("IHDR", header),
+    chunk("IDAT", deflateSync(Buffer.from([0, 17, 34, 51]))),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+  for (const bytes of [
+    insertPng(rgb, "IDAT", [
+      chunk("PLTE", Buffer.from([17, 34, 51])),
+      chunk("tRNS", Buffer.from([0, 17, 0, 34, 0, 51])),
+      chunk("tEXt", Buffer.from("private\0RGB_METADATA_CANARY")),
+    ]),
+    insertPng(png(), "IDAT", [chunk("PLTE", Buffer.from([255, 0, 0]))]),
+  ]) {
+    const asset = await app.call("/media/assets", "POST", {
+      conversation_id: conversation.id,
+      data_base64: bytes.toString("base64"),
+    });
+    assert.equal(asset.status, 201);
+    const response = await fetch(
+      app.origin + "/api/admin/v1/media/assets/" + asset.data.id,
+      { headers: { cookie: app.cookie } },
+    );
+    assert.equal(response.status, 200);
+    const stored = Buffer.from(await response.arrayBuffer());
+    assert.ok(
+      !stored.includes(Buffer.from("METADATA_CANARY")) &&
+        !stored.includes(Buffer.from("hidden-raw-metadata")),
+    );
+    assert.equal(
+      createHash("sha256").update(stored).digest("hex"),
+      asset.data.sha256,
+    );
+  }
+  for (const transparency of [
+    Buffer.from([0]),
+    Buffer.from([1, 0, 0, 0, 0, 0]),
+  ]) {
+    assert.equal(
+      (
+        await app.call("/media/assets", "POST", {
+          conversation_id: conversation.id,
+          data_base64: insertPng(rgb, "IDAT", [
+            chunk("tRNS", transparency),
+          ]).toString("base64"),
+        })
+      ).status,
+      400,
+    );
+  }
+});
+
+test("stored legacy PNGs are revalidated before download or chat and an invalid or mismatched artifact is retained without being used", async (t) => {
+  const app = await fixture();
+  t.after(() => app.close());
+  await app.bootstrap();
+  const conversation = (await app.call("/conversations", "POST", {})).data;
+  const asset = await app.call("/media/assets", "POST", {
+    conversation_id: conversation.id,
+    data_base64: png().toString("base64"),
+  });
+  assert.equal(asset.status, 201);
+  const original = Buffer.from(
+      app.store.get("SELECT bytes FROM media_assets WHERE id=?", asset.data.id)
+        .bytes,
+    ),
+    invalid = insertPng(original, "IEND", [
+      chunk("PLTE", Buffer.from([1, 2, 3])),
+    ]);
+  app.store.run(
+    "UPDATE media_assets SET bytes=?,digest=? WHERE id=?",
+    invalid,
+    createHash("sha256").update(invalid).digest("hex"),
+    asset.data.id,
+  );
+  assert.equal(
+    (
+      await fetch(app.origin + "/api/admin/v1/media/assets/" + asset.data.id, {
+        headers: { cookie: app.cookie },
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await app.call("/media/assets/" + asset.data.id + "/chat", "POST", {
+        content: "请查看这张图",
+      })
+    ).status,
+    400,
+  );
+  assert.equal(app.store.get("SELECT count(*) AS n FROM runs").n, 0);
+  assert.equal(app.store.get("SELECT count(*) AS n FROM media_assets").n, 1);
+  app.store.run(
+    "UPDATE media_assets SET bytes=?,digest=? WHERE id=?",
+    original,
+    "0".repeat(64),
+    asset.data.id,
+  );
+  const mismatch = await fetch(
+    app.origin + "/api/admin/v1/media/assets/" + asset.data.id,
+    { headers: { cookie: app.cookie } },
+  );
+  assert.equal(mismatch.status, 400);
+  assert.equal((await mismatch.json()).error.code, "media_asset_invalid");
+});
+
 test("explicit image generation accepts only validated PNG bytes and never follows provider image URLs", async (t) => {
   let count = 0;
   const provider = createServer(async (req, res) => {
