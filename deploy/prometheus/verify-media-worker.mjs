@@ -4,6 +4,7 @@ import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { randomUUID, createHash } from "node:crypto";
 import { release, arch } from "node:os";
+import { createRequire } from "node:module";
 
 // Explicit public/synthetic fixtures only. Never point these arguments at user media.
 const [rootArg, audioArg, silkArg, videoArg] = process.argv.slice(2);
@@ -12,6 +13,7 @@ assert.ok(
   "Usage: node verify-media-worker.mjs RUNTIME PUBLIC_WAV SYNTHETIC_SILK SYNTHETIC_MP4",
 );
 const root = resolve(rootArg);
+const sharp = createRequire(join(root, "apps/server/package.json"))("sharp");
 const { LocalWorker } = await import(
   pathToFileURL(join(root, "apps/server/dist/local-worker.js"))
 );
@@ -91,7 +93,7 @@ async function execute(name, kind, input, options, verify) {
     capabilities: 0,
     in_job: 1,
   });
-  verify(result);
+  await verify(result);
   clean();
   report.checks.push({
     name,
@@ -169,7 +171,7 @@ try {
       "video",
       fixtures.video,
       { transcribe_audio },
-      (r) => {
+      async (r) => {
         assert.deepEqual(r.receipt.result.frames_at, [0, 10, 20, 30, 40]);
         assert.ok(
           r.receipt.result.decoded_until >= 40 &&
@@ -180,11 +182,20 @@ try {
           transcribe_audio ? "transcribed" : "not_processed",
         );
         if (transcribe_audio) assert.ok(r.receipt.result.audio.text.length > 2);
-        for (let n = 0; n < 5; n++)
+        for (let n = 0; n < 5; n++) {
           assert.equal(
             r.files.get(`frame-${n}.png`).subarray(1, 4).toString(),
             "PNG",
           );
+          const pixel = await sharp(r.files.get(`frame-${n}.png`))
+            .removeAlpha()
+            .raw()
+            .toBuffer();
+          assert.ok(
+            n % 2 === 0 ? pixel[0] > pixel[1] + 80 : pixel[1] > pixel[0] + 50,
+            "Synthetic video must alternate actual decoded red and green frames",
+          );
+        }
       },
     );
   for (const mode of ["cancel", "launcher-death", "shutdown"]) {

@@ -10,8 +10,9 @@ import {
   rmSync,
   unlinkSync,
   rmdirSync,
+  statfsSync,
 } from "node:fs";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { createServer, createConnection } from "node:net";
@@ -61,10 +62,26 @@ export class LocalWorker {
     dataDir: string,
     private testRunner?: LocalTestRunner,
   ) {
-    this.root = resolve(
-      dirname(dataDir),
-      ".prometheus-workers-" + hash(resolve(dataDir)).slice(0, 16),
-    );
+    const cache = process.env.LOCALAPPDATA;
+    if (process.platform === "win32" && (!cache || !isAbsolute(cache)))
+      throw error("worker_directory_invalid");
+    // Python's bootstrap and native codecs still have path-length limits even
+    // with extended Win32 paths. Keep the job namespace short and independent
+    // of arbitrarily deep data/recovery directories; never relax OS policy.
+    this.root =
+      process.platform === "win32"
+        ? resolve(
+            cache!,
+            "Prometheus",
+            "workers",
+            hash(resolve(dataDir)).slice(0, 32),
+          )
+        : resolve(
+            dirname(dataDir),
+            ".prometheus-workers-" + hash(resolve(dataDir)).slice(0, 32),
+          );
+    if (process.platform === "win32" && this.root.length > 120)
+      throw error("worker_path_too_long");
   }
   get installed() {
     return (
@@ -210,6 +227,9 @@ export class LocalWorker {
   }
   private async recover() {
     privateDirectory(this.root, false);
+    const disk = statfsSync(this.root, { bigint: true });
+    if (disk.bavail * disk.bsize < 1024n * 1024n * 1024n)
+      throw error("worker_storage_capacity");
     const marker = join(this.root, "owner.json"),
       identity = hash(this.root);
     if (existsSync(marker)) {
