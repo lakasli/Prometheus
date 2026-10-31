@@ -128,13 +128,15 @@ def synthesize(text, encoding):
     import onnxruntime as ort
     from piper import PiperVoice
     from piper.config import PiperConfig
-    from piper.voice import ESPEAK_DATA_DIR
     options = ort.SessionOptions()
     options.intra_op_num_threads = 2
     options.inter_op_num_threads = 1
     voice = PiperVoice(config=PiperConfig.from_dict(json.loads((RUNTIME / "models/huayan.onnx.json").read_text(encoding="utf-8"))),
                        session=ort.InferenceSession(str(RUNTIME / "models/huayan.onnx"), sess_options=options, providers=["CPUExecutionProvider"]),
-                       espeak_data_dir=ESPEAK_DATA_DIR, download_dir=OUT)
+                       # espeak-ng's C path buffer does not support long absolute paths.
+                       # Native broker fixes cwd to this job; the relative path is constant,
+                       # stays inside the read-only runtime, and needs no OS policy change.
+                       espeak_data_dir=Path('runtime/Lib/piper/espeak-ng-data'), download_dir=OUT)
     with wave.open(str(OUT / "speech.wav"), "wb") as output:
         voice.synthesize_wav(text, output)
     with wave.open(str(OUT / 'speech.wav'),'rb') as check:

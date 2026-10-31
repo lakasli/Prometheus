@@ -41,6 +41,7 @@ const directory = privateDirectory(
   resolve(
     ".local/prometheus/media-worker-validation",
     build.commit,
+    "Windows-long-path-compatibility-proof",
     randomUUID(),
   ),
 );
