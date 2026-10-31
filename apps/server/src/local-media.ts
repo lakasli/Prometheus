@@ -491,17 +491,45 @@ export class LocalMedia {
       sources: string[] = [];
     if (isolated) return { messages, sources };
     const r = this.store.get("SELECT * FROM runs WHERE id=?", run)!;
-    for (const source of this.store.all(
-      "SELECT * FROM understanding_sources WHERE owner_id=? AND conversation_id=? AND context_epoch=? AND status='described' AND result_json IS NOT NULL ORDER BY created_at DESC LIMIT 6",
-      String(r.owner_id),
-      String(r.conversation_id),
-      Number(r.context_epoch),
-    )) {
+    const ids = new Set<string>();
+    if (
+      this.store.get(
+        "SELECT run_id FROM understanding_sources WHERE run_id=?",
+        run,
+      )
+    )
+      ids.add(run);
+    for (const old of history) {
       if (
-        (source.run_id !== run && !history.includes(String(source.run_id))) ||
+        this.store.get(
+          "SELECT run_id FROM understanding_sources WHERE run_id=?",
+          old,
+        )
+      )
+        ids.add(old);
+      for (const use of this.store.all(
+        "SELECT source_run_id FROM understanding_uses WHERE run_id=?",
+        old,
+      ))
+        ids.add(String(use.source_run_id));
+    }
+    // Retained derived turns carry their actual source chain even when the original
+    // attachment turn was evicted. Runtime budgets these bodies with complete turns.
+    for (const id of ids) {
+      const source = this.store.get(
+        "SELECT * FROM understanding_sources WHERE run_id=? AND owner_id=? AND conversation_id=? AND context_epoch=?",
+        id,
+        String(r.owner_id),
+        String(r.conversation_id),
+        Number(r.context_epoch),
+      );
+      if (
+        !source ||
+        source.status !== "described" ||
+        !source.result_json ||
         !this.sourceCurrent(source, true)
       )
-        continue;
+        throw failed();
       messages.push({
         role: "user",
         content:

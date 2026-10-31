@@ -466,6 +466,59 @@ test("an actually used audio source is excluded from summary and cannot re-enter
     false,
   );
 });
+test("evicting the original audio turn preserves transitive provenance, summary exclusion and later revocation", async (t) => {
+  const marker = "AUDIO_DERIVED_SHOULD_NOT_SURVIVE_REVOCATION";
+  const x = await setup(t, { reply: marker });
+  const config = (await x.app.call("/config")).data;
+  config.config.runtime.max_history_messages = 2;
+  assert.equal(
+    (
+      await x.app.call(
+        "/config",
+        "PUT",
+        { config: config.config },
+        { headers: { "if-match": `"${config.revision}"` } },
+      )
+    ).status,
+    200,
+  );
+  const first = await x.receive();
+  await x.sent(first.run_id);
+  for (let n = 0; n < 3; n++) {
+    const next = await x.receive(
+      "text",
+      ("继续讨论音频第" + n + "次。").repeat(30),
+    );
+    await x.sent(next.run_id);
+    assert.equal(
+      x.app.store.get(
+        "SELECT source_run_id FROM understanding_uses WHERE run_id=?",
+        next.run_id,
+      ).source_run_id,
+      first.run_id,
+    );
+    const message = x.app.store.get(
+      "SELECT * FROM messages WHERE run_id=? AND role='assistant'",
+      next.run_id,
+    );
+    assert.equal(visualSourceAllowed(x.app.store, message, "summary"), false);
+    assert.ok(
+      JSON.stringify(
+        x.calls.filter((c) => c.body?.model === "synthetic-model").at(-1).body
+          .messages,
+      ).includes("这段音频提到今天阳光很好"),
+    );
+  }
+  await x.policy(false, false);
+  const next = await x.receive("text", "现在讨论一个无关的新话题。".repeat(30));
+  await x.sent(next.run_id);
+  const body = JSON.stringify(
+    x.calls.filter((c) => c.body?.model === "synthetic-model").at(-1).body
+      .messages,
+  );
+  assert.equal(body.includes(marker), false);
+  assert.equal(body.includes("这段音频提到今天阳光很好"), false);
+});
 test("Native voice text becomes a source-bound, proven audio asset and QQ sends it only after synthesis succeeds", async (t) => {
   const x = await setup(t, {
     reply: JSON.stringify([{ type: "voice", text: "你好，今天阳光很好。" }]),
