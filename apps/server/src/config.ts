@@ -65,7 +65,11 @@ export function modelUrl(value: string, allowLoopback = false): URL {
     throw bad("模型地址无效");
   return url;
 }
-export function validateConfig(value: unknown, allowLoopback = false): Config {
+export function validateConfig(
+  value: unknown,
+  allowLoopback = false,
+  speechReady = false,
+): Config {
   const root = fields(value, ["model", "runtime", "qq", "weixin", "speech"]);
   const model = fields(root.model, ["base_url", "model", "credential_ref"]);
   const runtime = fields(root.runtime, [
@@ -87,7 +91,8 @@ export function validateConfig(value: unknown, allowLoopback = false): Config {
   modelUrl(baseUrl, allowLoopback);
   const qqEnabled = boolean(qq.enabled, "QQ 开关");
   const weixinEnabled = boolean(weixin.enabled, "微信开关");
-  if (boolean(speech.enabled, "语音开关")) throw unavailable("隔离语音 worker");
+  if (boolean(speech.enabled, "语音开关") && !speechReady)
+    throw unavailable("隔离语音 worker");
   const transport = string(qq.transport, "QQ 连接方式", 20);
   if (transport !== "webhook" && transport !== "websocket")
     throw bad("QQ 连接方式无效");
@@ -119,7 +124,7 @@ export function validateConfig(value: unknown, allowLoopback = false): Config {
       transport,
     },
     weixin: { enabled: weixinEnabled },
-    speech: { enabled: false },
+    speech: { enabled: boolean(speech.enabled, "语音开关") },
   };
 }
 /** Inactive drafts may have unfinished names/ranges, but never extra fields,

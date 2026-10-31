@@ -8,6 +8,7 @@ import AutomationPanel from "./components/AutomationPanel.vue";
 import RestPanel from "./components/RestPanel.vue";
 import RestDiaryPanel from "./components/RestDiaryPanel.vue";
 import MediaPanel from "./components/MediaPanel.vue";
+import LocalSpeechPanel from "./components/LocalSpeechPanel.vue";
 import PluginsPanel from "./components/PluginsPanel.vue";
 import ArtworkPanel from "./components/ArtworkPanel.vue";
 import CalendarPanel from "./components/CalendarPanel.vue";
@@ -1510,6 +1511,11 @@ onUnmounted(() => {
         </section>
         <ChannelsPanel v-if="page === 'channels'" @error="failure" />
         <MediaPanel v-if="page === 'channels'" @error="failure" />
+        <LocalSpeechPanel
+          v-if="page === 'channels'"
+          @error="failure"
+          @changed="loadPage"
+        />
         <DiaryPanel
           v-if="page === 'diary'"
           @error="failure"

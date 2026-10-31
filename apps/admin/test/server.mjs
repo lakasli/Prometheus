@@ -6,6 +6,22 @@ import { createServer } from "node:http";
 const wxBytes = Buffer.from("Synthetic browser opaque file; not interpreted."),
   wxKey = Buffer.from("0123456789abcdef");
 let wxDelivered = false;
+function speechWave() {
+  const b = Buffer.alloc(6444);
+  b.write("RIFF");
+  b.writeUInt32LE(b.length - 8, 4);
+  b.write("WAVEfmt ", 8);
+  b.writeUInt32LE(16, 16);
+  b.writeUInt16LE(1, 20);
+  b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(16000, 24);
+  b.writeUInt32LE(32000, 28);
+  b.writeUInt16LE(2, 32);
+  b.writeUInt16LE(16, 34);
+  b.write("data", 36);
+  b.writeUInt32LE(b.length - 44, 40);
+  return b;
+}
 const provider = createServer(async (request, response) => {
   let raw = "";
   for await (const chunk of request) raw += chunk;
@@ -201,6 +217,34 @@ const app = await startServer({
   origin: "http://127.0.0.1:18449",
   secureCookie: false,
   allowLoopbackModel: true,
+  testLocalMediaRunner: async (kind, _input, _options, signal) => {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(resolve, 250);
+      signal.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timer);
+          reject(Error("synthetic cancelled"));
+        },
+        { once: true },
+      );
+    });
+    return {
+      receipt: {
+        status: "completed",
+        kind,
+        isolation: { app_container: 1, capabilities: 0, in_job: 1 },
+        result: { provider: "synthetic-browser-Piper" },
+      },
+      files: new Map([["speech.wav", speechWave()]]),
+      isolation: {
+        active_processes: 0,
+        peak_memory_bytes: 1048576,
+        cpu_100ns: 100000,
+      },
+      elapsed_ms: 250,
+    };
+  },
   testChannelEndpoints: {
     qq: modelUrl,
     weixin: modelUrl,

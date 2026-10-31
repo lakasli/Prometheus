@@ -3140,3 +3140,83 @@ test("Weixin QR binding receives an encrypted file and sends a separately confir
     fullPage: true,
   });
 });
+test("local media switches are explicit and private speech preview loads authenticated WAV without sending a platform message", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.getByRole("button", { name: "渠道与媒体", exact: true }).click();
+  await page.getByLabel("视觉模型名称").fill("synthetic-vision");
+  await page.getByLabel("我确认此服务支持图像输入").check();
+  await page.getByLabel("启用本机语音转写").check();
+  await page.getByLabel("启用视频采样理解").check();
+  await page.getByRole("button", { name: "保存媒体模型", exact: true }).click();
+  await expect(
+    page.getByText("媒体模型配置已保存；只启用明确确认的模型能力。", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  const policy = await (
+    await page.request.get("/api/admin/v1/media/policy")
+  ).json();
+  expect(policy.value.asr_enabled).toBe(true);
+  expect(policy.value.video_enabled).toBe(true);
+  const panel = page.getByRole("region", { name: "本机语音" });
+  await expect(panel).toBeVisible();
+  await panel.getByLabel("启用本机中文语音回复").check();
+  await panel
+    .getByRole("button", { name: "保存语音设置", exact: true })
+    .click();
+  await expect(panel.getByText("语音设置已保存并生效。")).toBeVisible();
+  await panel.getByLabel("试听文字").fill("你好，这是一段只在本页提供的试听。");
+  await panel
+    .getByRole("button", { name: "生成私有试听", exact: true })
+    .click();
+  await expect(
+    panel.getByTestId("speech-job").filter({ hasText: "已生成" }),
+  ).toHaveCount(1);
+  await panel
+    .getByRole("button", { name: "读取私有试听", exact: true })
+    .click();
+  const audio = panel.getByLabel("本次私有试听");
+  await expect(audio).toHaveAttribute("src", /^blob:/);
+  await expect
+    .poll(() => audio.evaluate((el) => (el as HTMLAudioElement).duration))
+    .toBeGreaterThan(0);
+  const state = await (await page.request.get("/api/admin/v1/speech")).json(),
+    asset = state.jobs[0].result.asset_id;
+  expect(JSON.stringify(state)).not.toContain("你好，这是一段");
+  expect(
+    (
+      await page.request.get("/api/admin/v1/speech/assets/" + asset, {
+        headers: { cookie: "" },
+      })
+    ).status(),
+  ).toBe(401);
+  await page.setViewportSize({ width: 320, height: 800 });
+  await expect
+    .poll(() =>
+      page
+        .locator("aside.sidebar")
+        .evaluate((el) => el.getBoundingClientRect().right),
+    )
+    .toBeLessThanOrEqual(0);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: resolve("../../.local/prometheus/e2e-local-speech-320.png"),
+    fullPage: true,
+  });
+  await panel
+    .getByRole("button", { name: "清理试听音频", exact: true })
+    .click();
+  await expect(panel.getByText("试听音频已清理。")).toBeVisible();
+  await expect(audio).toHaveCount(0);
+  expect(
+    (await page.request.get("/api/admin/v1/speech/assets/" + asset)).status(),
+  ).toBe(404);
+  expect(errors).toEqual([]);
+});

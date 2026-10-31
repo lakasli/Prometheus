@@ -15,6 +15,14 @@ copyFileSync(
   new URL("../src/schema.sql", import.meta.url),
   new URL("schema.sql", output),
 );
+copyFileSync(
+  new URL("deploy/prometheus/media-runtime-lock.json", root),
+  new URL("media-runtime-lock.json", output),
+);
+copyFileSync(
+  new URL("../native/media-worker.py", import.meta.url),
+  new URL("media-worker.py", output),
+);
 const manifestPath = new URL("build.json", output);
 const sha = process.env.PROMETHEUS_BUILD_SHA || "development";
 if (sha !== "development" && !/^[0-9a-f]{40}$/.test(sha))
@@ -28,7 +36,7 @@ writeFileSync(
         readFileSync(new URL("../package.json", import.meta.url), "utf8"),
       ).version,
       commit: sha,
-      data_schema: 20,
+      data_schema: 21,
     },
     null,
     2,

@@ -325,11 +325,19 @@ test("configuration conflicts, immutable history, rollback and fail-closed capab
   for (const route of [
     "/plugins/execute",
     "/harness/start",
-    "/speech/synthesize",
     "/weixin/login",
     "/qq/send",
   ])
     assert.equal((await app.call(route, "POST", {})).status, 503, route);
+  assert.equal(
+    (
+      await app.call("/speech/syntheses", "POST", {
+        text: "合成检查",
+        request_id: "disabled-speech-check",
+      })
+    ).status,
+    503,
+  );
   state.config.qq.enabled = true;
   assert.equal(
     (

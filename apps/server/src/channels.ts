@@ -747,10 +747,13 @@ export class Channels {
         undefined,
         asset
           ? { assetId: asset, deferDispatch: true }
-          : {
-              deferDispatch: true,
-              hostReply: this.incoming!.notice(code ?? "media_image_invalid"),
-            },
+          : transport &&
+              this.incoming!.media.canUnderstandTransport?.(transport.kind)
+            ? { deferDispatch: true }
+            : {
+                deferDispatch: true,
+                hostReply: this.incoming!.notice(code ?? "media_image_invalid"),
+              },
       );
       if (image)
         this.incoming!.media.archiveIncoming(
@@ -783,8 +786,19 @@ export class Channels {
         code ?? null,
         String(event.id),
       );
-      if (transport)
-        this.outgoing!.receiveInbound(run.run_id, String(event.id), transport);
+      if (transport) {
+        const asset = this.outgoing!.receiveInbound(
+          run.run_id,
+          String(event.id),
+          transport,
+        );
+        if (this.incoming!.media.canUnderstandTransport?.(transport.kind))
+          this.incoming!.media.attachTransport?.(
+            run.run_id,
+            asset,
+            transport.kind,
+          );
+      }
       this.store.audit(
         owner,
         "delivery",
@@ -966,7 +980,7 @@ export class Channels {
   }
   private seedDeliveries() {
     for (const row of this.store.all(
-      "SELECT r.id,r.response,r.owner_id,r.status FROM runs r JOIN run_targets t ON t.run_id=r.id WHERE (r.status='completed' OR r.status='failed' AND EXISTS(SELECT 1 FROM channel_media_sources q WHERE q.run_id=r.id AND q.kind='image')) AND NOT EXISTS(SELECT 1 FROM run_publications v WHERE v.run_id=r.id AND v.state='suppressed') AND NOT EXISTS(SELECT 1 FROM delivery_parts p WHERE p.run_id=r.id) LIMIT 20",
+      "SELECT r.id,r.response,r.owner_id,r.status FROM runs r JOIN run_targets t ON t.run_id=r.id WHERE (r.status='completed' OR r.status='failed' AND EXISTS(SELECT 1 FROM channel_media_sources q WHERE q.run_id=r.id AND q.kind IN ('image','voice','video'))) AND NOT EXISTS(SELECT 1 FROM run_publications v WHERE v.run_id=r.id AND v.state='suppressed') AND NOT EXISTS(SELECT 1 FROM delivery_parts p WHERE p.run_id=r.id) LIMIT 20",
     )) {
       let parts: {
         kind: string;
@@ -980,9 +994,22 @@ export class Channels {
           String(row.id),
         );
         if (row.status === "failed") {
-          parts = [{ kind: "text", text: mediaNotice("media_reply_failed") }];
+          const sourceKind = this.store.get(
+            "SELECT kind FROM channel_media_sources WHERE run_id=?",
+            String(row.id),
+          )?.kind;
+          parts = [
+            {
+              kind: "text",
+              text: mediaNotice(
+                sourceKind === "image"
+                  ? "media_reply_failed"
+                  : "media_analysis_failed",
+              ),
+            },
+          ];
           this.store.run(
-            "UPDATE channel_media_sources SET code='media_reply_failed' WHERE run_id=? AND kind='image'",
+            "UPDATE channel_media_sources SET code='media_reply_failed' WHERE run_id=?",
             String(row.id),
           );
           this.store.run(
@@ -992,10 +1019,11 @@ export class Channels {
         } else if (this.outgoing?.plan(String(row.id))) {
           parts = this.outgoing.plan(String(row.id))!.map((p) => ({
             kind: p.type,
-            text:
-              p.type === "text"
+            text: p.spoken_text
+              ? "[语音朗读]" + p.spoken_text
+              : p.type === "text"
                 ? p.text
-                : `[${({ image: "图片", video: "视频", voice: "语音" } as Record<string, string>)[p.type]}]${p.text}`,
+                : `[${({ image: "图片", video: "视频", voice: "语音", file: "文件" } as Record<string, string>)[p.type]}]${p.text}`,
             delay_ms: p.delay_ms,
             asset_id: p.asset_id,
           }));
@@ -1038,7 +1066,7 @@ export class Channels {
       status === "completed" ||
       (status === "failed" &&
         !!this.store.get(
-          "SELECT run_id FROM channel_media_sources WHERE run_id=? AND kind='image' AND code='media_reply_failed'",
+          "SELECT run_id FROM channel_media_sources WHERE run_id=? AND code='media_reply_failed'",
           run,
         ))
     );

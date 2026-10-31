@@ -4,7 +4,7 @@ import type { ModelMessage } from "./model.ts";
 import type { Row, Store } from "./store.ts";
 
 export const visionDerivedSql = (run: string) =>
-  `(EXISTS(SELECT 1 FROM run_media vm WHERE vm.run_id=${run}) OR EXISTS(SELECT 1 FROM vision_uses vu WHERE vu.run_id=${run}) OR EXISTS(SELECT 1 FROM channel_media_sources cm WHERE cm.run_id=${run}) OR EXISTS(SELECT 1 FROM qq_media_plans qp WHERE qp.run_id=${run}) OR EXISTS(SELECT 1 FROM qq_media_transfers qt JOIN delivery_parts p ON p.id=qt.part_id WHERE p.run_id=${run}))`;
+  `(EXISTS(SELECT 1 FROM understanding_sources us WHERE us.run_id=${run}) OR EXISTS(SELECT 1 FROM understanding_uses uu WHERE uu.run_id=${run}) OR EXISTS(SELECT 1 FROM run_media vm WHERE vm.run_id=${run}) OR EXISTS(SELECT 1 FROM vision_uses vu WHERE vu.run_id=${run}) OR EXISTS(SELECT 1 FROM channel_media_sources cm WHERE cm.run_id=${run}) OR EXISTS(SELECT 1 FROM qq_media_plans qp WHERE qp.run_id=${run}) OR EXISTS(SELECT 1 FROM qq_media_transfers qt JOIN delivery_parts p ON p.id=qt.part_id WHERE p.run_id=${run}))`;
 export function safeVisualText(store: Store, text: string) {
   return (
     !!text &&
@@ -30,6 +30,10 @@ export function visualSourceAllowed(store: Store, message: Row, purpose = "") {
   );
   const derived =
     direct ||
+    !!store.get(
+      "SELECT run_id FROM understanding_uses WHERE run_id=? LIMIT 1",
+      String(message.run_id),
+    ) ||
     !!store.get(
       "SELECT run_id FROM vision_uses WHERE run_id=? LIMIT 1",
       String(message.run_id),

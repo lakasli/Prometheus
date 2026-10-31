@@ -93,6 +93,11 @@ export class Runtime {
     config: Config,
     signal: AbortSignal,
   ) => Promise<void>;
+  prepareChannelReply?: (
+    run: string,
+    raw: string,
+    signal: AbortSignal,
+  ) => Promise<string>;
   attachMedia?: (run: string, asset: string) => void;
   mediaContext?: (
     run: string,
@@ -105,6 +110,7 @@ export class Runtime {
   invalidateMedia?: (conversation: string) => void;
   resetMediaContexts?: () => void;
   mediaMetadata?: (run: string) => Record<string, unknown>;
+  allowHistoryRun?: (run: string) => boolean;
   constructor(
     readonly store: Store,
     private allowLoopback = false,
@@ -617,7 +623,12 @@ export class Runtime {
               id,
               config.runtime.max_history_messages,
             )
-            .reverse();
+            .reverse()
+            .filter(
+              (row) =>
+                !this.allowHistoryRun ||
+                this.allowHistoryRun(String(row.run_id)),
+            );
       const messages: ModelMessage[] = [
         {
           role: "system",
@@ -746,7 +757,12 @@ export class Runtime {
             exact_tokens: false,
             input_bytes: Buffer.byteLength(JSON.stringify(messages)),
             history_messages: turns.length,
-            vision_sources: media.sources,
+            vision_sources: media.sources.filter(
+              (s) => !s.startsWith("local:"),
+            ),
+            local_media_sources: media.sources
+              .filter((s) => s.startsWith("local:"))
+              .map((s) => s.slice(6)),
             visual_description_bodies_omitted: media.sources.length > 0,
             memory_included: !!memory,
             record_sources: selectedRecords.refs,
@@ -775,9 +791,19 @@ export class Runtime {
                       message.content.slice(message.content.indexOf("\n") + 1),
                     );
                     delete data.description;
+                    const local = message.content.startsWith(
+                      "PROMETHEUS_LOCAL_MEDIA_SOURCE_V1\n",
+                    );
+                    if (local) delete data.transcript;
                     return (
-                      "PROMETHEUS_VISION_DESCRIPTION_SOURCE_V1\n" +
-                      JSON.stringify({ ...data, description_omitted: true })
+                      (local
+                        ? "PROMETHEUS_LOCAL_MEDIA_SOURCE_V1\n"
+                        : "PROMETHEUS_VISION_DESCRIPTION_SOURCE_V1\n") +
+                      JSON.stringify({
+                        ...data,
+                        description_omitted: true,
+                        ...(local ? { transcript_omitted: true } : {}),
+                      })
                     );
                   })()
                 : redact(message.content),
@@ -803,6 +829,12 @@ export class Runtime {
           502,
           "model_output_incomplete",
           "模型回复未完整结束，未发布或推进任务",
+        );
+      if (this.prepareChannelReply)
+        response.content = await this.prepareChannelReply(
+          id,
+          response.content,
+          controller.signal,
         );
       const channelPlan = this.resolveChannelReply?.(
         id,

@@ -63,8 +63,26 @@ onMounted(load);
     <p class="muted">
       图片接入支持PNG、JPEG、GIF、WebP和BMP，原图最多8MiB、单边12000像素且总计2400万像素。
       解码后保存为无元数据PNG，最多2048单边、2097152像素和2MiB；JPEG按方向信息旋转，GIF与WebP仅读首帧。
-      视频、语音及渠道附件仍按各自Windows条件验收。
+      视频和语音需单独启用；不支持的附件保留明确的文字说明。
     </p>
+    <label class="checkbox"
+      ><input
+        v-model="state.value.asr_enabled"
+        type="checkbox"
+      />启用本机语音转写</label
+    >
+    <small
+      >音频在本机处理，转写会作为带来源的资料交给已配置的对话模型。置信度缺失时保留未知，不据此执行控制命令。</small
+    >
+    <label class="checkbox"
+      ><input
+        v-model="state.value.video_enabled"
+        type="checkbox"
+      />启用视频采样理解</label
+    >
+    <small
+      >最多60秒MP4，按10秒间隔采样、最多6帧，交给上述视觉模型；采样不等于完整画面观察。仅在语音转写也启用时处理音轨。</small
+    >
     <button class="primary" :disabled="busy" @click="save">保存媒体模型</button>
   </section>
 </template>

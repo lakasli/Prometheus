@@ -147,6 +147,7 @@ async function setup(t, options = {}) {
   });
   base = remote.url;
   const app = await fixture({
+    testLocalMediaRunner: options.localRunner,
     testChannelEndpoints: {
       qq: base,
       weixin: base,
@@ -288,6 +289,133 @@ async function setup(t, options = {}) {
     queue,
   };
 }
+for (const kind of ["voice", "video"])
+  test(`Weixin ${kind} uses the local understanding pipeline and voice replies upload MP3 with original account context`, async (t) => {
+    const localCalls = [],
+      mp3 = Buffer.from("ID3 synthetic MP3, engine tested separately");
+    const x = await setup(t, {
+      localRunner: async (operation, input, options) => {
+        localCalls.push({ operation, input, options });
+        return {
+          receipt: {
+            result:
+              operation === "asr"
+                ? {
+                    provider: "synthetic-SenseVoice",
+                    text: "微信音频中的合成资料。",
+                    seconds: 1,
+                    confidence: null,
+                    timestamps: null,
+                  }
+                : operation === "video"
+                  ? {
+                      provider: "synthetic-PyAV",
+                      frames_at: [0],
+                      decoded_until: 1.933,
+                      frame_sampling_seconds: 10,
+                      max_frames: 6,
+                      audio: { state: "none" },
+                    }
+                  : { provider: "synthetic-Piper" },
+          },
+          files: new Map(
+            operation === "video"
+              ? [["frame-0.png", image]]
+              : operation === "tts"
+                ? [["speech.mp3", mp3]]
+                : [],
+          ),
+          isolation: { active_processes: 0 },
+          elapsed_ms: 1,
+        };
+      },
+      model: (c) => ({
+        choices: [
+          {
+            message: {
+              content:
+                c.body.model === "vision"
+                  ? "采样画面含红色像素。"
+                  : JSON.stringify([{ type: "voice", text: "微信合成语音。" }]),
+            },
+            finish_reason: "stop",
+          },
+        ],
+      }),
+    });
+    const config = (await x.app.call("/config")).data;
+    config.config.speech.enabled = true;
+    assert.equal(
+      (
+        await x.app.call(
+          "/config",
+          "PUT",
+          { config: config.config },
+          { headers: { "if-match": `"${config.revision}"` } },
+        )
+      ).status,
+      200,
+    );
+    const policy = (await x.app.call("/media/policy")).data;
+    assert.equal(
+      (
+        await x.app.call(
+          "/media/policy",
+          "PUT",
+          { ...policy.value, asr_enabled: true, video_enabled: true },
+          { headers: { "if-match": `"${policy.revision}"` } },
+        )
+      ).status,
+      200,
+    );
+    const input = kind === "voice" ? voice : video,
+      e = await x.receive(x.message(kind, input));
+    await x.sent(e.run_id);
+    assert.equal(localCalls[0].operation, kind === "voice" ? "asr" : "video");
+    assert.equal(hash(localCalls[0].input), hash(input));
+    assert.equal(localCalls.at(-1).operation, "tts");
+    assert.equal(localCalls.at(-1).options.encoding, "mp3");
+    const native = x.remote.calls.find(
+      (c) => c.body?.model === "synthetic-model",
+    );
+    assert.ok(
+      native.body.messages.some(
+        (m) =>
+          typeof m.content === "string" &&
+          m.content.startsWith("PROMETHEUS_LOCAL_MEDIA_SOURCE_V1\n"),
+      ),
+    );
+    assert.ok(
+      !JSON.stringify(native.body.messages).includes("FAKE_ASR_NEVER_TRUST"),
+    );
+    const prep = x.remote.calls.find(
+        (c) => c.path === "/ilink/bot/getuploadurl",
+      ),
+      upload = x.uploads[0];
+    assert.deepEqual(
+      crypt(upload.raw, Buffer.from(prep.body.aeskey, "hex"), true),
+      mp3,
+    );
+    const sent = x.remote.calls.find(
+      (c) =>
+        c.path === "/ilink/bot/sendmessage" &&
+        c.body.msg.item_list[0].type === 3,
+    );
+    assert.equal(sent.body.msg.to_user_id, "owner@im.wechat");
+    assert.equal(sent.body.msg.context_token, "synthetic-private-context");
+    assert.equal(
+      x.app.store.get(
+        "SELECT status FROM understanding_sources WHERE run_id=?",
+        e.run_id,
+      ).status,
+      "described",
+    );
+    assert.equal(
+      x.app.store.get("SELECT response FROM runs WHERE id=?", e.run_id)
+        .response,
+      "[语音朗读]微信合成语音。",
+    );
+  });
 for (const kind of ["video", "voice", "file"])
   test(
     "Weixin " +
@@ -922,7 +1050,7 @@ test("schema19 snapshot upgrade preserves identity and an intact schema19 backup
     assert.equal(
       store.get("SELECT value FROM metadata WHERE key='prometheus.schema'")
         .value,
-      "20",
+      "21",
     );
     const backup = new DatabaseSync(
       join(

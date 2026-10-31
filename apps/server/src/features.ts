@@ -19,6 +19,8 @@ import { AffinitySources } from "./affinity-sources.ts";
 import { DailyLife } from "./daily-life.ts";
 import { ScheduleNotices } from "./schedule-notices.ts";
 import { visualRecordAllowed } from "./vision.ts";
+import { LocalMedia } from "./local-media.ts";
+import type { LocalTestRunner } from "./local-worker.ts";
 
 export interface FeatureResult {
   data: unknown;
@@ -28,6 +30,7 @@ export interface FeatureResult {
   preview?: boolean;
 }
 export class Features {
+  readonly localMedia: LocalMedia;
   readonly channels: Channels;
   readonly knowledge: Knowledge;
   readonly automation: Automation;
@@ -47,12 +50,22 @@ export class Features {
     readonly runtime: Runtime,
     allowLoopback = false,
     endpoints?: ChannelEndpoints,
+    localTest?: LocalTestRunner,
   ) {
     this.channels = new Channels(store, runtime, allowLoopback, endpoints);
     this.knowledge = new Knowledge(store, runtime, allowLoopback);
     this.automation = new Automation(store, runtime, this.knowledge);
     this.media = new Media(store, runtime, this.knowledge, allowLoopback);
     this.channels.attachMedia(this.media);
+    if (localTest && !allowLoopback) throw bad("合成本地媒体只允许测试构造");
+    this.localMedia = new LocalMedia(
+      store,
+      runtime,
+      this.media,
+      this.channels,
+      allowLoopback,
+      localTest,
+    );
     this.plugins = new Plugins(store);
     this.conversationContext = new ConversationContext(
       store,
@@ -180,6 +193,7 @@ export class Features {
     runtime.records.validateSchedule = (owner, data, id) =>
       this.schedule.checkSimple(owner, data, id);
     runtime.onInvalidation = (owner, change) => {
+      this.localMedia.ownerInvalidated(owner);
       this.knowledge.invalidateOwner(owner, change);
       this.channels.invalidateIncoming(owner);
       this.diary.sourceChanged(owner, change);
@@ -232,6 +246,7 @@ export class Features {
     this.affinitySources.refresh();
     this.relationships.affinity.start();
     this.media.start();
+    this.localMedia.start();
     this.channels.start();
     this.knowledge.start();
     this.automation.start();
@@ -377,6 +392,7 @@ export class Features {
     }
   }
   async stop() {
+    await this.localMedia.stop();
     this.scheduleNotices.stop();
     this.dailyLife.stop();
     await this.profileModel.stop();
@@ -389,7 +405,7 @@ export class Features {
     await this.knowledge.stop();
   }
   matches(path: string) {
-    return /^\/(diary|schedule|channels|knowledge|automation|context|rest|media|plugins|relationships|qq\/(?:api|media))(?:\/|$)/.test(
+    return /^\/(speech|diary|schedule|channels|knowledge|automation|context|rest|media|plugins|relationships|qq\/(?:api|media))(?:\/|$)/.test(
       path,
     );
   }
@@ -401,6 +417,36 @@ export class Features {
     url: URL,
     readBody: () => Promise<unknown>,
   ): Promise<FeatureResult> {
+    if (path === "/speech" && method === "GET")
+      return { data: this.localMedia.status(admin.id) };
+    if (path === "/speech/syntheses" && method === "POST")
+      return {
+        status: 202,
+        data: this.localMedia.synthesize(admin.id, await readBody()),
+      };
+    const localJob = /^\/speech\/jobs\/([a-f0-9-]{36})$/.exec(path);
+    if (localJob && method === "DELETE")
+      return {
+        data: this.localMedia.cancel(
+          admin.id,
+          localJob[1]!,
+          revision(request.headers["if-match"]),
+        ),
+      };
+    const localAsset = /^\/speech\/assets\/([a-f0-9-]{36})$/.exec(path);
+    if (localAsset && method === "GET") {
+      const a = this.localMedia.asset(admin.id, localAsset[1]!);
+      return { raw: true, data: a.bytes, contentType: a.mime };
+    }
+    if (localAsset && method === "DELETE") {
+      await readBody();
+      this.store.run(
+        "DELETE FROM local_audio_assets WHERE id=? AND owner_id=?",
+        localAsset[1]!,
+        admin.id,
+      );
+      return { data: { deleted: true } };
+    }
     if (path === "/diary/status" && method === "GET")
       return { data: this.diary.status(admin.id) };
     if (path === "/diary/export" && method === "GET")
@@ -959,7 +1005,7 @@ export class Features {
       return { data: this.media.policy() };
     if (path === "/media/policy" && method === "PUT")
       return {
-        data: this.media.savePolicy(
+        data: await this.media.savePolicy(
           integer(
             Number(request.headers["if-match"]?.replaceAll('"', "") ?? -1),
             "版本",

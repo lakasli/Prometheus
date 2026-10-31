@@ -60,6 +60,9 @@ const receiveReason = (entry: any) =>
         {
           media_video_unread: "视频已接收和校验，尚未读取画面或声音。",
           media_voice_unread: "音频已接收和校验，尚未语音识别。",
+          media_analysis_queued: "媒体已校验，正在等待理解。",
+          audio_transcribed: "音频已完成本机转写；转写仍需核对。",
+          video_frames_described: "视频采样帧已取得描述，覆盖范围见运行记录。",
           media_file_unread: "文件已接收，尚未读取或执行内容。",
           vision_provider_unavailable: "视觉服务尚未配置，这次没有读取图片。",
           media_control_command: "附件消息没有执行控制命令。",
@@ -291,7 +294,7 @@ onUnmounted(() => {
         <div>
           <h2>接收记录</h2>
           <p>
-            QQ单聊支持一张常用图片；群聊附件、视频和语音暂不读取。接收完成、模型回复和实际发送分别记录。
+            QQ单聊支持一张常用图片、一个MP4或音频附件。只有单独启用对应能力后才识图、转写或采样视频；群聊媒体仍不读取。接收、理解、回复与实际发送分别记录。
           </p>
         </div>
         <button class="secondary" :disabled="busy" @click="task(refreshInbox)">

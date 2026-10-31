@@ -21,6 +21,9 @@ export { normalizedPng } from "./png.ts";
 import { ImageCodec, imageBase64, IMAGE_MAX_BASE64 } from "./image-codec.ts";
 
 export class Media {
+  canUnderstandTransport?: (kind: string) => boolean;
+  attachTransport?: (run: string, asset: string, kind: string) => void;
+  preparePolicy?: (value: Record<string, unknown>) => Promise<void>;
   readonly vision: Vision;
   private codec = new ImageCodec();
   private controller = new AbortController();
@@ -173,14 +176,18 @@ export class Media {
       vision_model: "",
       image_generation_enabled: false,
       image_model: "",
+      asr_enabled: false,
+      video_enabled: false,
     });
   }
-  savePolicy(expected: number, value: unknown) {
+  async savePolicy(expected: number, value: unknown) {
     const body = fields(value, [
       "vision_enabled",
       "vision_model",
       "image_generation_enabled",
       "image_model",
+      "asr_enabled",
+      "video_enabled",
     ]);
     if (
       typeof body.vision_enabled !== "boolean" ||
@@ -194,6 +201,13 @@ export class Media {
       (body.image_generation_enabled && !body.image_model)
     )
       throw bad("启用前请明确指定对应模型");
+    for (const k of ["asr_enabled", "video_enabled"]) {
+      body[k] ??= false;
+      if (typeof body[k] !== "boolean") throw bad("本地媒体开关无效");
+    }
+    if (body.video_enabled && !body.vision_enabled)
+      throw bad("视频画面理解需要视觉模型");
+    await this.preparePolicy?.(body);
     const result = this.knowledge.setPolicy("media", expected, body);
     this.runtime.invalidate("*");
     return result;

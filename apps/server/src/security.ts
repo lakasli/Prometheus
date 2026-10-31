@@ -106,7 +106,7 @@ function windowsSid(): string {
   return currentSid;
 }
 /** Protect only a newly created task directory; existing directories are verified. */
-export function privateDirectory(path: string): string {
+export function privateDirectory(path: string, recursive = true): string {
   const full = resolve(path),
     created = !existsSync(full);
   if (created) mkdirSync(full, { recursive: true, mode: 0o700 });
@@ -140,10 +140,14 @@ export function privateDirectory(path: string): string {
   try {
     // /save emits SDDL, so this check is independent of localized account names.
     // It checks existing files too; no ACL is rewritten for an existing directory.
-    execFileSync("icacls.exe", [full, "/save", snapshot, "/t", "/q"], {
-      windowsHide: true,
-      stdio: "pipe",
-    });
+    execFileSync(
+      "icacls.exe",
+      [full, "/save", snapshot, ...(recursive ? ["/t"] : []), "/q"],
+      {
+        windowsHide: true,
+        stdio: "pipe",
+      },
+    );
     const raw = readFileSync(snapshot, "utf16le").replace(/^\ufeff/, "");
     const descriptors = raw
       .split(/\r?\n/)

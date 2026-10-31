@@ -16,7 +16,7 @@ foreach ($taskPath in @($taskVcvars, $taskSource, $taskOutput)) {
 $taskBuildDirectory = [IO.Path]::GetFullPath((Join-Path $taskRoot ('../../.local/prometheus/native-build/' + [Guid]::NewGuid().ToString())))
 New-Item -ItemType Directory -Path $taskBuildDirectory -Force | Out-Null
 $taskBuild = Join-Path $taskBuildDirectory 'build-probe.cmd'
-@('@echo off', ('call "' + $taskVcvars + '" >nul'), 'if errorlevel 1 exit /b 1', ('cl.exe /nologo /std:c++17 /EHsc /W4 /WX /O2 /MT /guard:cf "' + $taskSource + '" /Fe:worker-probe.exe /Fo:worker-probe.obj /link /DYNAMICBASE /NXCOMPAT userenv.lib advapi32.lib ws2_32.lib'), 'if errorlevel 1 exit /b 1', ('cl.exe /nologo /std:c++17 /EHsc /W4 /WX /O2 /MT /guard:cf /DPROMETHEUS_PROBE_CHILD "' + $taskSource + '" /Fe:probe-child.exe /Fo:probe-child.obj /link /DYNAMICBASE /NXCOMPAT advapi32.lib ws2_32.lib')) | Set-Content -LiteralPath $taskBuild -Encoding ascii
+@('@echo off', ('call "' + $taskVcvars + '" >nul'), 'if errorlevel 1 exit /b 1', ('cl.exe /nologo /std:c++17 /EHsc /W4 /WX /O2 /MT /guard:cf "' + $taskSource + '" /Fe:worker-probe.exe /Fo:worker-probe.obj /link /DYNAMICBASE /NXCOMPAT userenv.lib advapi32.lib ws2_32.lib'), 'if errorlevel 1 exit /b 1', ('cl.exe /nologo /std:c++17 /EHsc /W4 /WX /O2 /MT /guard:cf /DPROMETHEUS_PROBE_CHILD "' + $taskSource + '" /Fe:probe-child.exe /Fo:probe-child.obj /link /SUBSYSTEM:WINDOWS /ENTRY:wmainCRTStartup /DYNAMICBASE /NXCOMPAT advapi32.lib ws2_32.lib')) | Set-Content -LiteralPath $taskBuild -Encoding ascii
 Push-Location $taskBuildDirectory
 try {
     & $env:ComSpec /d /c $taskBuild

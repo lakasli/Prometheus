@@ -175,7 +175,11 @@ export class Configurations {
     const errors: { code: string; message: string }[] = [],
       warnings: string[] = [];
     try {
-      const checked = validateConfig(config, this.loopback);
+      const checked = validateConfig(
+        config,
+        this.loopback,
+        this.store.localSpeechReady?.() ?? false,
+      );
       this.store.checkCredentials(checked);
     } catch (error) {
       errors.push(this.error(error));
@@ -274,6 +278,7 @@ export class Configurations {
       const config = validateConfig(
         JSON.parse(String(row.config_json)),
         this.loopback,
+        this.store.localSpeechReady?.() ?? false,
       );
       const state = this.store.applyConfig(base, config, owner),
         operation = randomUUID();
@@ -378,6 +383,7 @@ export class Configurations {
     const config = validateConfig(
       fields(value, ["config"]).config,
       this.loopback,
+      this.store.localSpeechReady?.() ?? false,
     );
     this.store.checkCredentials(config);
     if (!config.model.credential_ref) throw bad("请先选择模型凭据");
@@ -470,6 +476,7 @@ export class Configurations {
     const config = validateConfig(
       JSON.parse(String(row.config_json)),
       this.loopback,
+      this.store.localSpeechReady?.() ?? false,
     );
     this.store.checkCredentials(config);
     if (!config.model.credential_ref) throw bad("请先选择模型凭据");

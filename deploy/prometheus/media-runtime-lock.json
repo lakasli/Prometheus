@@ -1,0 +1,108 @@
+{
+  "schema": 1,
+  "platform": "win32-x64",
+  "python": "3.13.17",
+  "artifacts": [
+    {
+      "file": "python.zip",
+      "url": "https://www.python.org/ftp/python/3.13.17/python-3.13.17-embed-amd64.zip",
+      "sha256": "9e35319bffedab8b36ad44d8f377cb4f1733bcec257a0b6d04d94f01486ddb38",
+      "bytes": 11441267
+    },
+    {
+      "file": "huayan.onnx",
+      "url": "https://huggingface.co/rhasspy/piper-voices/resolve/5041a7a49ae5b3a0f30e6837769eb03fdbb231bd/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx",
+      "sha256": "9929917bf8cabb26fd528ea44d3a6699c11e87317a14765312420be230be0f3d",
+      "bytes": 63201294
+    },
+    {
+      "file": "huayan.onnx.json",
+      "url": "https://huggingface.co/rhasspy/piper-voices/resolve/5041a7a49ae5b3a0f30e6837769eb03fdbb231bd/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx.json",
+      "sha256": "d521dc45504a8ccc99e325822b35946dd701840bfb07e3dbb31a40929ed6a82b",
+      "bytes": 4822
+    },
+    {
+      "file": "sensevoice.tar.bz2",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
+      "sha256": "7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e",
+      "bytes": 163002883
+    }
+  ],
+  "wheels": [
+    {
+      "file": "wheels/av-19.0.2-cp312-abi3-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/32/5a/743a83666ded197df8b9957e2800bef9a39d52b23be2ca211bbd14b5fb22/av-19.0.2-cp312-abi3-win_amd64.whl",
+      "sha256": "3ce5a1d7b916d13c16ac58f1756f0fee4af2d53f02bc1403e18550b50d375a22",
+      "bytes": 28150949
+    },
+    {
+      "file": "wheels/flatbuffers-25.12.19-py2.py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/e8/2d/d2a548598be01649e2d46231d151a6c56d10b964d94043a335ae56ea2d92/flatbuffers-25.12.19-py2.py3-none-any.whl",
+      "sha256": "7634f50c427838bb021c2d66a3d1168e9d199b0607e6329399f04846d42e20b4",
+      "bytes": 26661
+    },
+    {
+      "file": "wheels/numpy-2.5.4-cp313-cp313-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/90/8c/140a40398a66b4471211be1affdb6ed24c486d581bd28d07b7f2fcb69540/numpy-2.5.4-cp313-cp313-win_amd64.whl",
+      "sha256": "8b4d2fd2d34e5f8c9235ee787de5631a37a28402b15cb80814df973d2be54129",
+      "bytes": 12566113
+    },
+    {
+      "file": "wheels/onnxruntime-1.31.1-cp313-cp313-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/59/bf/a1d282b4c753ba3e9b31f4c11abd2bc2390513dc5e3792ca3b78e42401c3/onnxruntime-1.31.1-cp313-cp313-win_amd64.whl",
+      "sha256": "0558f29d5f6ac09957390c9c5495931485ee8ae7f0ce781ccee86a0ae5c2348b",
+      "bytes": 14888304
+    },
+    {
+      "file": "wheels/packaging-26.3-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527/packaging-26.3-py3-none-any.whl",
+      "sha256": "d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c",
+      "bytes": 129956
+    },
+    {
+      "file": "wheels/pathvalidate-3.3.1-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/9a/70/875f4a23bfc4731703a5835487d0d2fb999031bd415e7d17c0ae615c18b7/pathvalidate-3.3.1-py3-none-any.whl",
+      "sha256": "5263baab691f8e1af96092fa5137ee17df5bdfbd6cff1fcac4d6ef4bc2e1735f",
+      "bytes": 24305
+    },
+    {
+      "file": "wheels/piper_tts-1.8.0-cp39-abi3-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/12/9c/c736d1961cf9ce0655278731b9430df41892ca2ded7b09dabcb340612158/piper_tts-1.8.0-cp39-abi3-win_amd64.whl",
+      "sha256": "5da9bfdb05dfe15da3536859d422e605483ffa6d2b3ec2c5b9593bae6b5aa6a4",
+      "bytes": 34119688
+    },
+    {
+      "file": "wheels/protobuf-7.36.2-cp310-abi3-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/8a/55/b77bda4e5e5f5971fb51b07663694690e9afdb9402136c16a522bd621cad/protobuf-7.36.2-cp310-abi3-win_amd64.whl",
+      "sha256": "a300819d441e078a5608c0d3c709796bb548136058fda017ae51d425b44fd353",
+      "bytes": 456514
+    },
+    {
+      "file": "wheels/sherpa_onnx-2.0.1-cp313-cp313-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/14/f1/b6460d62b670a08ec5bd4e8efc678378473e438274817fa8a7d6096f9eba/sherpa_onnx-2.0.1-cp313-cp313-win_amd64.whl",
+      "sha256": "9b3a0f2b97cd300747a44a78f134e729afe45ae627e7110e764710235b1828c9",
+      "bytes": 2179778
+    },
+    {
+      "file": "wheels/sherpa_onnx_core-2.0.1-py3-none-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/68/ea/8f02cc34c19d956697dda2f2c470c14cd6b7af77f3ae855c514a86039b68/sherpa_onnx_core-2.0.1-py3-none-win_amd64.whl",
+      "sha256": "08890e9ea23ed2f59f81d5840c63b6b5cc8674d0f6e48d9069126a848aa0e022",
+      "bytes": 16663244
+    },
+    {
+      "file": "wheels/pysilk_mod-1.6.4-cp313-cp313-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/6b/60/1bf8ff9934c9567ba314cf0a11ca91d9bead99235607ed0fd6afcfb4b05c/pysilk_mod-1.6.4-cp313-cp313-win_amd64.whl",
+      "sha256": "141ae615dfcf2e22ca3b77d30a521395365e5bb53613f6f006d4236637415e3a",
+      "bytes": 162279
+    }
+  ],
+  "licenses": {
+    "python": "PSF",
+    "piper": "GPL-3.0-or-later",
+    "huayan_model": "dataset license Unknown; personal local evaluation only",
+    "sherpa": "Apache-2.0",
+    "sensevoice_model": "FunASR Model Open Source License Agreement; retain source and model attribution",
+    "pyav": "BSD-3-Clause; bundled FFmpeg libraries retain their own license notices",
+    "silk": "pysilk-mod: BSD-style license; retain bundled SILK SDK notices"
+  }
+}

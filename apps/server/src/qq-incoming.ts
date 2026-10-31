@@ -387,7 +387,12 @@ export class QqIncoming {
             data.media.kind === "auto"
               ? bytes.length >= 12 && bytes.toString("ascii", 4, 8) === "ftyp"
                 ? "video"
-                : "image"
+                : bytes.toString("ascii", 0, 4) === "RIFF" ||
+                    bytes.toString("ascii", 0, 4) === "OggS" ||
+                    bytes.toString("ascii", 0, 3) === "ID3" ||
+                    bytes.subarray(0, 10).includes(Buffer.from("#!SILK_V3"))
+                  ? "voice"
+                  : "image"
               : (data.media.kind ?? "image");
           if (kind === "image") {
             if (
@@ -409,6 +414,8 @@ export class QqIncoming {
             if (!metadata) throw mediaFailure("media_format_unsupported");
             transport = { kind, bytes, ...metadata };
             code = "media_" + kind + "_unread";
+            if (this.media.canUnderstandTransport?.(kind))
+              code = "media_analysis_queued";
           }
         }
       }

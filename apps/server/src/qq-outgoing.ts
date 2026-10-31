@@ -18,6 +18,7 @@ export type Part = {
   text: string;
   asset_id?: string;
   delay_ms: number;
+  spoken_text?: string;
 };
 interface Scope {
   channel: string;
@@ -144,7 +145,7 @@ export class QqOutgoing {
       "\n"
     );
   }
-  resolve(run: string, raw: string) {
+  resolve(run: string, raw: string, allowText = false) {
     if (
       !this.store.get(
         "SELECT run_id FROM run_targets WHERE run_id=? AND channel IN ('qq','weixin')",
@@ -163,7 +164,7 @@ export class QqOutgoing {
     const items = Array.isArray(value) ? value : value?.items;
     if (
       !Array.isArray(items) ||
-      !items.some((p: any) => p?.type && p.type !== "text")
+      (!allowText && !items.some((p: any) => p?.type && p.type !== "text"))
     )
       return null;
     this.live(run, true);
@@ -235,7 +236,7 @@ export class QqOutgoing {
     );
     return p ? JSON.parse(String(p.parts_json)) : undefined;
   }
-  live(run: string, running = false): Scope {
+  live(run: string, running = false, queued = false): Scope {
     const r = this.store.get(
       "SELECT r.id,r.owner_id,r.conversation_id,r.context_epoch,r.status,c.context_epoch AS current_epoch,t.channel,t.target_json,t.account_id,t.credential_ref,t.deadline FROM runs r JOIN conversations c ON c.id=r.conversation_id JOIN run_targets t ON t.run_id=r.id WHERE r.id=?",
       run,
@@ -260,7 +261,11 @@ export class QqOutgoing {
         : !this.weixin?.current(r, target)) ||
       Number(r.deadline) <= now() ||
       r.context_epoch !== r.current_epoch ||
-      !(r.status === "completed" || (running && r.status === "running")) ||
+      !(
+        r.status === "completed" ||
+        (running && r.status === "running") ||
+        (queued && r.status === "queued")
+      ) ||
       this.store.get("SELECT state FROM run_publications WHERE run_id=?", run)
         ?.state === "suppressed"
     )
@@ -436,13 +441,24 @@ export class QqOutgoing {
     if (
       a.source_kind === "inbound" &&
       !this.store.get(
-        "SELECT q.run_id FROM channel_media_sources q JOIN runs r ON r.id=q.run_id WHERE q.run_id=? AND q.event_id=? AND q.kind=? AND r.status='completed'",
+        "SELECT q.run_id FROM channel_media_sources q JOIN runs r ON r.id=q.run_id WHERE q.run_id=? AND q.event_id=? AND q.kind=? AND (r.status='completed' OR q.run_id=? AND r.status='running' AND EXISTS(SELECT 1 FROM understanding_sources s WHERE s.run_id=r.id AND s.status='described'))",
         String(a.source_run_id),
         String(a.source_id),
         String(a.kind),
+        run,
       )
     )
       throw bad("原媒体来源已失效", "media_source_revoked");
+    if (
+      a.source_kind === "generated" &&
+      !this.store.get(
+        "SELECT id FROM local_media_jobs WHERE id=? AND source_run_id=? AND owner_id=? AND kind='tts' AND status='completed'",
+        String(a.source_id),
+        String(a.source_run_id),
+        String(a.owner_id),
+      )
+    )
+      throw bad("语音合成来源已失效", "media_source_revoked");
     return { ...a, bytes } as unknown as Asset;
   }
   queue(actor: string, value: unknown) {
@@ -546,7 +562,8 @@ export class QqOutgoing {
     );
   }
   receiveInbound(run: string, event: string, transport: IncomingTransport) {
-    const r = this.live(run);
+    const r = this.live(run, false, true),
+      id = randomUUID();
     const received = Number(
       this.store.get(
         "SELECT received_at FROM channel_events WHERE id=?",
@@ -557,7 +574,7 @@ export class QqOutgoing {
       throw new ApiError(429, "media_capacity", "媒体暂存容量已满");
     this.store.run(
       "INSERT INTO qq_media_assets VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-      randomUUID(),
+      id,
       r.owner_id,
       r.conversation_id,
       run,
@@ -574,6 +591,48 @@ export class QqOutgoing {
       Math.floor(received / 1000) + 86400,
       null,
     );
+    return id;
+  }
+  generatedVoice(run: string, job: string, bytes: Buffer) {
+    const r = this.live(run, true),
+      metadata = validateVoice(bytes),
+      id = randomUUID();
+    if (
+      !this.store.get(
+        "SELECT id FROM local_media_jobs WHERE id=? AND source_run_id=? AND owner_id=? AND kind='tts' AND status='completed'",
+        job,
+        run,
+        String(r.owner_id),
+      ) ||
+      !this.capacity(bytes.length)
+    )
+      throw bad("语音来源或容量无效");
+    this.store.run(
+      "INSERT INTO qq_media_assets VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      id,
+      r.owner_id,
+      r.conversation_id,
+      run,
+      "host",
+      "generated",
+      job,
+      "voice",
+      metadata.mime,
+      metadata.extension,
+      hash(bytes),
+      bytes,
+      r.context_epoch,
+      now(),
+      now() + 3600,
+      null,
+    );
+    this.store.run(
+      "INSERT INTO qq_media_offers VALUES(?,?,?)",
+      run,
+      id,
+      hash(bytes),
+    );
+    return id;
   }
   refresh() {
     this.prune();
@@ -643,6 +702,10 @@ export class QqOutgoing {
     return result;
   }
   prune() {
+    this.store.run(
+      "UPDATE qq_media_assets SET bytes=x'',revoked_at=? WHERE revoked_at IS NULL AND source_kind='generated' AND (NOT EXISTS(SELECT 1 FROM runs r WHERE r.id=qq_media_assets.source_run_id AND r.status IN ('running','completed')) OR EXISTS(SELECT 1 FROM run_publications p WHERE p.run_id=qq_media_assets.source_run_id AND p.state='suppressed'))",
+      now(),
+    );
     this.store.run(
       "UPDATE qq_media_assets SET bytes=x'',revoked_at=? WHERE revoked_at IS NULL AND (expires_at<=? OR context_epoch<>(SELECT context_epoch FROM conversations WHERE id=conversation_id))",
       now(),

@@ -24,6 +24,7 @@ import { Store } from "./store.ts";
 import { Features } from "./features.ts";
 import { Journal } from "./journal.ts";
 import type { ChannelEndpoints } from "./channels.ts";
+import type { LocalTestRunner } from "./local-worker.ts";
 
 export interface ServerOptions {
   dataDir: string;
@@ -34,6 +35,7 @@ export interface ServerOptions {
   secureCookie: boolean;
   allowLoopbackModel?: boolean;
   testChannelEndpoints?: ChannelEndpoints;
+  testLocalMediaRunner?: LocalTestRunner;
 }
 export const build = JSON.parse(
   readFileSync(new URL("./assets/build.json", import.meta.url), "utf8"),
@@ -72,7 +74,7 @@ export const capabilityStatus = {
   },
   speech: {
     available: false,
-    description: "Breeze / Piper worker 的 Windows 隔离待验证",
+    description: "本地Piper运行库与隔离状态按当前实例检查",
   },
   vision: {
     available: true,
@@ -154,6 +156,7 @@ export async function startServer(options: ServerOptions) {
     runtime,
     options.allowLoopbackModel,
     options.testChannelEndpoints,
+    options.testLocalMediaRunner,
   );
   const configurations = new Configurations(
     store,
@@ -167,7 +170,7 @@ export async function startServer(options: ServerOptions) {
     response.setHeader("x-frame-options", "DENY");
     response.setHeader(
       "content-security-policy",
-      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
     );
     try {
       const method = request.method ?? "GET",
@@ -248,7 +251,16 @@ export async function startServer(options: ServerOptions) {
         if (apiPath === "/capabilities" && method === "GET")
           return json(response, {
             name: "Prometheus",
-            capabilities: capabilityStatus,
+            capabilities: {
+              ...capabilityStatus,
+              speech: {
+                available: features.localMedia.worker.verified,
+                description: features.localMedia.worker.installed
+                  ? "本地Piper中文语音；需明确启用，隔离失败时保留文字"
+                  : "本地媒体运行库未安装，保留文字回复",
+              },
+              local_media: features.localMedia.worker.status(),
+            },
             historical_dsh_validation_applies: false,
           });
         if (apiPath === "/status" && method === "GET")
@@ -363,9 +375,12 @@ export async function startServer(options: ServerOptions) {
         }
         if (apiPath === "/config" && method === "PUT") {
           const input = fields(await body(request), ["config"]);
+          if ((input.config as any)?.speech?.enabled === true)
+            await features.localMedia.worker.ensureReady();
           const config = validateConfig(
             input.config,
             options.allowLoopbackModel,
+            features.localMedia.worker.verified,
           );
           return json(
             response,
@@ -405,6 +420,7 @@ export async function startServer(options: ServerOptions) {
               validateConfig(
                 JSON.parse(String(row.config_json)),
                 options.allowLoopbackModel,
+                features.localMedia.worker.verified,
               ),
               admin.id,
             ),
@@ -590,7 +606,7 @@ export async function startServer(options: ServerOptions) {
         if (apiPath === "/export" && method === "GET")
           return json(response, {
             name: "Prometheus",
-            schema: 20,
+            schema: 21,
             assistant_id: store.assistantId,
             exported_at: now(),
             config: store.config(),

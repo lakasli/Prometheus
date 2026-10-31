@@ -73,7 +73,7 @@ export function downloadQqImage(
         agent: false,
         signal,
         headers: {
-          accept: "image/*, application/octet-stream",
+          accept: "image/*, video/mp4, audio/*, application/octet-stream",
           "accept-encoding": "identity",
           "user-agent": "Prometheus/0.1",
         },
@@ -122,7 +122,8 @@ export function downloadQqImage(
             !imageMime(type) &&
             !(
               kind !== "image" &&
-              type.split(";")[0]!.trim().toLowerCase() === "video/mp4"
+              (type.split(";")[0]!.trim().toLowerCase() === "video/mp4" ||
+                type.toLowerCase().startsWith("audio/"))
             ) &&
             type.split(";")[0]!.trim().toLowerCase() !==
               "application/octet-stream")
@@ -202,6 +203,14 @@ export function qqAttachment(
     type &&
     !imageMime(type) &&
     type !== "video/mp4" &&
+    ![
+      "audio/wav",
+      "audio/x-wav",
+      "audio/mpeg",
+      "audio/mp3",
+      "audio/ogg",
+      "audio/silk",
+    ].includes(type) &&
     type !== "application/octet-stream"
   )
     return { code: "media_format_unsupported" };
@@ -223,10 +232,14 @@ export function qqAttachment(
         ? "image"
         : type === "video/mp4"
           ? "video"
-          : "auto",
+          : type?.startsWith("audio/")
+            ? "voice"
+            : "auto",
   };
 }
 export function mediaNotice(code: string) {
+  if (code === "media_analysis_failed")
+    return "这条音频或视频的理解没有完成，我还没有可靠的内容判断。可以重新发送，或者用文字告诉我。";
   if (code.startsWith("wx_media_"))
     return "这条微信附件未能下载或校验，我没有读取内容。可以重新发送或用文字说明。";
   if (code === "media_video_unread")

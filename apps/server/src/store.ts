@@ -15,6 +15,7 @@ import { now, privateDirectory } from "./security.ts";
 
 export type Row = Record<string, string | number | null>;
 export class Store {
+  localSpeechReady?: () => boolean;
   readonly database: DatabaseSync;
   readonly dataDir: string;
   readonly assistantId: string;
@@ -71,13 +72,14 @@ export class Store {
           "18",
           "19",
           "20",
+          "21",
         ].includes(String(previousSchema))
       ) {
         this.database.close();
         throw new Error("Unsupported Prometheus schema; do not downgrade");
       }
     }
-    if (tables.length && previousSchema !== "20") {
+    if (tables.length && previousSchema !== "21") {
       const backupDir = privateDirectory(join(path, "backups"));
       const target = join(
         backupDir,
@@ -136,7 +138,7 @@ export class Store {
         now(),
       );
       this.run(
-        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','20') ON CONFLICT(key) DO UPDATE SET value='20'",
+        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','21') ON CONFLICT(key) DO UPDATE SET value='21'",
       );
       if (previousSchema && Number(previousSchema) < 15)
         this.run(

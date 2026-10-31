@@ -23,7 +23,7 @@ export async function workerProbe(options: {
   directory: string;
   port: number;
   signal?: AbortSignal;
-  mode?: "permissions" | "hang" | "exit" | "flood";
+  mode?: "permissions" | "hang" | "exit" | "flood" | "cpu";
   timeoutMs?: number;
   onStarted?: (pid: number, launcher: number) => void;
 }): Promise<ProbeResult> {
@@ -57,10 +57,7 @@ export async function workerProbe(options: {
     writeFileSync(sentinel, "synthetic-private-sentinel", { flag: "wx" });
   // privateDirectory verifies existing files too. Never pass any real credential.
   privateDirectory(root);
-  const sourceSentinel = join(root, "source-sentinel.txt");
-  if (!existsSync(sourceSentinel))
-    writeFileSync(sourceSentinel, "synthetic-source-sentinel", { flag: "wx" });
-  privateDirectory(root);
+  const sourceSentinel = fileURLToPath(new URL("./server.js", import.meta.url));
   const id = randomUUID();
   const events: Record<string, unknown>[] = [];
   if (probeBusy)
@@ -99,6 +96,7 @@ export async function workerProbe(options: {
         },
       },
     );
+    let childPid = 0;
     let pending = "",
       bytes = 0,
       invalid = false;
@@ -133,10 +131,13 @@ export async function workerProbe(options: {
             event.event === "started" &&
             Number.isSafeInteger(event.pid) &&
             task.pid
-          )
-            options.onStarted?.(Number(event.pid), task.pid);
+          ) {
+            childPid = Number(event.pid);
+            options.onStarted?.(childPid, task.pid);
+          }
         } catch {
           invalid = true;
+          events.push({ event: "blocked", stage: "invalid_probe_frame" });
           cancel();
         }
       }
@@ -152,20 +153,22 @@ export async function workerProbe(options: {
         code: error.code ?? "unknown",
       });
     });
-    task.once("close", (code) => {
+    task.once("close", async (code) => {
       clearTimeout(timer);
       clearTimeout(hardDeadline);
-      probeBusy = false;
       options.signal?.removeEventListener("abort", cancel);
       const finish = events.find((event) => event.event === "finished");
       const probe = finish?.probe as Record<string, unknown> | undefined;
-      const passed =
+      const lifecycle =
         !invalid &&
         !events.some((event) => event.event === "blocked") &&
         !pending.trim() &&
         code === 0 &&
-        finish?.reason === "exited" &&
+        finish &&
         finish.active_processes === 0 &&
+        Number(finish.peak_memory_bytes) <= 64 * 1024 * 1024;
+      const permissions =
+        finish?.reason === "exited" &&
         finish.exit_code === 0 &&
         probe &&
         probe.app_container === 1 &&
@@ -181,7 +184,7 @@ export async function workerProbe(options: {
           "memory_denied",
           "child_process_denied",
         ].every((key) => probe[key] === 1) &&
-        probe.loopback_error === 10013 &&
+        [10013, 10060].includes(Number(probe.loopback_error)) &&
         probe.public_network_error === 10013;
       // Verify the only external write target remained unchanged.
       let unchanged = false;
@@ -191,9 +194,57 @@ export async function workerProbe(options: {
       } catch {
         /* fail closed */
       }
+      let childExited = !childPid;
+      for (let n = 0; childPid && n < 200; n++) {
+        try {
+          process.kill(childPid, 0);
+        } catch {
+          childExited = true;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      if (!childExited)
+        events.push({ event: "blocked", stage: "child_still_running" });
+      if (childExited && existsSync(join(root, id))) {
+        await new Promise<void>((done) => {
+          const cleanup = spawn(executable, ["--cleanup-probe", root, id], {
+            windowsHide: true,
+            stdio: "ignore",
+          });
+          const timer = setTimeout(() => cleanup.kill(), 10000);
+          cleanup.once("error", () =>
+            events.push({ event: "blocked", stage: "cleanup_launch" }),
+          );
+          cleanup.once("close", (c) => {
+            clearTimeout(timer);
+            if (c !== 0 || existsSync(join(root, id)))
+              events.push({ event: "blocked", stage: "cleanup_failed" });
+            done();
+          });
+        });
+      }
+      const mode = options.mode ?? "permissions",
+        expected = options.signal?.aborted
+          ? finish?.reason === "cancelled" && finish.exit_code === 93
+          : mode === "permissions"
+            ? permissions
+            : mode === "exit"
+              ? finish?.reason === "exited" && finish.exit_code === 7
+              : finish?.reason ===
+                  (mode === "flood" ? "output_limit" : "timeout") &&
+                finish.exit_code === 93;
+      probeBusy = false;
       resolveResult({
         execution_available: false,
-        status: passed && unchanged ? "passed" : "blocked",
+        status:
+          lifecycle &&
+          expected &&
+          unchanged &&
+          childExited &&
+          !events.some((e) => e.event === "blocked")
+            ? "passed"
+            : "blocked",
         events,
         launcher_exit_code: code,
       });

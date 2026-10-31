@@ -328,7 +328,7 @@ test("an attachment never executes memory or skill commands, and unsupported cou
   cases[1].d.attachments.push({ ...cases[1].d.attachments[0] });
   cases[2].t = "GROUP_AT_MESSAGE_CREATE";
   cases[2].d.group_openid = "group1";
-  cases[3].d.attachments[0].content_type = "audio/silk";
+  cases[3].d.attachments[0].content_type = "audio/flac";
   cases[4].d.attachments[0].size = 8 * 1024 * 1024 + 1;
   delete cases[5].d.attachments[0].url;
   for (const p of cases) assert.equal((await post(app, p)).status, 200);
@@ -967,7 +967,7 @@ test("schema17 upgrade backs up the real prior schema, preserves identity and re
   assert.equal(
     app.store.get("SELECT value FROM metadata WHERE key='prometheus.schema'")
       .value,
-    "20",
+    "21",
   );
   assert.equal(
     app.store.get("SELECT value FROM metadata WHERE key='diary.record_cursor'")

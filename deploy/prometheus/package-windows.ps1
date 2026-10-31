@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$Commit,
     [ValidatePattern('^[0-9a-f]{40}$')][string]$PreviousVerifiedCommit,
     [string]$ReleaseRoot = '.local/prometheus/releases',
-    [switch]$IncludeWorkerProbe
+    [switch]$IncludeWorkerProbe,
+    [switch]$IncludeMediaRuntime
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -45,9 +46,13 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Locked dependency installation failed.' }
         & npm.cmd run build
         if ($LASTEXITCODE -ne 0) { throw 'Prometheus build failed.' }
-        if ($IncludeWorkerProbe) {
+        if ($IncludeWorkerProbe -or $IncludeMediaRuntime) {
             & npm.cmd run build:worker
             if ($LASTEXITCODE -ne 0) { throw 'Native worker prerequisite probe build failed.' }
+        }
+        if ($IncludeMediaRuntime) {
+            & $taskNode deploy/prometheus/prepare-media-runtime.mjs --output apps/server/dist/native/media --cache (Join-Path $taskRepo '.local/prometheus/media-downloads')
+            if ($LASTEXITCODE -ne 0) { throw 'Locked Windows media runtime preparation failed.' }
         }
     } finally { Pop-Location }
     foreach ($taskName in @('server', 'admin')) {
