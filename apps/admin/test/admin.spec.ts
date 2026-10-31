@@ -2264,3 +2264,137 @@ test("minute choices are explicitly enabled and persist through authenticated ma
     .click();
   await expect(panel.getByRole("status")).toContainText("作息策略已保存");
 });
+
+test("sleep diary batches show real frozen source progress and local-only coverage through authenticated management", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const me = await (await page.request.get("/api/admin/v1/auth/me")).json(),
+    headers = {
+      origin: "http://127.0.0.1:18449",
+      "x-csrf-token": me.csrf_token,
+    };
+  const response = await page.request.post("/api/admin/v1/conversations", {
+    headers,
+    data: { title: "睡眠批次本地来源" },
+  });
+  expect(response.status()).toBe(201);
+  const c = await response.json();
+  const grant = await page.request.put("/api/admin/v1/knowledge/source/grant", {
+    headers: { ...headers, "if-match": '"0"' },
+    data: {
+      source_key: c.id,
+      grant: {
+        capture: true,
+        allow_model: false,
+        can_sleep: false,
+        can_wake: false,
+        expires_at: null,
+      },
+    },
+  });
+  expect(grant.status()).toBe(200);
+  const sent = await page.request.post(
+    "/api/admin/v1/conversations/" + c.id + "/messages",
+    {
+      headers,
+      data: {
+        content:
+          '本批本地事实。<script>document.body.dataset.restUnsafe="executed"</script>',
+        client_message_id: crypto.randomUUID(),
+      },
+    },
+  );
+  expect(sent.status()).toBe(202);
+  const run = await sent.json();
+  await expect
+    .poll(
+      async () =>
+        (
+          await (
+            await page.request.get("/api/admin/v1/runs/" + run.run_id)
+          ).json()
+        ).status,
+    )
+    .toBe("completed");
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "日程", exact: true })
+    .click();
+  const rest = page.locator("section.panel").filter({
+      has: page.getByRole("heading", { name: "作息与睡眠", exact: true }),
+    }),
+    panel = page.getByRole("region", { name: "睡眠整理批次" });
+  await rest.getByLabel("默认睡眠秒数", { exact: true }).fill("300");
+  await rest.getByLabel("请求收尾秒数", { exact: true }).fill("0");
+  await rest.getByLabel("有界整理秒数", { exact: true }).fill("30");
+  await rest.getByRole("button", { name: "保存作息策略", exact: true }).click();
+  await expect(rest.getByRole("status")).toContainText("作息策略已保存");
+  await rest.getByRole("button", { name: "现在请求入睡", exact: true }).click();
+  await expect(rest.getByRole("status")).toContainText("入睡请求已受理");
+  await expect
+    .poll(
+      async () =>
+        (await (await page.request.get("/api/admin/v1/rest/status")).json())
+          .state.phase,
+      { timeout: 15000 },
+    )
+    .toBe("asleep");
+  await panel
+    .getByRole("button", { name: "刷新整理批次", exact: true })
+    .click();
+  await expect(panel).toContainText("本批请求已处理");
+  await expect(panel).toContainText("本地摘录/目录");
+  await panel.locator("details>summary").first().click();
+  await expect(panel).toContainText("本批仅本地整理");
+  await expect(panel).not.toContainText("restUnsafe");
+  const history = await (
+      await page.request.get("/api/admin/v1/diary/rest-cycles")
+    ).json(),
+    batch = history.items[0];
+  expect(
+    batch.sources.some(
+      (s: any) =>
+        s.source_key === c.id && s.allow_model === 0 && s.processed === 2,
+    ),
+  ).toBe(true);
+  expect(batch.targets.some((t: any) => t.state === "local")).toBe(true);
+  expect(batch.frozen_at).toBeGreaterThan(0);
+  expect(
+    await page.locator("body").getAttribute("data-rest-unsafe"),
+  ).toBeNull();
+  await page.setViewportSize({ width: 320, height: 844 });
+  await expect
+    .poll(async () => {
+      const b = await page.locator(".sidebar").boundingBox();
+      return b!.x + b!.width;
+    })
+    .toBeLessThanOrEqual(0);
+  expect(
+    await page.locator("body").evaluate((el) => el.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await panel.screenshot({
+    path: resolve(
+      "../../.local/prometheus/screenshots/rest-batches-mobile.png",
+    ),
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await panel.screenshot({
+    path: resolve(
+      "../../.local/prometheus/screenshots/rest-batches-desktop.png",
+    ),
+  });
+  await page.reload();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "日程", exact: true })
+    .click();
+  await rest.getByRole("button", { name: "独立唤醒", exact: true }).click();
+  await expect(rest.getByRole("status")).toContainText("唤醒已受理");
+  await panel
+    .getByRole("button", { name: "刷新整理批次", exact: true })
+    .click();
+  await expect(panel).toContainText("本批请求已处理");
+  expect(errors).toEqual([]);
+});

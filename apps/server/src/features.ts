@@ -159,6 +159,7 @@ export class Features {
     };
     this.automation.onRestConsolidate = (cycle) =>
       this.diary.prepareRest(cycle);
+    this.automation.onRestPrepare = (cycle) => this.diary.freezeRest(cycle);
     this.automation.diaryRestPending = (cycle) => this.diary.restPending(cycle);
     this.automation.onRestEnd = (cycle) => this.diary.stopCycle(cycle);
     runtime.records.protectMutation = (id) => {
@@ -218,6 +219,7 @@ export class Features {
     };
   }
   start() {
+    this.diary.resumeRest();
     this.affinitySources.refresh();
     this.relationships.affinity.start();
     this.media.start();
@@ -1078,6 +1080,8 @@ export class Features {
       };
     if (path === "/rest/status" && method === "GET")
       return { data: this.automation.restStatus() };
+    if (path === "/diary/rest-cycles" && method === "GET")
+      return { data: this.diary.rest.summaries(admin.id) };
     if (path === "/schedule/decisions" && method === "GET")
       return { data: this.scheduleNotices.list(admin.id, url.searchParams) };
     if (path === "/rest/policy" && method === "GET")

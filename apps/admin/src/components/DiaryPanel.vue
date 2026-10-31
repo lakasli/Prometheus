@@ -613,6 +613,19 @@ onMounted(() => act(load));
         {{ selected.coverage.sources }}条真实来源 ·
         {{ selected.coverage.parents.length }}份固定父日记
       </p>
+      <p v-if="selected.coverage.as_of" class="muted">
+        本次资料截至
+        {{
+          new Date(selected.coverage.as_of * 1000).toLocaleString("zh-CN", {
+            timeZone: selected.time_zone,
+          })
+        }}。
+        {{
+          selected.coverage.period_closed
+            ? "周期已结束。"
+            : "仅覆盖冻结时点，不代表全天或全周期完成。"
+        }}
+      </p>
       <p v-if="selected.version?.observation === 'unobserved'" class="muted">
         运行观测不完整；没有来源记录不代表当天没有经历。
       </p>

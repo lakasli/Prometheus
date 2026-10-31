@@ -192,6 +192,7 @@ function validateAction(value: unknown): Json {
 }
 export class Automation {
   onRestConsolidate?: (cycle: string) => void;
+  onRestPrepare?: (cycle: string) => void;
   diaryRestPending?: (cycle: string) => boolean;
   onRestEnd?: (cycle: string) => void;
   onScheduleTick?: () => void;
@@ -523,15 +524,17 @@ export class Automation {
           1,
           Number(policy.max_sleep_seconds),
         );
+        const cycleId = randomUUID();
         this.store.run(
           "INSERT INTO rest_cycles(id,phase,revision,started_at,wake_at,drain_until,completed_at,source_key,result,absolute_wake_at) VALUES(?,'draining',1,?,?,?,NULL,?,NULL,?)",
-          randomUUID(),
+          cycleId,
           now(),
           now() + duration,
           now() + Number(policy.drain_seconds),
           scope,
           now() + Number(policy.max_sleep_seconds),
         );
+        this.onRestPrepare?.(cycleId);
       }
       const result = {
         ...this.restStatus(),

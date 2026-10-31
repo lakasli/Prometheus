@@ -454,6 +454,6 @@ test("schema4 upgrade preserves saved scales and current legacy values without i
   assert.equal(
     app.store.get("SELECT value FROM metadata WHERE key='prometheus.schema'")
       .value,
-    "12",
+    "13",
   );
 });

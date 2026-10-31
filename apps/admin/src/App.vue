@@ -6,6 +6,7 @@ import KnowledgePanel from "./components/KnowledgePanel.vue";
 import DiaryPanel from "./components/DiaryPanel.vue";
 import AutomationPanel from "./components/AutomationPanel.vue";
 import RestPanel from "./components/RestPanel.vue";
+import RestDiaryPanel from "./components/RestDiaryPanel.vue";
 import MediaPanel from "./components/MediaPanel.vue";
 import PluginsPanel from "./components/PluginsPanel.vue";
 import ArtworkPanel from "./components/ArtworkPanel.vue";
@@ -1483,6 +1484,7 @@ onUnmounted(() => {
         <KnowledgePanel v-if="page === 'diary'" @error="failure" />
         <AutomationPanel v-if="page === 'schedule'" @error="failure" />
         <RestPanel v-if="page === 'schedule'" @error="failure" />
+        <RestDiaryPanel v-if="page === 'schedule'" @error="failure" />
         <PluginsPanel v-if="page === 'plugins'" @error="failure" />
         <ArtworkPanel v-if="page === 'skills'" @error="failure" />
         <CalendarPanel
