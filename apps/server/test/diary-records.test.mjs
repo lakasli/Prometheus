@@ -967,3 +967,109 @@ test("record ingestion state and canonical content remain inaccessible to a diff
   assert.equal(list.data.total, 0);
   assert.ok(!JSON.stringify(list.data).includes(r.id));
 });
+
+test("a changed frozen original without a canonical event blocks its historical periods instead of publishing complete coverage of the other sources", async (t) => {
+  const { app } = await setup(t),
+    owner = app.store.get("SELECT id FROM admins LIMIT 1").id,
+    id = randomUUID();
+  app.features.automation.onRestConsolidate = () => {};
+  app.store.run(
+    "INSERT INTO records VALUES(?,'diary',?,'private',1,?,?,?,NULL)",
+    id,
+    owner,
+    JSON.stringify({
+      ...data("PENDING_ORIGINAL_BEFORE_FREEZE"),
+      generator: "manual",
+      sources: [],
+    }),
+    now() - 20,
+    now() - 20,
+  );
+  const otherId = randomUUID();
+  app.store.run(
+    "INSERT INTO records VALUES(?,'diary',?,'private',1,?,?,?,NULL)",
+    otherId,
+    owner,
+    JSON.stringify({
+      ...data("OTHER_PENDING_ORIGINAL", { date: "2024-02-17" }),
+      generator: "manual",
+      sources: [],
+    }),
+    now() - 20,
+    now() - 20,
+  );
+  assert.equal(
+    (
+      await app.call(
+        "/diary/events",
+        "POST",
+        {
+          content: "OTHER_VALID_SOURCE_SAME_DAY",
+          happened_at: Date.parse("2024-02-17T12:00:00+08:00") / 1000,
+        },
+        { headers: { "idempotency-key": randomUUID() } },
+      )
+    ).status,
+    201,
+  );
+  const cycle = await sleep(app);
+  assert.equal(
+    app.store.get(
+      "SELECT count(*) AS n FROM diary_events WHERE origin_id=?",
+      id,
+    ).n,
+    0,
+  );
+  assert.equal(
+    (
+      await app.call(
+        "/records/diary/" + id,
+        "PUT",
+        { data: data("EDITED_AFTER_FREEZE") },
+        match(1),
+      )
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await app.call(
+        "/records/diary/" + otherId,
+        "PUT",
+        { data: data("OTHER_EDITED_AFTER_FREEZE", { date: "2024-02-17" }) },
+        match(1),
+      )
+    ).status,
+    200,
+  );
+  await until(
+    () => app.features.automation.restStatus().state.phase,
+    (s) => s === "consolidating",
+  );
+  app.features.diary.prepareRest(cycle);
+  run(app);
+  await until(
+    () => app.features.automation.restStatus().state.phase,
+    (s) => s === "asleep",
+  );
+  const targets = app.store.all(
+    "SELECT period,state,error_code FROM rest_diary_targets WHERE cycle_id=? AND date IN ('2024-02-16','2024-02-17','2024-02-12','2024-02-01')",
+    cycle,
+  );
+  assert.equal(targets.length, 4);
+  assert.ok(
+    targets.every(
+      (t) =>
+        t.state === "blocked" &&
+        t.error_code === "rest_diary_reference_changed",
+    ),
+    JSON.stringify(targets),
+  );
+  assert.equal(
+    app.store.get(
+      "SELECT status FROM rest_diary_cycles WHERE cycle_id=?",
+      cycle,
+    ).status,
+    "partial",
+  );
+});

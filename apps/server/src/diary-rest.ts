@@ -177,6 +177,13 @@ export class DiaryRest {
         String(p.id),
         b.start_at,
         b.end_at,
+      ) ||
+      this.store.get(
+        "SELECT record_id FROM rest_diary_records WHERE cycle_id=? AND policy_id=? AND happened_at>=? AND happened_at<? AND status='invalidated' LIMIT 1",
+        slice.cycle,
+        String(p.id),
+        b.start_at,
+        b.end_at,
       )
     )
       throw bad("冻结来源已被更正或遗忘", "rest_diary_reference_changed");
@@ -418,6 +425,8 @@ export class DiaryRest {
                 state = "invalidated";
                 error = code(e);
               }
+              if (state === "invalidated")
+                this.planner.changedRecord(s, c, Number(record.happened_at));
               this.store.run(
                 "UPDATE rest_diary_records SET status=?,error_code=? WHERE cycle_id=? AND policy_id=? AND record_id=?",
                 state,

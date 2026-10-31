@@ -5,6 +5,9 @@ import type { Row, Store } from "./store.ts";
 /** Plans from frozen metadata only. A schema13 window is never widened on resume. */
 export class DiaryRestPlan {
   constructor(readonly store: Store) {}
+  changedRecord(s: Row, c: Row, happenedAt: number) {
+    this.date(s, c, diaryDate(happenedAt, String(s.time_zone)));
+  }
   private request(s: Row, period: string, date: string) {
     this.store.run(
       "INSERT OR IGNORE INTO rest_diary_requests(cycle_id,policy_id,period,date) VALUES(?,?,?,?)",
