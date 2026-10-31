@@ -20,4 +20,36 @@ schema15升级前自动生成原schema快照，并将明确记录扫描游标归
 
 浏览器新增第23个场景，通过真实页面保存13000字节正文和脚本文本，核对原记录与来源链接、排除状态及320/1440宽度；内容按文本显示。原22个场景继续回归。合成loopback模型仅证明协议、来源、预算和状态流，不证明外部模型质量或真实QQ/微信收发。
 
-本地构建、固定SHA制品检查、固定包测试、旧14成功检查点兼容演练、完整实例升级/回滚及正式运行结果分别记录；正式切换证据随后补充。本批没有新的Windows worker隔离证明，语音、Harness、Python和Component执行继续不可用。跨来源统一日记、非管理来源的独立许可整合、既有周期跨时区迁移、201条单日来源上限和真实规模验证仍待完成。
+本批没有新的Windows worker隔离证明，语音、Harness、Python和Component执行继续不可用。跨来源统一日记、非管理来源的独立许可整合、既有周期跨时区迁移、201条单日来源上限和真实规模验证仍待完成。
+
+## 固定Windows发布
+
+正式应用 **`30c001f58c2329f2b2925dd2ccdb2d5d6debf410`**，schema15；已提交、推送并核实origin分支tip。上一可用Windows应用为 **`7a8b761fccea2ae1032a51f5c3fc836fa44d590b`**（schema14）。运行SHA不随后续证据文档提交改变。
+
+12:29:00+08:00核验Windows11专业版10.0.26200/x64、Core Ultra7 155H/22逻辑处理器、31.61GiB内存/约11.00GiB可用、D盘约402.54GiB可用，Node24.22.1、npm12.2.1、PowerShell7.6.5。Node应用未重新启动Rust构建或被阻断的worker探针。
+
+| 检查       | 实际结果                                                                                                                                                                                                                                                                                                        |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 本地检查   | 前后端构建与类型检查成功，格式和暂存差异通过。首轮预算恢复超时定位到已中断任务保留旧等待，修复后241项全回归通过；追加冻结缺失来源反例先失败、修复后45项记录/睡眠回归通过，退出0。浏览器首轮选择器匹配范围错误，限定编辑对话框后通过，未修改产品边界迁就测试。                                                   |
+| 固定打包   | `pwsh -NoProfile -File deploy/prometheus/package-windows.ps1 -Commit 30c001f58c2329f2b2925dd2ccdb2d5d6debf410 -PreviousVerifiedCommit 7a8b761fccea2ae1032a51f5c3fc836fa44d590b`，远端已推送Git archive构建，前后端同SHA，退出0。ZIP SHA256 `7eaba78c1ace2bafb36bc8a21d779b04be73f3a34d4282363f9b7657b0baef42`。 |
+| 固定制品   | `node deploy/prometheus/verify-release.mjs <本SHA/runtime>`，18项通过，退出0。                                                                                                                                                                                                                                  |
+| 固定后端   | `PROMETHEUS_RELEASE_ROOT`绑定本SHA/runtime，`node --test --test-concurrency=1 apps/server/test/*.test.mjs`：242通过/0失败/0跳过，197.56秒，退出0。服务fixture使用固定包；安全/ACL、严格JSON及部分直接工具仍为本地。39份JS/schema比较中38份字节相同，另1份仅CRLF/LF差异，构建身份单独核验。                      |
+| 固定浏览器 | 同环境下`npm run test:e2e --workspace @prometheus/admin`：23通过/0失败，49.7秒，退出0。实际页面保存长日记，核对完整原文/事件/状态及敏感记录排除；320/1440宽度无横向溢出，脚本按文本显示；状态截图已查看。12项本地关系图纯函数另实际重跑通过，0.89秒，退出0。                                                    |
+| 正式启动   | 包内`Start-Prometheus.ps1 -DataDir D:/DSH/.local/prometheus/instance`逐文件校验后，于12:40:12+08:00前台启动，Node PID26748；入口`http://127.0.0.1:8419/admin/`。                                                                                                                                                |
+| 正式复核   | 12:40:27+08:00 live/ready/schema15、build.json与锁同SHA；25个匿名管理GET及3个正确Origin匿名POST均401；实际登录页正常，无脚本错误。正式数据库及自动schema14快照integrity_check均ok。未读取用户密码或代登录。                                                                                                     |
+
+## 旧检查点、升级与回滚
+
+12:36:03+08:00在独立目录 `recovery-drills/01d69b5a-037c-430c-8758-20a623db5219` 用旧固定7a8b761和真实认证API创建两条2024-02-16人工来源：第一条约11000字节，第二条12000个引号。旧版实际请求成功1次并保留外层片段，第二条因转义后超限阻断。关闭旧版，用新固定包打开同目录并明确重试：6次实际新HTTP请求完成剩余分片及归并，最大44504字节，无新请求携带第一条原文，最终覆盖完整且来源数恰为2。旧成功片段逐字段/哈希相同；升级前自动schema14快照中的该片段也相同且完整性ok，旧14实际拒绝打开15。此演练使用合成loopback模型，不证明真实外部模型质量。
+
+12:39:37+08:00复核旧SHA、PID28540完整命令行、数据锁及无在途Run/作业/投递。Ctrl+C打印Prometheus stopped；Node、锁和8419监听均消失，外层PowerShell退出1。12:39:50+08:00完整备份16文件至 `.local/prometheus/backups/instance-2026-10-31T04-39-50-145Z-d8711539-0c23-4d8d-83f4-92f3cf7d5689`，包含数据库、主密钥、旧快照和部署元数据，完整性ok，退出0。
+
+逐文件哈希、路径边界、符号链接与ACL核验后，恢复至 `recovery-drills/1f97e068-9fda-4367-afa4-e27dfb441fbc`。只在副本用旧14保存合成凭据、草稿、记忆、日程、人物字段/身份/独立计分、授权和Native实际准备的未来文字成果。旧14另保存合法13000字节周记，确认其没有来源事件，并让旧扫描游标实际越过该记录；再通过旧restControl受理睡眠，冻结全部原引用与wake_at后关闭。
+
+新15在18469 ready，旧周期完成时冻结引用逐项相同、wake_at未变，没有为旧周期补入record引用或长记录事件。独立唤醒后立即受理新睡眠，新批冻结该旧原记录并完整入账，来源引用、captured状态和原文/感受均核对，原始RecordItem.data一致。旧日记事件/版本、人物推测标签与身份、草稿、writing授权原JSON、旧Native成果/来源/时段和合成凭据解密保持；好感49.125分/余数321保留，新增再撤销仍恢复同值，合成渠道人物合并/拆回不改变来源。未编造新模型作业、文字成果或提前选择许可。
+
+自动schema14快照完整性、原分值和授权通过；旧14实际拒绝打开15。另将没有合成资料的完整备份恢复至 `recovery-drills/faf7ba17-8c9d-4dc5-b514-4a940e4f6ece`，旧固定14在18469 ready，稳定身份与完整性ok后关闭。两项完整实例演练于12:40:04+08:00完成，退出0，不覆盖正式目录。
+
+正式前后管理员1，records/Run/消息/凭据0，配置/性格revision1，稳定身份及主密钥哈希一致。六表admins/config_revisions/personality_versions/records/secrets/source_grants逐行内容哈希一致；未配置模型、QQ/微信关闭，来源、睡眠、分片及作业仍为空，未写入合成任务或自动开启许可。12:40:36+08:00原生icacls核验instance、master.key、完整备份与两个恢复目录，只含当前账户、SYSTEM、Administrators；旧WSL `df6429cbceb8f16504efe9464c1abbbdb4a67e29`在18439仍ready，仅作逻辑对照。
+
+私有证据保存在 `.local/prometheus/release-validation/reports/30c001f58c2329f2b2925dd2ccdb2d5d6debf410.json`、`.local/prometheus/upgrade-evidence/30c001f/{checkpoint,drill,production}.json`、正式deployment.json及分开的开发/失败/固定/备份日志，不提交秘密或用户数据。有限通过数不代表完整迁移。
