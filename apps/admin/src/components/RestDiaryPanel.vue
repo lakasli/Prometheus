@@ -17,6 +17,7 @@ const states: Record<string, string> = {
   local: "已保存本地摘录或来源目录",
   pending: "等待处理",
   capturing: "正在采集冻结消息",
+  planning: "正在按页登记历史周期",
   prepared: "来源已准备",
   blocked: "条件未满足",
   invalidated: "来源已失效",
@@ -37,10 +38,63 @@ const periods: Record<string, string> = {
   month: "月记",
 };
 const count = (cycle: any, state: string) =>
-  cycle.targets.filter((t: any) => t.state === state).length;
+  Number(cycle.target_counts?.[state] ?? 0);
+const loadingTargets = ref(new Set<string>()),
+  targetControllers = new Map<string, AbortController>(),
+  historyPaused = ref(false);
+let generation = 0;
+async function more(cycle: any) {
+  if (
+    disposed ||
+    busy.value ||
+    !cycle.targets_next ||
+    targetControllers.has(cycle.cycle_id)
+  )
+    return;
+  const id = String(cycle.cycle_id),
+    version = generation,
+    abort = new AbortController();
+  historyPaused.value = true;
+  targetControllers.set(id, abort);
+  loadingTargets.value = new Set(targetControllers.keys());
+  try {
+    const r = await api<any>(
+      `/diary/rest-cycles/${id}/targets?before=${cycle.targets_next}&limit=100`,
+      "GET",
+      undefined,
+      undefined,
+      abort.signal,
+    );
+    if (
+      !disposed &&
+      !abort.signal.aborted &&
+      generation === version &&
+      items.value.includes(cycle)
+    ) {
+      const ids = new Set(cycle.targets.map((t: any) => t.cursor));
+      cycle.targets.push(...r.items.filter((t: any) => !ids.has(t.cursor)));
+      cycle.targets_next = r.next;
+    }
+  } catch (e) {
+    if (
+      !disposed &&
+      generation === version &&
+      !(e instanceof Error && e.name === "AbortError")
+    )
+      emit("error", e);
+  } finally {
+    if (targetControllers.get(id) === abort) targetControllers.delete(id);
+    if (!disposed) loadingTargets.value = new Set(targetControllers.keys());
+  }
+}
 async function load() {
   if (busy.value || disposed) return;
   busy.value = true;
+  historyPaused.value = false;
+  generation++;
+  for (const c of targetControllers.values()) c.abort();
+  targetControllers.clear();
+  loadingTargets.value = new Set();
   controller?.abort();
   controller = new AbortController();
   try {
@@ -63,6 +117,7 @@ function poll() {
   timer = setTimeout(async () => {
     if (
       !document.hidden &&
+      !historyPaused.value &&
       items.value.some((c) =>
         ["frozen", "preparing", "model_wait"].includes(c.status),
       )
@@ -78,6 +133,8 @@ onMounted(() => {
 onUnmounted(() => {
   disposed = true;
   controller?.abort();
+  for (const c of targetControllers.values()) c.abort();
+  targetControllers.clear();
   if (timer) clearTimeout(timer);
 });
 </script>
@@ -95,6 +152,9 @@ onUnmounted(() => {
       </button>
     </div>
     <p v-if="!items.length" class="muted">尚无已冻结的睡眠整理批次。</p>
+    <p v-if="historyPaused" class="muted">
+      已暂停自动刷新以便浏览历史；点击刷新整理批次可更新全部状态。
+    </p>
     <article v-for="cycle in items" :key="cycle.cycle_id" class="job-card">
       <h3>{{ states[cycle.status] ?? "待核对" }}</h3>
       <p v-if="cycle.error_code">
@@ -113,6 +173,11 @@ onUnmounted(() => {
         }}项 · 模型或无互动处理{{ count(cycle, "completed") }}项 · 等待{{
           count(cycle, "pending")
         }}项
+      </p>
+      <p v-if="cycle.request_counts?.pending" class="muted">
+        另有{{
+          cycle.request_counts.pending
+        }}个周期待准备；已保存片段保留，原唤醒期限不变。
       </p>
       <p class="muted">
         冻结后的新消息留待后续处理；当天未结束或仅覆盖冻结时刻时，不代表全天完成。未获模型许可的来源仅在本地保存。
@@ -137,6 +202,9 @@ onUnmounted(() => {
           <p>
             {{ source.allow_model ? "本批已有模型出域许可" : "本批仅本地整理" }}
           </p>
+          <p v-if="source.historical_backlog === 0" class="muted">
+            本批沿用旧版冻结的日期范围；更早的获授权资料留待下次睡眠。
+          </p>
           <p v-if="source.error_code">
             {{
               reasons[source.error_code] ?? "来源条件已变化，请核对日记记录。"
@@ -158,6 +226,17 @@ onUnmounted(() => {
             </p>
           </details>
         </article>
+        <p class="muted">
+          已显示{{ cycle.targets.length }}项周期状态；上方计数包含本批全部周期。
+        </p>
+        <button
+          v-if="cycle.targets_next"
+          class="secondary"
+          :disabled="busy || loadingTargets.has(cycle.cycle_id)"
+          @click="more(cycle)"
+        >
+          加载更多周期状态
+        </button>
       </details>
     </article>
   </section>

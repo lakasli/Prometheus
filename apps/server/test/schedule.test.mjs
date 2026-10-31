@@ -1038,7 +1038,7 @@ test("schema5 upgrade retains current affinity ledger, drafts and simple schedul
   assert.equal(
     app.store.get("SELECT value FROM metadata WHERE key='prometheus.schema'")
       .value,
-    "13",
+    "14",
   );
   assert.deepEqual(
     {

@@ -1082,6 +1082,17 @@ export class Features {
       return { data: this.automation.restStatus() };
     if (path === "/diary/rest-cycles" && method === "GET")
       return { data: this.diary.rest.summaries(admin.id) };
+    const restTargets = /^\/diary\/rest-cycles\/([a-f0-9-]{36})\/targets$/.exec(
+      path,
+    );
+    if (restTargets && method === "GET")
+      return {
+        data: this.diary.rest.targetPage(
+          admin.id,
+          restTargets[1]!,
+          url.searchParams,
+        ),
+      };
     if (path === "/schedule/decisions" && method === "GET")
       return { data: this.scheduleNotices.list(admin.id, url.searchParams) };
     if (path === "/rest/policy" && method === "GET")

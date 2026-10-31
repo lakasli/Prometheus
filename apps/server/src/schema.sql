@@ -171,3 +171,7 @@ CREATE TABLE IF NOT EXISTS rest_diary_targets(cycle_id TEXT NOT NULL,policy_id T
 CREATE TABLE IF NOT EXISTS diary_version_cutoffs(entry_id TEXT NOT NULL REFERENCES diary_entries(id),revision INTEGER NOT NULL,cycle_id TEXT NOT NULL REFERENCES rest_diary_cycles(cycle_id),as_of INTEGER NOT NULL,PRIMARY KEY(entry_id,revision));
 
 CREATE INDEX IF NOT EXISTS rest_diary_target_task ON rest_diary_targets(cycle_id,entry_id);
+CREATE TABLE IF NOT EXISTS rest_diary_plan_state(cycle_id TEXT NOT NULL,policy_id TEXT NOT NULL,ref_cursor INTEGER NOT NULL DEFAULT 0,claim_cursor INTEGER NOT NULL DEFAULT 0,refs_done INTEGER NOT NULL DEFAULT 0,claims_done INTEGER NOT NULL DEFAULT 0,seeded INTEGER NOT NULL DEFAULT 0,turn INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(cycle_id,policy_id),FOREIGN KEY(cycle_id,policy_id) REFERENCES rest_diary_sources(cycle_id,policy_id));
+CREATE TABLE IF NOT EXISTS rest_diary_requests(cycle_id TEXT NOT NULL,policy_id TEXT NOT NULL,period TEXT NOT NULL,date TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',PRIMARY KEY(cycle_id,policy_id,period,date),FOREIGN KEY(cycle_id,policy_id) REFERENCES rest_diary_sources(cycle_id,policy_id));
+CREATE INDEX IF NOT EXISTS rest_diary_request_queue ON rest_diary_requests(cycle_id,policy_id,status,period,date);
+CREATE INDEX IF NOT EXISTS rest_diary_ref_time ON rest_diary_refs(cycle_id,policy_id,happened_at);

@@ -720,7 +720,7 @@ export class Diary {
       actor,
       now(),
     );
-    this.invalidateDates(String(p.id), at, "source_added");
+    this.invalidateDates(String(p.id), at, "source_added", id);
   }
   changeEvent(
     actor: string,
@@ -798,7 +798,7 @@ export class Diary {
         now(),
       );
       if (!forget)
-        this.invalidateDates(String(old.policy_id), at, "event_corrected");
+        this.invalidateDates(String(old.policy_id), at, "event_corrected", id);
       this.store.audit(
         actor,
         "diary",
@@ -814,7 +814,12 @@ export class Diary {
     );
     return this.event(actor, id);
   }
-  private invalidateDates(policy: string, at: number, reason: string) {
+  private invalidateDates(
+    policy: string,
+    at: number,
+    reason: string,
+    event: string,
+  ) {
     let changed = false;
     for (const e of this.store.all(
       "SELECT id FROM diary_entries WHERE policy_id=? AND deleted_at IS NULL AND state<>'invalidated'",
@@ -826,6 +831,23 @@ export class Diary {
         )!,
         bounds = diaryBounds(entry.period, entry.period_start, entry.time_zone);
       if (at >= bounds.start_at && at < bounds.end_at) {
+        // New evidence belongs to a later snapshot. Corrections/forgetting of
+        // evidence already used still invalidate through invalidateEvents.
+        const cutoff = this.store.get(
+          "SELECT cycle_id FROM diary_version_cutoffs WHERE entry_id=? AND revision=?",
+          String(entry.id),
+          Number(entry.revision),
+        );
+        if (
+          cutoff &&
+          !this.store.get(
+            "SELECT event_id FROM rest_diary_refs WHERE cycle_id=? AND policy_id=? AND event_id=?",
+            String(cutoff.cycle_id),
+            policy,
+            event,
+          )
+        )
+          continue;
         this.invalidateEntry(String(e.id), reason);
         changed = true;
       }
@@ -1113,7 +1135,12 @@ export class Diary {
           String(record.owner_id),
           now(),
         );
-        this.invalidateDates(String(p.id), at, "record_corrected");
+        this.invalidateDates(
+          String(p.id),
+          at,
+          "record_corrected",
+          String(existing.id),
+        );
         return;
       }
       this.insertEvent(
@@ -1524,6 +1551,7 @@ export class Diary {
     if (slice) {
       this.rest.assertSlice(p, period, date, slice);
       this.rest.claim(id, slice);
+      if (old?.locked) return old;
     }
     if (old?.deleted_at !== null && old?.deleted_at !== undefined)
       throw bad("已遗忘周期不重新生成", "diary_period_forgotten");
@@ -1546,7 +1574,8 @@ export class Diary {
     const raw = this.raw(p, b, slice),
       rawHash = hash(JSON.stringify(raw.map((e) => [e.id, e.revision])));
     const parents: Row[] = [];
-    let ready = true;
+    let ready = true,
+      manualParentEvidence = false;
     if (period !== "day")
       for (let i = 0; i < b.days; i++) {
         const date = dateAdd(b.date, i),
@@ -1579,6 +1608,15 @@ export class Diary {
         }
         if (slice) this.rest.registerParent(p, parent, slice);
         parents.push(parent);
+        if (parent.locked) {
+          const version = this.store.get(
+            "SELECT generator,facts FROM diary_entry_versions WHERE entry_id=? AND revision=?",
+            String(parent.id),
+            Number(parent.revision),
+          );
+          if (version?.generator === "manual" && version.facts)
+            manualParentEvidence = true;
+        }
       }
     const closed = b.end_at <= (slice?.asOf ?? now());
     const fingerprint = hash(
@@ -1706,7 +1744,7 @@ export class Diary {
           ? "blocked"
           : !ready
             ? "waiting_parents"
-            : !raw.length
+            : !raw.length && !manualParentEvidence
               ? "empty"
               : "idle",
         raw.length > 200 && period === "day"
@@ -2160,6 +2198,10 @@ export class Diary {
   }
   private dispatch() {
     if (this.active || this.stopping || !this.clockTrusted()) return;
+    const cycle = this.store.get(
+      "SELECT id,phase FROM rest_cycles WHERE completed_at IS NULL LIMIT 1",
+    );
+    if (cycle && cycle.phase !== "consolidating") return;
     if (
       this.store.get(
         "SELECT id FROM runs r WHERE status IN ('queued','running') AND NOT EXISTS(SELECT 1 FROM automatic_runs a WHERE a.run_id=r.id) LIMIT 1",
@@ -2167,8 +2209,10 @@ export class Diary {
     )
       return;
     for (const task of this.store.all(
-      "SELECT * FROM diary_tasks WHERE state IN ('queued','waiting_parents') AND next_at<=? ORDER BY next_at,created_at,entry_id LIMIT 128",
+      "SELECT t.* FROM diary_tasks t JOIN diary_entries e ON e.id=t.entry_id WHERE t.state IN ('queued','waiting_parents') AND t.next_at<=? AND (? IS NULL OR t.cycle_id=?) ORDER BY CASE e.period WHEN 'day' THEN 0 WHEN 'week' THEN 1 ELSE 2 END,t.next_at,t.created_at,t.entry_id LIMIT 128",
       now(),
+      cycle?.id ?? null,
+      cycle?.id ?? null,
     )) {
       if (!this.canModel(task)) continue;
       const entry = this.store.get(
@@ -2399,10 +2443,15 @@ export class Diary {
                 now(),
               );
               if (step!.final) {
+                const cutoff = this.store.get(
+                  "SELECT cycle_id,as_of FROM diary_version_cutoffs WHERE entry_id=? AND revision=?",
+                  String(entry.id),
+                  Number(entry.revision),
+                );
                 this.store.run(
                   "UPDATE diary_entries SET revision=revision+1,state=?,updated_at=? WHERE id=?",
                   diaryBounds(entry.period, entry.period_start, entry.time_zone)
-                    .end_at <= now()
+                    .end_at <= Math.min(now(), Number(cutoff?.as_of ?? now()))
                     ? "sealed"
                     : "open",
                   now(),
@@ -2426,16 +2475,12 @@ export class Diary {
                   Number(prior.source_count),
                   String(prior.observation),
                   "authorized_model",
-                  (() => {
-                    const c = this.store.get(
-                      "SELECT cycle_id,as_of FROM diary_version_cutoffs WHERE entry_id=? AND revision=?",
-                      String(entry.id),
-                      Number(entry.revision),
-                    );
-                    return c
-                      ? { cycle: String(c.cycle_id), asOf: Number(c.as_of) }
-                      : undefined;
-                  })(),
+                  cutoff
+                    ? {
+                        cycle: String(cutoff.cycle_id),
+                        asOf: Number(cutoff.as_of),
+                      }
+                    : undefined,
                 );
                 this.store.run(
                   "UPDATE diary_tasks SET state='completed',failures=0,error_code=NULL,updated_at=? WHERE entry_id=?",

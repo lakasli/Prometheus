@@ -2361,6 +2361,19 @@ test("sleep diary batches show real frozen source progress and local-only covera
   ).toBe(true);
   expect(batch.targets.some((t: any) => t.state === "local")).toBe(true);
   expect(batch.frozen_at).toBeGreaterThan(0);
+  const total = Object.values(batch.target_counts).reduce(
+    (a: number, b: any) => a + Number(b),
+    0,
+  );
+  expect(batch.targets.length).toBe(50);
+  expect(batch.targets_next).toBeTruthy();
+  await expect(panel.locator(".source-state details > p")).toHaveCount(50);
+  await panel
+    .getByRole("button", { name: "加载更多周期状态", exact: true })
+    .click();
+  await expect(panel.locator(".source-state details > p")).toHaveCount(total);
+  await expect(panel).toContainText("已暂停自动刷新以便浏览历史");
+
   expect(
     await page.locator("body").getAttribute("data-rest-unsafe"),
   ).toBeNull();
@@ -2397,4 +2410,59 @@ test("sleep diary batches show real frozen source progress and local-only covera
     .click();
   await expect(panel).toContainText("本批请求已处理");
   expect(errors).toEqual([]);
+});
+
+test("leaving sleep batch history discards a delayed real pagination response and stops its refresh work", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "日程", exact: true })
+    .click();
+  const panel = page.getByRole("region", { name: "睡眠整理批次" });
+  await panel.locator("details>summary").first().click();
+  await expect(
+    panel.getByRole("button", { name: "加载更多周期状态", exact: true }),
+  ).toBeVisible();
+  await page.evaluate(() => {
+    const original = window.fetch;
+    window.fetch = async (...args) => {
+      const result = await original(...args);
+      if (
+        String(args[0]).includes("/diary/rest-cycles/") &&
+        String(args[0]).includes("/targets?")
+      )
+        await new Promise((r) => setTimeout(r, 1200));
+      return result;
+    };
+  });
+  const request = page.waitForResponse(
+    (r) =>
+      r.url().includes("/diary/rest-cycles/") && r.url().includes("/targets?"),
+  );
+  await panel
+    .getByRole("button", { name: "加载更多周期状态", exact: true })
+    .click();
+  expect((await request).status()).toBe(200);
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "运行总览", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "运行总览", exact: true }),
+  ).toBeVisible();
+  await page.waitForTimeout(1600);
+  await expect(panel).toHaveCount(0);
+  expect(errors).toEqual([]);
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "日程", exact: true })
+    .click();
+  await panel.locator("details>summary").first().click();
+  await expect(panel.locator(".source-state details > p")).toHaveCount(50);
+  await expect(
+    panel.getByRole("button", { name: "加载更多周期状态", exact: true }),
+  ).toBeVisible();
 });
