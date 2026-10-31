@@ -1375,10 +1375,28 @@ test("explicit diary profile jobs remain pending until review and can be cancell
   await jobs
     .getByRole("button", { name: "排队生成待审核候选", exact: true })
     .click();
+  await expect(jobs).toContainText("正在整理");
+  let cancelPosts = 0,
+    conflicts = 0;
+  const cancelPath = "**/api/admin/v1/relationships/model-jobs/*/cancel";
+  await page.route(cancelPath, async (route) => {
+    cancelPosts++;
+    if (cancelPosts === 1)
+      await route.continue({
+        headers: { ...route.request().headers(), "if-match": '"999999"' },
+      });
+    else await route.continue();
+  });
+  page.on("response", (r) => {
+    if (r.url().endsWith("/cancel") && r.status() === 409) conflicts++;
+  });
   await jobs
     .getByRole("button", { name: "取消这次人物整理", exact: true })
     .click();
   await expect(jobs).toContainText("已取消");
+  expect(cancelPosts).toBe(2);
+  expect(conflicts).toBe(1);
+  await page.unroute(cancelPath);
   await page.setViewportSize({ width: 390, height: 844 });
   expect(
     await page.locator("body").evaluate((el) => el.scrollWidth <= innerWidth),

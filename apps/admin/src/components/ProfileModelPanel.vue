@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { api } from "../api";
+import { api, ApiError } from "../api";
 const props = defineProps<{ person: any; sources: any[]; targets: any[] }>(),
   emit = defineEmits<{ error: [unknown]; dirty: [boolean]; changed: [] }>();
 const source = ref(""),
@@ -161,19 +161,49 @@ async function submit() {
   }
 }
 async function cancel(j: any) {
+  if (busy.value || disposed) return;
+  const token = ++version,
+    pid = props.person.id;
   busy.value = true;
   try {
-    await api(
-      `/relationships/model-jobs/${j.id}/cancel`,
-      "POST",
-      {},
-      j.revision,
-    );
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const current = await api<any>(`/relationships/model-jobs/${j.id}`);
+      if (disposed || token !== version || pid !== props.person.id) return;
+      if (current.person_id !== pid)
+        throw new Error("整理记录所属人物已变化，请重新核对");
+      if (!["queued", "running"].includes(current.status)) {
+        jobs.value = jobs.value.map((item) =>
+          item.id === j.id ? current : item,
+        );
+        break;
+      }
+      try {
+        const receipt = await api<any>(
+          `/relationships/model-jobs/${j.id}/cancel`,
+          "POST",
+          {},
+          current.revision,
+        );
+        if (disposed || token !== version || pid !== props.person.id) return;
+        jobs.value = jobs.value.map((item) =>
+          item.id === j.id ? receipt : item,
+        );
+        break;
+      } catch (error) {
+        if (!(
+          error instanceof ApiError &&
+          error.status === 409 &&
+          attempt === 0
+        ))
+          throw error;
+        // The immutable job may enter running between GET and POST. Keep CAS and recheck this same job once.
+      }
+    }
     await load();
   } catch (e) {
-    emit("error", e);
+    if (!disposed && token === version) emit("error", e);
   } finally {
-    busy.value = false;
+    if (!disposed) busy.value = false;
   }
 }
 async function page(delta: number) {
