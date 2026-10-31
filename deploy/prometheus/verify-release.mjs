@@ -189,12 +189,17 @@ try {
     );
     results.push(`${kind}-persisted`);
   }
-  for (const path of [
-    "/plugins/execute",
-    "/speech/synthesize",
-    "/harness/start",
-  ])
+  for (const path of ["/plugins/execute", "/harness/start"])
     assert.equal((await call(path, "POST", {})).status, 503);
+  assert.equal(
+    (
+      await call("/speech/syntheses", "POST", {
+        text: "发布验证",
+        request_id: "disabled-release-speech",
+      })
+    ).status,
+    503,
+  );
   results.push("worker-gates-denied");
   const sourceMessages = (
     await call(`/conversations/${conversation.id}/messages`)
