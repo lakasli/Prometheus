@@ -2863,6 +2863,13 @@ test("channel receipt status separates attachment handling from actual delivery 
   });
   expect(denied.status()).toBe(401);
   await page.setViewportSize({ width: 320, height: 800 });
+  await expect
+    .poll(() =>
+      page
+        .locator("aside.sidebar")
+        .evaluate((el) => el.getBoundingClientRect().right),
+    )
+    .toBeLessThanOrEqual(0);
   await expect(row).toBeVisible();
   expect(
     await page.evaluate(

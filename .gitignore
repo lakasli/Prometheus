@@ -5,6 +5,7 @@
 **/__pycache__/
 /web/admin/dist/
 /.local/
+/apps/server/.local/
 /.dsh/
 /data/
 /artifacts/

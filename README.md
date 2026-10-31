@@ -4,7 +4,7 @@
 
 新入口为根目录 npm 工作区：`apps/server` 后端、`apps/admin` 管理页面；运行链路不编译或调用 Rust。原代码、素材和未提交的 Breeze 改动保留，旧说明见 [DSH历史README](docs/legacy/README-DSH.md)。用户于2026-10-31指定新仓库[GitHub Prometheus](https://github.com/lakasli/Prometheus)，旧远端保留为dsh-legacy，本地仍为D:\DSH。
 
-**第二批已迁入渠道文字、来源整理、触发、作息与PNG媒体，完整旧功能的迁移仍未完成。** 真实QQ / 微信、正式外部模型与媒体平台验收单独记录；语音、Harness和生成插件执行在Windows隔离验证前保持禁用。原目标继续保留，见 [逐项迁移范围](docs/prometheus-migration.md)。
+**当前已推进到第二十一批，新增QQ单聊收图、普通图片规范化与旧附件来源复核；完整旧功能的迁移仍未完成。** 本批固定Windows交付、310项后端/27项浏览器和升级恢复结果见[QQ收图验收](docs/prometheus-qq-images-validation.md)。 真实QQ / 微信、正式外部模型与媒体平台验收单独记录；语音、Harness和生成插件执行在Windows隔离验证前保持禁用。原目标继续保留，见 [逐项迁移范围](docs/prometheus-migration.md)。
 
 ## 开发与启动
 
