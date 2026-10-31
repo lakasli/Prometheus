@@ -98,6 +98,11 @@ export class DailyLife {
     )
       return false;
     if (
+      this.runtime.validMediaContext &&
+      !this.runtime.validMediaContext(ref.run_id)
+    )
+      return false;
+    if (
       this.store.get(
         "SELECT run_id FROM run_publications WHERE run_id=? AND state='suppressed'",
         ref.run_id,

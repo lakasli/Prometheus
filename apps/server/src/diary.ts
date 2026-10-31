@@ -23,6 +23,7 @@ import { DiaryRest } from "./diary-rest.ts";
 import type { RestSlice } from "./diary-rest.ts";
 import { DiaryUnitReduction } from "./diary-unit-reduction.ts";
 import type { UnitStep } from "./diary-unit-reduction.ts";
+import { visualSourceAllowed } from "./vision.ts";
 type Json = Record<string, any>;
 type Step = {
   nested?: UnitStep;
@@ -59,6 +60,7 @@ export class Diary {
     if (kind === "diary_event") {
       row = this.event(actor, id);
       if (
+        row.review_status === "required" ||
         row.deleted_at !== null ||
         row.content === null ||
         row.revision !== revision
@@ -134,6 +136,28 @@ export class Diary {
         this.seal(p, period, date, false, true, slice),
       request: (e, p) => this.requestModel(e, p, true),
     });
+    const invalid = store.all(
+      "SELECT e.id,e.revision FROM diary_events e JOIN messages m ON m.id=e.origin_id WHERE e.origin_kind='message' AND e.revision=1 AND e.deleted_at IS NULL AND (EXISTS(SELECT 1 FROM run_media v WHERE v.run_id=m.run_id) OR m.role='assistant' AND (EXISTS(SELECT 1 FROM vision_uses v WHERE v.run_id=m.run_id) OR EXISTS(SELECT 1 FROM vision_legacy_fences f WHERE f.conversation_id=m.conversation_id AND m.rowid<=f.message_cutoff)))",
+    );
+    if (invalid.length)
+      store.transaction(() => {
+        for (const event of invalid)
+          store.run(
+            "INSERT OR IGNORE INTO vision_quarantined_events VALUES(?,?,'visual_source_unreviewed',?)",
+            String(event.id),
+            Number(event.revision),
+            now(),
+          );
+        store.run(
+          "UPDATE diary_entries SET state='invalidated' WHERE locked=0 AND id IN (SELECT s.entry_id FROM diary_entry_sources s JOIN vision_quarantined_events q ON q.event_id=s.event_id AND q.event_revision=s.event_revision)",
+        );
+        store.run(
+          "UPDATE diary_tasks SET state='blocked',error_code='visual_source_unreviewed' WHERE entry_id IN (SELECT id FROM diary_entries WHERE state='invalidated' AND id IN (SELECT s.entry_id FROM diary_entry_sources s JOIN vision_quarantined_events q ON q.event_id=s.event_id AND q.event_revision=s.event_revision))",
+        );
+        store.run(
+          "UPDATE model_jobs SET status='invalidated',input_json=NULL,output_json=NULL,error='日记原始来源待复核',revision=revision+1 WHERE status NOT IN ('approved','rejected','cancelled','invalidated') AND EXISTS(SELECT 1 FROM json_each(model_jobs.source_json) j JOIN diary_entries e ON e.id=json_extract(j.value,'$.id') WHERE json_extract(j.value,'$.type')='record' AND e.state='invalidated' AND EXISTS(SELECT 1 FROM diary_entry_sources s JOIN vision_quarantined_events q ON q.event_id=s.event_id AND q.event_revision=s.event_revision WHERE s.entry_id=e.id))",
+        );
+      });
   }
   private captureFloor(p: Row) {
     const g = this.store.get(
@@ -211,6 +235,7 @@ export class Diary {
       Number(m.sequence) <= this.captureFloor(p)
     )
       throw bad("冻结消息来源已失效", "rest_diary_reference_changed");
+    if (!visualSourceAllowed(this.store, m)) return false;
     if (
       m.role === "assistant" &&
       this.store.get(
@@ -488,14 +513,23 @@ export class Diary {
     this.runtime.invalidate(visibility === "shared" ? "*" : owner);
     return this.policy(actor, policyId, true);
   }
-  private event(actor: string, id: string, write = false) {
+  private event(actor: string, id: string, write = false): Row {
     const e = this.store.get(
       "SELECT e.*,p.manager_id,p.source_key,p.time_zone FROM diary_events e JOIN diary_policies p ON p.id=e.policy_id WHERE e.id=?",
       id,
     );
     if (!e || (e.manager_id !== actor && (write || e.visibility !== "shared")))
       throw missing();
-    return e;
+    return {
+      ...e,
+      review_status: this.store.get(
+        "SELECT event_id FROM vision_quarantined_events WHERE event_id=? AND event_revision=?",
+        id,
+        Number(e.revision),
+      )
+        ? "required"
+        : "current",
+    };
   }
   eventDetail(actor: string, id: string) {
     const e = this.event(actor, id);
@@ -539,7 +573,7 @@ export class Diary {
     ];
     return {
       items: this.store.all(
-        `SELECT e.*,p.source_key,p.time_zone FROM diary_events e JOIN diary_policies p ON p.id=e.policy_id WHERE ${where} ORDER BY e.happened_at DESC,e.id LIMIT ? OFFSET ?`,
+        `SELECT e.*,p.source_key,p.time_zone,CASE WHEN EXISTS(SELECT 1 FROM vision_quarantined_events q WHERE q.event_id=e.id AND q.event_revision=e.revision) THEN 'required' ELSE 'current' END AS review_status FROM diary_events e JOIN diary_policies p ON p.id=e.policy_id WHERE ${where} ORDER BY e.happened_at DESC,e.id LIMIT ? OFFSET ?`,
         ...args,
         limit,
         offset,
@@ -1443,6 +1477,7 @@ export class Diary {
           String(run.id),
         )) {
           if (Number(m.sequence) <= cutoff) continue;
+          if (!visualSourceAllowed(this.store, m)) continue;
           if (
             m.role === "assistant" &&
             this.store.get(
@@ -1525,6 +1560,10 @@ export class Diary {
       String(e.id),
       Number(e.revision),
     );
+    const reviewRequired = !!this.store.get(
+      "SELECT q.event_id FROM diary_entry_sources s JOIN vision_quarantined_events q ON q.event_id=s.event_id AND q.event_revision=s.event_revision WHERE s.entry_id=? LIMIT 1",
+      String(e.id),
+    );
     return {
       ...e,
       version: v ?? null,
@@ -1535,12 +1574,17 @@ export class Diary {
         as_of: cutoff?.as_of ?? null,
         rest_cycle_id: cutoff?.cycle_id ?? null,
         sources: Number(v?.source_count ?? 0),
-        complete_raw: v?.complete_raw === 1,
+        complete_raw:
+          e.state !== "invalidated" &&
+          !reviewRequired &&
+          e.deleted_at === null &&
+          v?.complete_raw === 1,
         parents: this.store.all(
           "SELECT parent_id,parent_revision,parent_fingerprint FROM diary_parents WHERE entry_id=? ORDER BY parent_id",
           String(e.id),
         ),
       },
+      source_review_required: reviewRequired,
       unit_fragments_count: Number(
         this.store.get(
           "SELECT count(*) AS n FROM diary_unit_fragments WHERE entry_id=?",
@@ -1798,6 +1842,18 @@ export class Diary {
       }
       return old;
     }
+    if (
+      this.store.get(
+        "SELECT q.event_id FROM vision_quarantined_events q JOIN diary_events e ON e.id=q.event_id AND e.revision=q.event_revision WHERE e.policy_id=? AND e.deleted_at IS NULL AND e.happened_at>=? AND e.happened_at<? LIMIT 1",
+        String(p.id),
+        b.start_at,
+        b.end_at,
+      )
+    )
+      throw bad(
+        "此周期包含旧识图来源，请明确复核原事件",
+        "visual_source_unreviewed",
+      );
     const raw = this.raw(p, b, slice),
       rawHash = hash(JSON.stringify(raw.map((e) => [e.id, e.revision])));
     const parents: Row[] = [];
@@ -2998,7 +3054,7 @@ export class Diary {
             String(p.time_zone),
           );
       const invalid = this.store.all(
-        "SELECT period_start FROM diary_entries WHERE policy_id=? AND period='day' AND state='invalidated' AND deleted_at IS NULL AND locked=0 ORDER BY period_start LIMIT 4",
+        "SELECT period_start FROM diary_entries WHERE policy_id=? AND period='day' AND state='invalidated' AND deleted_at IS NULL AND locked=0 AND NOT EXISTS(SELECT 1 FROM diary_tasks t WHERE t.entry_id=diary_entries.id AND t.error_code='visual_source_unreviewed') ORDER BY period_start LIMIT 4",
         String(p.id),
       );
       let processed = 0;

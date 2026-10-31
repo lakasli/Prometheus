@@ -40,6 +40,7 @@ const labels: Record<string, string> = {
   interrupted: "已中断",
 };
 const reasons: Record<string, string> = {
+  visual_source_unreviewed: "旧识图来源待复核，原正文保留",
   parents_missing: "部分日期尚未封存",
   parents_incomplete: "父内容覆盖尚不完整",
   daily_budget_wait: "等待滚动24小时模型额度",
@@ -629,6 +630,9 @@ onMounted(() => act(load));
       <p v-if="selected.version?.observation === 'unobserved'" class="muted">
         运行观测不完整；没有来源记录不代表当天没有经历。
       </p>
+      <p v-if="selected.source_review_required" class="alert warning">
+        原始识图来源待复核，完整覆盖与自动整理暂不可用。原日记正文保留供核对，已明确保存的人工正文不会被覆盖。
+      </p>
       <template v-if="!entryEdit"
         ><h3>事实与来源摘录</h3>
         <pre class="record-body">{{
@@ -744,6 +748,7 @@ onMounted(() => act(load));
           · {{ s.event_id }} · 版本{{ s.event_revision
           }}{{ s.deleted_at ? " · 已遗忘" : "" }}
         </p>
+
         <p v-for="a in selected.attempts" :key="a.id" class="muted">
           {{ description(a.status) }} · 输入{{ a.input_bytes }}字节 ·
           {{
@@ -825,6 +830,13 @@ onMounted(() => act(load));
         </p>
         <p class="record-body">
           {{ e.content ?? "正文已遗忘或撤权，来源ID保留以阻止复活" }}
+        </p>
+        <p
+          v-if="e.review_status === 'required'"
+          class="alert warning"
+          data-testid="vision-source-review"
+        >
+          旧识图来源待复核：原文保留，尚不能用于周期整理。请明确更正或遗忘。
         </p>
         <div v-if="!e.deleted_at" class="action-row">
           <button

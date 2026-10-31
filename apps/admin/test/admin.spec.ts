@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { readFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 test.describe.configure({ mode: "serial" });
 const password = "Synthetic-browser-password-2026!";
 let sessionCookies: Awaited<
@@ -2561,4 +2562,192 @@ test("a valid long explicit diary shows its ledger state and full source linkage
     "疑似包含秘密",
   );
   expect(errors).toEqual([]);
+});
+
+test("an archived visual diary source stays visible with a review warning and explicit correction clears only the old revision fence", async ({
+  page,
+}) => {
+  const session = await (
+      await page.request.get("/api/admin/v1/auth/me")
+    ).json(),
+    headers = {
+      origin: "http://127.0.0.1:18449",
+      "x-csrf-token": session.csrf_token,
+      "idempotency-key": randomBytes(16).toString("hex"),
+    };
+  const original =
+    '旧识图待复核资料 <svg onload="document.body.dataset.unreviewedExecuted=1"> 原文保留';
+  const response = await page.request.post("/api/admin/v1/diary/events", {
+    headers,
+    data: { content: original, happened_at: Math.floor(Date.now() / 1000) - 1 },
+  });
+  expect(response.status()).toBe(201);
+  const event = await response.json();
+  // Synthetic classification metadata tests rendering; actual schema15 migration is tested separately.
+  const state = JSON.parse(
+      readFileSync(resolve("../../.local/prometheus/e2e-state.json"), "utf8"),
+    ),
+    db = new DatabaseSync(resolve(state.dataDir, "prometheus.db"));
+  db.prepare(
+    "INSERT INTO vision_quarantined_events VALUES(?,1,'visual_source_unreviewed',?)",
+  ).run(event.id, Math.floor(Date.now() / 1000));
+  db.close();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "日记", exact: true })
+    .click();
+  const ledger = page.locator(".diary-ledger"),
+    card = ledger.locator("article.job-card").filter({ hasText: original });
+  await expect(card.getByTestId("vision-source-review")).toContainText(
+    "原文保留",
+  );
+  await expect(card.locator(".record-body")).toHaveText(original);
+  expect(
+    await page.locator("body").getAttribute("data-unreviewed-executed"),
+  ).toBeNull();
+  await page.setViewportSize({ width: 320, height: 844 });
+  expect(
+    await page.locator("body").evaluate((el) => el.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await card.getByTestId("vision-source-review").screenshot({
+    path: resolve(
+      "../../.local/prometheus/screenshots/visual-source-review-mobile.png",
+    ),
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await card.getByTestId("vision-source-review").screenshot({
+    path: resolve(
+      "../../.local/prometheus/screenshots/visual-source-review-desktop.png",
+    ),
+  });
+  await card.getByRole("button", { name: "更正这条事件", exact: true }).click();
+  await ledger
+    .getByLabel("事件正文", { exact: true })
+    .fill("明确复核后的普通文字事实");
+  await ledger
+    .getByRole("button", { name: "保存事件更正", exact: true })
+    .click();
+  await expect(ledger.getByRole("status")).toContainText("事件已保存");
+  await expect(ledger.getByTestId("vision-source-review")).toHaveCount(0);
+  const changed = await (
+    await page.request.get("/api/admin/v1/diary/events/" + event.id)
+  ).json();
+  expect(changed.revision).toBe(2);
+  expect(changed.review_status).toBe("current");
+  expect(changed.content).toBe("明确复核后的普通文字事实");
+});
+
+test("source review disables direct image turns and removes a visual follow-up user selection when switching to summary", async ({
+  page,
+}) => {
+  const session = await (
+      await page.request.get("/api/admin/v1/auth/me")
+    ).json(),
+    headers = {
+      origin: "http://127.0.0.1:18449",
+      "x-csrf-token": session.csrf_token,
+    };
+  const p = await (await page.request.get("/api/admin/v1/media/policy")).json();
+  expect(
+    (
+      await page.request.put("/api/admin/v1/media/policy", {
+        headers: { ...headers, "if-match": '"' + p.revision + '"' },
+        data: {
+          ...p.value,
+          vision_enabled: true,
+          vision_model: "browser-vision",
+        },
+      })
+    ).status(),
+  ).toBe(200);
+  const c = await (
+    await page.request.post("/api/admin/v1/conversations", {
+      headers,
+      data: { title: "浏览器识图来源筛选" },
+    })
+  ).json();
+  const asset = await (
+    await page.request.post("/api/admin/v1/media/assets", {
+      headers,
+      data: {
+        conversation_id: c.id,
+        data_base64:
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==",
+      },
+    })
+  ).json();
+  const imageResponse = await page.request.post(
+    "/api/admin/v1/media/assets/" + asset.id + "/chat",
+    {
+      headers,
+      data: {
+        content: "浏览器图片问题",
+        client_message_id: randomBytes(16).toString("hex"),
+      },
+    },
+  );
+  expect(imageResponse.status()).toBe(202);
+  const image = await imageResponse.json();
+  await expect
+    .poll(
+      async () =>
+        (
+          await (
+            await page.request.get("/api/admin/v1/runs/" + image.run_id)
+          ).json()
+        ).status,
+    )
+    .toBe("completed");
+  const follow = await (
+    await page.request.post(
+      "/api/admin/v1/conversations/" + c.id + "/messages",
+      {
+        headers,
+        data: {
+          content: "浏览器纯文本追问可单独提候选",
+          client_message_id: randomBytes(16).toString("hex"),
+        },
+      },
+    )
+  ).json();
+  await expect
+    .poll(
+      async () =>
+        (
+          await (
+            await page.request.get("/api/admin/v1/runs/" + follow.run_id)
+          ).json()
+        ).status,
+    )
+    .toBe("completed");
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "日记", exact: true })
+    .click();
+  const panel = page.locator("section.panel").filter({
+    has: page.getByRole("heading", { name: "来源与出域许可", exact: true }),
+  });
+  await panel.getByRole("combobox", { name: /^会话来源/ }).selectOption(c.id);
+  const rows = panel.locator(".source-message");
+  await expect(rows).toHaveCount(4);
+  await expect(rows.nth(0).getByRole("checkbox")).toBeDisabled();
+  await expect(rows.nth(1).getByRole("checkbox")).toBeDisabled();
+  await expect(rows.nth(3).getByRole("checkbox")).toBeDisabled();
+  const user = rows
+    .filter({ hasText: "浏览器纯文本追问可单独提候选" })
+    .getByRole("checkbox");
+  await expect(user).toBeEnabled();
+  await user.check();
+  await panel
+    .getByRole("combobox", { name: /^整理方式/ })
+    .selectOption("summary");
+  await expect(user).toBeDisabled();
+  await expect(user).not.toBeChecked();
+  await expect(
+    panel.getByRole("button", { name: /整理选中的 0 条来源/ }),
+  ).toBeDisabled();
+  await panel
+    .getByRole("combobox", { name: /^整理方式/ })
+    .selectOption("memory_candidates");
+  await expect(user).toBeEnabled();
 });

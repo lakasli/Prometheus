@@ -746,7 +746,7 @@ test("schema7 upgrade retains existing names, ledgers, data and an integrity-che
   assert.equal(
     app.store.get("SELECT value FROM metadata WHERE key='prometheus.schema'")
       .value,
-    "15",
+    "16",
   );
   const p = app.features.profiles.detail(owner, id);
   assert.equal(p.data.name, "原有人物");

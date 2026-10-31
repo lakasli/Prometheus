@@ -388,8 +388,15 @@ test("PNG upload strips metadata; actual vision result enters ordinary conversat
     requests[0].messages[1].content[1].image_url.url,
     /^data:image\/png;base64,/,
   );
-  assert.match(requests[1].messages[0].content, /一块红色像素/);
-  assert.match(requests[1].messages[0].content, /SHA256/);
+  const visualFrame = requests[1].messages.find(
+    (m) =>
+      m.role === "user" &&
+      m.content.startsWith("PROMETHEUS_VISION_DESCRIPTION_SOURCE_V1\n"),
+  );
+  assert.ok(visualFrame);
+  assert.match(visualFrame.content, /一块红色像素/);
+  assert.ok(visualFrame.content.includes(asset.data.sha256));
+  assert.ok(!requests[1].messages[0].content.includes("一块红色像素"));
   const corrupted = png();
   corrupted[corrupted.length - 1] ^= 1;
   assert.equal(

@@ -489,6 +489,7 @@ export async function startServer(options: ServerOptions) {
                 .reverse()
                 .map((row) => ({
                   ...row,
+                  ...runtime.mediaMetadata?.(String(row.run_id)),
                   content: store.redact(String(row.content)),
                 })),
             });
@@ -585,7 +586,7 @@ export async function startServer(options: ServerOptions) {
         if (apiPath === "/export" && method === "GET")
           return json(response, {
             name: "Prometheus",
-            schema: 15,
+            schema: 16,
             assistant_id: store.assistantId,
             exported_at: now(),
             config: store.config(),

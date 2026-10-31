@@ -14,6 +14,7 @@ import { completeWithMetadata } from "./model.ts";
 import { strictModelJson } from "./schedule-json.ts";
 import { diaryBounds, diaryDate } from "./diary-time.ts";
 import { hash, now } from "./security.ts";
+import { visualSourceAllowed, visionDerivedSql } from "./vision.ts";
 import type { Config } from "./config.ts";
 import type { Runtime } from "./runtime.ts";
 import type { Row, Store } from "./store.ts";
@@ -178,12 +179,14 @@ export class Knowledge {
             : String(row.content),
         ),
         eligible:
+          visualSourceAllowed(this.store, row) &&
           Number(
             this.store.get(
               "SELECT rowid AS n FROM messages WHERE id=?",
               String(row.id),
             )!.n,
           ) > this.sourceCutoff(String(source.owner_id)),
+        summary_eligible: visualSourceAllowed(this.store, row, "summary"),
       }));
   }
   private resolve(
@@ -191,6 +194,7 @@ export class Knowledge {
     type: string,
     id: string,
     background = false,
+    purpose = "",
   ): { ref: SourceRef; text: string } {
     let row: Row | undefined,
       owner: string,
@@ -261,6 +265,22 @@ export class Knowledge {
       !owner.startsWith("weixin:")
     )
       throw missing();
+    if (
+      type === "record" &&
+      this.store.get(
+        "SELECT id FROM diary_entries WHERE id=? AND state='invalidated'",
+        id,
+      )
+    )
+      throw bad(
+        "此日记来源已失效或待复核，不能作为整理来源",
+        "source_invalidated",
+      );
+    if (type === "message" && !visualSourceAllowed(this.store, row!, purpose))
+      throw bad(
+        "识图派生资料不能作为此整理任务的事实来源",
+        "visual_source_ineligible",
+      );
     const grant = this.store.get(
       "SELECT * FROM source_grants WHERE source_key=?",
       scope,
@@ -303,19 +323,24 @@ export class Knowledge {
       text,
     };
   }
-  private valid(refs: SourceRef[]): boolean {
+  private valid(refs: SourceRef[], purpose = ""): boolean {
     return refs.every((ref) => {
       const row =
         ref.type === "record"
           ? this.store.get(
-              "SELECT revision FROM records WHERE id=? AND deleted_at IS NULL",
+              "SELECT r.revision FROM records r WHERE r.id=? AND r.deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM diary_entries e WHERE e.id=r.id AND e.state='invalidated')",
               ref.id,
             )
           : this.store.get(
-              "SELECT c.context_epoch AS revision FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE m.id=?",
+              "SELECT m.id,m.role,m.run_id,c.context_epoch AS revision FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE m.id=?",
               ref.id,
             );
       if (!row || Number(row.revision) !== ref.revision) return false;
+      if (
+        ref.type === "message" &&
+        !visualSourceAllowed(this.store, row, purpose)
+      )
+        return false;
       if (ref.grant_revision !== null) {
         const grant = this.store.get(
           "SELECT * FROM source_grants WHERE source_key=?",
@@ -365,6 +390,7 @@ export class Knowledge {
         string(ref.type, "来源类型", 20),
         string(ref.id, "来源ID", 128, 1),
         background,
+        kind,
       ).ref;
     });
     if (new Set(sources.map((ref) => ref.owner)).size > 1)
@@ -498,7 +524,10 @@ export class Knowledge {
     )
       throw conflict();
     const row = this.store.get("SELECT * FROM model_jobs WHERE id=?", id)!;
-    if (!row.input_json || !this.valid(JSON.parse(String(row.source_json))))
+    if (
+      !row.input_json ||
+      !this.valid(JSON.parse(String(row.source_json)), String(row.kind))
+    )
       throw bad("来源已失效，不能重试");
     this.store.run(
       "UPDATE model_jobs SET status='queued',error=NULL,revision=revision+1,updated_at=? WHERE id=?",
@@ -513,7 +542,8 @@ export class Knowledge {
       throw conflict();
     const row = this.store.get("SELECT * FROM model_jobs WHERE id=?", id)!,
       refs = JSON.parse(String(row.source_json)) as SourceRef[];
-    if (!this.valid(refs)) throw bad("来源已变化，不能批准旧结果");
+    if (!this.valid(refs, String(row.kind)))
+      throw bad("来源已变化，不能批准旧结果");
     if (approve && row.kind === "drawing_html")
       throw bad("插画仅供隔离预览，不保存为事实或执行权限");
     return this.store.transaction(() => {
@@ -796,7 +826,7 @@ export class Knowledge {
         continue;
       const rows = this.store
         .all(
-          "SELECT m.id FROM messages m JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=? AND r.status='completed' AND NOT EXISTS(SELECT 1 FROM local_runs l WHERE l.run_id=r.id) AND m.rowid>? ORDER BY m.rowid DESC LIMIT 32",
+          `SELECT m.id FROM messages m JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=? AND r.status='completed' AND NOT EXISTS(SELECT 1 FROM local_runs l WHERE l.run_id=r.id) AND NOT ${visionDerivedSql("r.id")} AND m.rowid>? ORDER BY m.rowid DESC LIMIT 32`,
           String(source.id),
           Math.max(
             Number(grant.enabled_after),
@@ -865,7 +895,7 @@ export class Knowledge {
       refs = JSON.parse(String(row.source_json)) as SourceRef[];
     let release: (() => void) | undefined;
     try {
-      if (!this.valid(refs)) {
+      if (!this.valid(refs, String(row.kind))) {
         this.store.run(
           "UPDATE model_jobs SET status='invalidated',input_json=NULL,output_json=NULL WHERE id=?",
           id,
@@ -900,7 +930,13 @@ export class Knowledge {
       const batch = refs.slice(Number(state.cursor), Number(state.cursor) + 16),
         data = batch.map(
           (ref) =>
-            this.resolve(ref.owner, ref.type, ref.id, !!state.background).text,
+            this.resolve(
+              ref.owner,
+              ref.type,
+              ref.id,
+              !!state.background,
+              String(row.kind),
+            ).text,
         );
       if (Buffer.byteLength(JSON.stringify(data)) > 50000)
         throw bad("本批来源过长，请减少来源");
@@ -960,7 +996,7 @@ export class Knowledge {
         state.options ?? {},
       );
       if (
-        !this.valid(refs) ||
+        !this.valid(refs, String(row.kind)) ||
         this.store.get("SELECT status FROM model_jobs WHERE id=?", id)
           ?.status !== "running"
       )

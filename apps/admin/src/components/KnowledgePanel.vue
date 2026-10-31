@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, ref, watch } from "vue";
 import { api } from "../api";
 const emit = defineEmits<{ error: [unknown] }>();
 const sources = ref<any[]>([]),
@@ -18,6 +18,15 @@ const sources = ref<any[]>([]),
     ),
   ),
   period = ref("day");
+const selectable = (message: any) =>
+  message.eligible !== false &&
+  (kind.value !== "summary" || message.summary_eligible !== false);
+watch(kind, () => {
+  selected.value = selected.value.filter((id) => {
+    const m = messages.value.find((m) => m.id === id);
+    return m && selectable(m);
+  });
+});
 async function task(action: () => Promise<void>) {
   if (busy.value) return;
   busy.value = true;
@@ -196,7 +205,7 @@ onMounted(() => task(load));
             v-model="selected"
             type="checkbox"
             :value="message.id"
-            :disabled="message.eligible === false"
+            :disabled="!selectable(message)"
           /><span
             ><strong>{{ message.role === "user" ? "对方" : "刘嘉卉" }}</strong
             ><span class="record-body">{{ message.content }}</span></span
