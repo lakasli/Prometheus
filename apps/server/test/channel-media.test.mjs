@@ -117,7 +117,7 @@ async function setup(t, options = {}) {
       };
     if (c.path === "/ilink/bot/getuploadurl") {
       if (options.prepare) return options.prepare(c, res);
-      return { ret: 0, upload_full_url: cdn.url + "/upload" };
+      return { upload_full_url: cdn.url + "/upload" };
     }
     if (c.path === "/ilink/bot/sendmessage") {
       if (c.body.msg.item_list[0].type !== 1 && options.send)
@@ -949,6 +949,48 @@ test("schema19 snapshot upgrade preserves identity and an intact schema19 backup
   } finally {
     store.close();
   }
+});
+test("Weixin final receipt preserves uint64 message ID while missing business receipt stays unknown", async (t) => {
+  let confirmed = true;
+  const x = await setup(t, {
+      native: false,
+      vision: false,
+      send: (_c, res) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          confirmed
+            ? '{"ret":0,"message_id":18446744073709551615}'
+            : '{"message_id":"unconfirmed"}',
+        );
+      },
+    }),
+    e = await x.receive(x.message("file", file)),
+    a = x.app.store.get("SELECT id FROM qq_media_assets"),
+    p = await x.queue(e.run_id, a.id);
+  const receipt = await until(
+    async () =>
+      x.app.store.get("SELECT * FROM delivery_parts WHERE id=?", p.part_id),
+    (v) => v.status === "sent",
+  );
+  assert.equal(receipt.platform_id, "18446744073709551615");
+  confirmed = false;
+  const q = await x.queue(e.run_id, a.id);
+  await until(
+    async () =>
+      x.app.store.get(
+        "SELECT status FROM delivery_parts WHERE id=?",
+        q.part_id,
+      ),
+    (v) => v.status === "unknown",
+  );
+  assert.equal(
+    x.remote.calls.filter(
+      (c) =>
+        c.path === "/ilink/bot/sendmessage" &&
+        c.body.msg.item_list[0].type !== 1,
+    ).length,
+    2,
+  );
 });
 test("Weixin exact 20MiB file is encrypted and sent; an extra byte is rejected before upload", async (t) => {
   const x = await setup(t, { native: false, vision: false }),

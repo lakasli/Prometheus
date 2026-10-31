@@ -400,7 +400,7 @@ export class Channels {
         "微信媒体回执无效",
       );
     }
-    return business(result, true);
+    return business(result, final);
   }
   private async qqToken(config: Config): Promise<string> {
     const identity = `${config.qq.app_id}:${config.qq.credential_ref}`;
