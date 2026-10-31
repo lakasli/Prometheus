@@ -30,4 +30,32 @@
 
 新增两个浏览器场景：实际待复核提示、原文按文本显示、320/1440宽度和明确更正；以及真实图片/追问产生后的整理选择限制。静态标记夹具只用于页面显示，旧schema和实际旧制品升级分别验收，不能用页面显示替代迁移证据。合成loopback模型只证明协议、来源、状态和权限边界，不证明外部模型表达质量、真实平台或客户端收发。
 
-本地完整构建通过；完整回归266项、后续新增与补强的来源/授权专项另通过，固定版本将重新执行全部场景。正式SHA、制品、完整实例新旧恢复和运行结果随后记录。Windows语音、Harness、Python、Component执行仍受原门禁阻断，本批未提供新的执行隔离证明。
+本地完整构建、来源/授权专项及格式检查通过，固定版本重新执行全部场景。Windows语音、Harness、Python、Component执行仍受原门禁阻断，本批未提供新的执行隔离证明。
+
+## 固定Windows结果
+
+正式应用 **`31f407cfbe043c03df6c8c56c6c4be19dc43f7c3`** 已提交、推送并核实origin tip，上一可用Windows版本 **`9804ef2c42f371c4d2286afb78d25cd4272dda22`**。数据由15升级至16；后续证据文档提交不改变运行SHA。
+
+13:59:35+08:00核验Windows11专业版10.0.26200/x64、Core Ultra7 155H/22逻辑处理器、31.61GiB内存/约11.20GiB可用、D盘约399.28GiB可用，Node24.22.1、npm12.2.1、PowerShell7.6.5。没有新的Rust或worker隔离构建与运行证明。
+
+| 检查       | 实际结果                                                                                                                                                                                                                                                                                                        |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 本地       | 前后端完整构建、23项来源专项、25项浏览器、格式和暂存差异检查通过，退出0。冻结schema15 SQL与旧9804源结构一致。                                                                                                                                                                                                   |
+| 固定打包   | `pwsh -NoProfile -File deploy/prometheus/package-windows.ps1 -Commit 31f407cfbe043c03df6c8c56c6c4be19dc43f7c3 -PreviousVerifiedCommit 9804ef2c42f371c4d2286afb78d25cd4272dda22`，远端已推送Git archive构建，前后端同SHA，退出0。ZIP SHA256 `3d399b7279e4defa51494dc14bc7098b43b2879b9af891146a051d9a83559f4c`。 |
+| 固定制品   | `node deploy/prometheus/verify-release.mjs <本SHA/runtime>`：18项通过，退出0。                                                                                                                                                                                                                                  |
+| 固定后端   | `PROMETHEUS_RELEASE_ROOT`绑定本SHA/runtime，`node --test --test-concurrency=1 apps/server/test/*.test.mjs`：268通过/0失败/0跳过，209.71秒，退出0。服务fixture装载固定包；安全/ACL、严格JSON及部分直接辅助来自本地。40份JS/schema中39份字节相同，另1份仅CRLF/LF差异，构建身份单独核验。                          |
+| 固定浏览器 | 同环境下`npm run test:e2e --workspace @prometheus/admin`：25通过/0失败，50.8秒，退出0，使用同SHA页面和服务。12项关系图纯函数沿用30c001f实际重跑证据，本批未重跑。                                                                                                                                               |
+| 正式启动   | 包内`Start-Prometheus.ps1 -DataDir D:/DSH/.local/prometheus/instance`逐文件校验后，于14:03:50+08:00前台启动，Node PID28424，入口`http://127.0.0.1:8419/admin/`。                                                                                                                                                |
+| 正式复核   | 14:04:03+08:00 live/ready/schema16、build.json和数据锁同SHA；25个匿名管理GET、3个正确Origin匿名POST均401；实际登录页无脚本错误。数据库完整性ok，未读取密码或代登录。                                                                                                                                            |
+
+14:03:30+08:00核验旧SHA、PID28400完整命令行和锁，无在途请求/作业/投递。Ctrl+C打印Prometheus stopped，Node、锁及8419监听均消失；外层PowerShell退出1。14:03:41+08:00完整备份17文件至 `.local/prometheus/backups/instance-2026-10-31T06-03-41-753Z-89b08d1b-310a-421e-8512-22fed155c62c`，包含数据库、主密钥、原schema快照与部署元数据，integrity_check为ok，退出0。
+
+逐文件哈希、路径边界、符号链接和私有ACL核验后，将这份正式备份恢复到 `recovery-drills/f3e3a5b5-fc4e-4c64-9c66-20eb7c8ce04e`。只在副本增加合成管理员并登录，用旧固定9804完成真实loopback Vision→Native、普通追问及获明确许可的日记模型整理。旧版受理识图回答的摘要/候选和旧canonical RecordItem候选共3个待处理作业；旧聊天、事件、日记正文与版本均被冻结保存。
+
+关闭旧程序后，由新固定包打开同一副本并自动创建schema15数据库快照。原管理员、身份、主密钥、合成凭据解密、原聊天、日记RecordItem和版本正文逐项一致，原事件正文保留；待处理作业失效且正文清除，相关日记显示待复核、完整覆盖为false，兼容RecordItem入口也400。旧图BLOB和活跃描述清除、GET为404；原客户端标识重试仍返回旧Run，未新增模型请求。新普通文字不复用旧识图上下文；新图实际以user资料传给Native，完成清图，追问保存真实来源，公开快照不含视觉描述正文。旧/新识图回答及旧追问回答均不能重新进入摘要/候选。旧版共4次合成provider请求（识图、原回答、追问、日记），新版共4次（普通文字、识图、原回答、追问），分别记账。只证明HTTP协议、权限、来源和生命周期，不算外部模型或渠道联调。
+
+自动schema15快照保留升级前描述和日记正文、完整性ok；旧固定9804直接打开16被拒绝。另将未加入合成数据的完整备份恢复至 `recovery-drills/47a62477-d1cb-4ce1-abad-f0cf8cecb3af`，匹配旧固定9804在18469 ready/schema15、身份/主密钥/原管理员与完整性通过后关闭。两项正式恢复演练14:03:44+08:00完成，退出0；均未覆盖正式目录。
+
+正式实例也生成唯一schema15快照并通过完整性检查。升级前后管理员1，records/Run/消息/凭据0，配置/性格revision1，稳定身份与主密钥哈希一致；admins/config_revisions/personality_versions/records/secrets/source_grants六表逐行内容哈希相同。模型未配置、QQ/微信关闭，未写入合成任务或开启许可。14:04:11+08:00原生icacls核实instance、master.key、完整备份与两个恢复目录仅当前账户、SYSTEM和Administrators；旧WSL `df6429cbceb8f16504efe9464c1abbbdb4a67e29` 在18439仍ready，仅用于实现对照。
+
+私有证据位于 `.local/prometheus/release-validation/reports/31f407cfbe043c03df6c8c56c6c4be19dc43f7c3.json`、`.local/prometheus/upgrade-evidence/31f407c/{drill,production}.json`、正式deployment.json，以及独立的开发/固定回归/浏览器/备份日志。合成模型的秘密配置与所有实例数据均不提交。
