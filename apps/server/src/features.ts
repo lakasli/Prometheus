@@ -18,6 +18,7 @@ import { ProfileModel } from "./profile-model.ts";
 import { AffinitySources } from "./affinity-sources.ts";
 import { DailyLife } from "./daily-life.ts";
 import { ScheduleNotices } from "./schedule-notices.ts";
+import { visualRecordAllowed } from "./vision.ts";
 
 export interface FeatureResult {
   data: unknown;
@@ -51,6 +52,7 @@ export class Features {
     this.knowledge = new Knowledge(store, runtime, allowLoopback);
     this.automation = new Automation(store, runtime, this.knowledge);
     this.media = new Media(store, runtime, this.knowledge, allowLoopback);
+    this.channels.attachMedia(this.media);
     this.plugins = new Plugins(store);
     this.conversationContext = new ConversationContext(
       store,
@@ -173,11 +175,13 @@ export class Features {
       this.diary.recordImportStatus(record);
     runtime.records.contextFilter = this.diary.recordContextFilter();
     runtime.records.contextAllowed = (record) =>
-      this.diary.recordContextAllowed(record);
+      this.diary.recordContextAllowed(record) &&
+      visualRecordAllowed(store, String(record.id));
     runtime.records.validateSchedule = (owner, data, id) =>
       this.schedule.checkSimple(owner, data, id);
     runtime.onInvalidation = (owner, change) => {
       this.knowledge.invalidateOwner(owner, change);
+      this.channels.invalidateIncoming(owner);
       this.diary.sourceChanged(owner, change);
       this.profiles.sourceChanged(change);
       this.dailyLife.refresh();
@@ -379,9 +383,9 @@ export class Features {
     await this.diary.stop();
     await this.schedule.stop();
     this.relationships.affinity.stop();
+    await this.channels.stop();
     await this.media.stop();
     this.automation.stop();
-    await this.channels.stop();
     await this.knowledge.stop();
   }
   matches(path: string) {
@@ -1231,6 +1235,8 @@ export class Features {
       return { data: this.channels.status() };
     if (path === "/channels/deliveries" && method === "GET")
       return { data: { items: this.channels.deliveries(admin.id) } };
+    if (path === "/channels/inbox" && method === "GET")
+      return { data: { items: this.channels.inbox() } };
     if (path === "/channels/weixin/login" && method === "POST") {
       const body = fields(await readBody(), ["expected_revision"]);
       return {

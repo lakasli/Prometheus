@@ -509,7 +509,7 @@ test("schema14 records skipped behind the old cursor are repaired across pages a
   assert.equal(
     app.store.get("SELECT value FROM metadata WHERE key='prometheus.schema'")
       .value,
-    "17",
+    "18",
   );
   assert.equal(app.store.assistantId, "record-repair-stable");
   assert.equal(

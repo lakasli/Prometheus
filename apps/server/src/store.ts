@@ -68,13 +68,14 @@ export class Store {
           "15",
           "16",
           "17",
+          "18",
         ].includes(String(previousSchema))
       ) {
         this.database.close();
         throw new Error("Unsupported Prometheus schema; do not downgrade");
       }
     }
-    if (tables.length && previousSchema !== "17") {
+    if (tables.length && previousSchema !== "18") {
       const backupDir = privateDirectory(join(path, "backups"));
       const target = join(
         backupDir,
@@ -133,7 +134,7 @@ export class Store {
         now(),
       );
       this.run(
-        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','17') ON CONFLICT(key) DO UPDATE SET value='17'",
+        "INSERT INTO metadata(key,value) VALUES('prometheus.schema','18') ON CONFLICT(key) DO UPDATE SET value='18'",
       );
       if (previousSchema && Number(previousSchema) < 15)
         this.run(
@@ -449,7 +450,7 @@ export class Store {
     if (!this.get("SELECT id FROM secrets WHERE id=?", id)) throw missing();
     if (
       this.get(
-        "SELECT id FROM channel_events WHERE credential_ref=? AND status='queued'",
+        "SELECT id FROM channel_events WHERE credential_ref=? AND (status IN ('queued','processing') OR EXISTS(SELECT 1 FROM qq_inbound_receipts r WHERE r.event_id=channel_events.id AND r.request_started_at IS NOT NULL AND r.request_finished_at IS NULL))",
         id,
       ) ||
       this.all("SELECT value_json FROM channel_state").some((row) => {

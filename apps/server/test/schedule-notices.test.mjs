@@ -619,7 +619,7 @@ test("schema11 keeps its original wake cap and missing anticipation remains disa
   assert.equal(
     app.store.get("SELECT value FROM metadata WHERE key='prometheus.schema'")
       .value,
-    "17",
+    "18",
   );
   assert.equal(app.store.assistantId, "notice-stable-before12");
   assert.equal(

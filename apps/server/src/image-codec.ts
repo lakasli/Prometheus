@@ -135,6 +135,9 @@ async function pngInput(input: Buffer, signal: AbortSignal) {
 export class ImageCodec {
   private active?: Promise<ReturnType<typeof normalizedPng>>;
   private stopping = false;
+  get busy() {
+    return !!this.active;
+  }
   async normalize(input: Buffer, signal: AbortSignal) {
     if (this.stopping) throw unavailable("图片处理正在停止");
     live(signal);

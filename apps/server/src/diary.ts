@@ -137,7 +137,7 @@ export class Diary {
       request: (e, p) => this.requestModel(e, p, true),
     });
     const invalid = store.all(
-      "SELECT e.id,e.revision FROM diary_events e JOIN messages m ON m.id=e.origin_id WHERE e.origin_kind='message' AND e.revision=1 AND e.deleted_at IS NULL AND (EXISTS(SELECT 1 FROM run_media v WHERE v.run_id=m.run_id) OR m.role='assistant' AND (EXISTS(SELECT 1 FROM vision_uses v WHERE v.run_id=m.run_id) OR EXISTS(SELECT 1 FROM vision_legacy_fences f WHERE f.conversation_id=m.conversation_id AND m.rowid<=f.message_cutoff)))",
+      "SELECT e.id,e.revision FROM diary_events e JOIN messages m ON m.id=e.origin_id WHERE e.origin_kind='message' AND e.revision=1 AND e.deleted_at IS NULL AND (EXISTS(SELECT 1 FROM channel_media_sources q WHERE q.run_id=m.run_id AND q.kind='legacy_unverified') OR EXISTS(SELECT 1 FROM run_media v WHERE v.run_id=m.run_id) OR m.role='assistant' AND (EXISTS(SELECT 1 FROM vision_uses v WHERE v.run_id=m.run_id) OR EXISTS(SELECT 1 FROM vision_legacy_fences f WHERE f.conversation_id=m.conversation_id AND m.rowid<=f.message_cutoff)))",
     );
     if (invalid.length)
       store.transaction(() => {

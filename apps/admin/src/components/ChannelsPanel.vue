@@ -7,6 +7,7 @@ const emit = defineEmits<{ error: [unknown] }>();
 const state = ref<ConfigState | null>(null),
   config = ref<ConfigState["config"] | null>(null),
   status = ref<any>(null),
+  inbox = ref<any[]>([]),
   secret = ref(""),
   busy = ref(false),
   notice = ref(""),
@@ -28,14 +29,56 @@ async function task(action: () => Promise<void>) {
   }
 }
 async function load() {
-  const [current, live] = await Promise.all([
+  const [current, live, received] = await Promise.all([
     api<ConfigState>("/config"),
     api("/channels/status"),
+    api<any>("/channels/inbox"),
   ]);
+  if (disposed) return;
   state.value = current;
   config.value = JSON.parse(JSON.stringify(current.config));
   status.value = live;
+  inbox.value = received.items;
 }
+async function refreshInbox() {
+  const received = await api<any>("/channels/inbox");
+  if (!disposed) inbox.value = received.items;
+}
+const receiveLabel = (status: string) =>
+  ({
+    queued: "等待接收处理",
+    processing: "正在下载与校验",
+    completed: "已进入会话",
+    expired: "回复期限已过",
+    cancelled: "已取消",
+    failed: "接收未完成",
+  })[status] ?? status;
+const receiveReason = (entry: any) =>
+  entry.code
+    ? ((
+        {
+          vision_provider_unavailable: "视觉服务尚未配置，这次没有读取图片。",
+          media_control_command: "附件消息没有执行控制命令。",
+          media_count_unsupported: "每条消息请单独发送一张图片。",
+          media_channel_unsupported: "当前只读取QQ单聊图片。",
+          media_format_unsupported: "这类附件暂不读取。",
+          media_size_limit: "图片超过接收上限。",
+          legacy_media_reference_lost: "旧记录缺少原附件引用，请重新发送。",
+          media_reply_failed: "图片回复未能完成，失败已如实保留。",
+        } as Record<string, string>
+      )[entry.code] ?? "附件下载或校验未能完成，没有可靠的识图结果。")
+    : entry.error;
+const runLabel = (status: string) =>
+  (
+    ({
+      queued: "等待回复",
+      running: "正在回复",
+      completed: "回复已生成",
+      failed: "未能生成回复",
+      cancelled: "已取消",
+      interrupted: "已中断",
+    }) as Record<string, string>
+  )[status] ?? status;
 async function save() {
   await task(async () => {
     if (secret.value) {
@@ -152,6 +195,9 @@ onUnmounted(() => {
           >Webhook 固定路径 /webhooks/qq，需可信 HTTPS
           入口。普通短文本会有界合并；发送结果未知时不会自动重试。</small
         >
+        <p class="muted">
+          视觉模型明确开启后，QQ单聊的一张常用图片会先下载校验再识图。图片不执行控制命令；其他附件未读取时会如实说明。
+        </p>
         <div class="form-actions">
           <button class="primary" :disabled="busy">保存渠道配置</button>
         </div>
@@ -233,6 +279,42 @@ onUnmounted(() => {
       ><button v-if="config" class="primary" :disabled="busy" @click="save">
         保存微信状态
       </button>
+    </section>
+    <section class="panel">
+      <div class="section-heading">
+        <div>
+          <h2>接收记录</h2>
+          <p>
+            QQ单聊支持一张常用图片；群聊附件、视频和语音暂不读取。接收完成、模型回复和实际发送分别记录。
+          </p>
+        </div>
+        <button class="secondary" :disabled="busy" @click="task(refreshInbox)">
+          刷新接收记录
+        </button>
+      </div>
+      <p v-if="!inbox.length" class="muted">暂时没有渠道接收记录。</p>
+      <div
+        v-for="entry in inbox"
+        :key="entry.id"
+        class="panel"
+        data-testid="channel-inbox-record"
+      >
+        <div class="section-heading">
+          <strong
+            >{{ entry.channel === "qq" ? "QQ" : "微信" }} ·
+            {{ entry.media ? "附件" : "文字" }}</strong
+          ><span class="badge">{{ receiveLabel(entry.status) }}</span>
+        </div>
+        <time class="muted">{{
+          new Date(entry.received_at).toLocaleString()
+        }}</time>
+        <p v-if="entry.error || entry.code" class="muted">
+          {{ receiveReason(entry) }}
+        </p>
+        <p v-if="entry.run_status" class="muted">
+          会话处理：{{ runLabel(entry.run_status) }}；实际发送请核对投递记录。
+        </p>
+      </div>
     </section>
     <section class="panel">
       <h2>发送与隐私</h2>

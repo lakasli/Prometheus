@@ -70,6 +70,103 @@ export class Media {
     if (this.timer) clearInterval(this.timer);
     await this.codec.stop();
   }
+  get decoding() {
+    return this.codec.busy;
+  }
+  decodeIncoming(bytes: Buffer, signal: AbortSignal) {
+    return this.codec.normalize(
+      bytes,
+      AbortSignal.any([this.controller.signal, signal]),
+    );
+  }
+  storeIncoming(
+    owner: string,
+    conversation: string,
+    image: ReturnType<typeof normalizedPng>,
+    receivedAt: number,
+  ) {
+    this.runtime.ownConversation(conversation, owner);
+    if (this.vision.pendingBytes() >= 20)
+      throw new ApiError(429, "media_capacity", "图片暂存容量已满");
+    const id = randomUUID();
+    this.store.run(
+      "INSERT INTO media_assets VALUES(?,?,?,?,?,?,?,?,?)",
+      id,
+      owner,
+      conversation,
+      "image",
+      "image/png",
+      image.digest,
+      image.bytes,
+      receivedAt,
+      receivedAt + 86400,
+    );
+    return id;
+  }
+  archiveIncoming(
+    owner: string,
+    conversation: string,
+    run: string,
+    event: string,
+    image: ReturnType<typeof normalizedPng>,
+    receivedAt: number,
+  ) {
+    this.pruneReceived();
+    const count = this.store.get(
+        "SELECT count(*) AS n,coalesce(sum(length(bytes)),0) AS bytes FROM received_media_assets WHERE owner_id=? AND length(bytes)>0",
+        owner,
+      )!,
+      total = this.store.get(
+        "SELECT coalesce(sum(length(bytes)),0) AS bytes FROM received_media_assets",
+      )!;
+    if (
+      Number(count.n) >= 32 ||
+      Number(count.bytes) + image.bytes.length > 64 * 1024 * 1024 ||
+      Number(total.bytes) + image.bytes.length > 128 * 1024 * 1024
+    )
+      throw new ApiError(429, "media_capacity", "来源图片暂存容量已满");
+    const message = this.store.get(
+      "SELECT id FROM messages WHERE run_id=? AND role='user'",
+      run,
+    )!;
+    this.store.run(
+      "INSERT INTO received_media_assets VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+      randomUUID(),
+      owner,
+      conversation,
+      run,
+      String(message.id),
+      event,
+      image.digest,
+      image.width,
+      image.height,
+      image.bytes,
+      receivedAt,
+      receivedAt + 86400,
+    );
+  }
+  pruneReceived() {
+    this.store.run(
+      "DELETE FROM received_media_assets WHERE expires_at<=? OR source_message_id IN (SELECT id FROM messages WHERE rowid<=coalesce((SELECT cast(value AS INTEGER) FROM metadata WHERE key='source_cutoff:global'),0))",
+      now(),
+    );
+    for (const row of this.store.all(
+      "SELECT DISTINCT owner_id FROM received_media_assets WHERE length(bytes)>0",
+    )) {
+      const floor = Number(
+        this.store.get(
+          "SELECT value FROM metadata WHERE key=?",
+          "source_cutoff:" + hash(String(row.owner_id)),
+        )?.value ?? 0,
+      );
+      if (floor)
+        this.store.run(
+          "DELETE FROM received_media_assets WHERE owner_id=? AND source_message_id IN (SELECT id FROM messages WHERE rowid<=?)",
+          String(row.owner_id),
+          floor,
+        );
+    }
+  }
   policy() {
     return this.knowledge.policy("media", {
       vision_enabled: false,
@@ -372,6 +469,7 @@ export class Media {
     }
   }
   prune() {
+    this.pruneReceived();
     for (const row of this.store.all(
       "SELECT r.id,r.owner_id FROM runs r JOIN run_media m ON m.run_id=r.id JOIN media_assets a ON a.id=m.asset_id WHERE a.expires_at<=? AND r.status IN ('queued','running')",
       now(),

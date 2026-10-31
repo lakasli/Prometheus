@@ -721,7 +721,7 @@ test("schema9 checkpoint preserves a historical score and remainder and only new
   assert.equal(
     app.store.get("SELECT value FROM metadata WHERE key='prometheus.schema'")
       .value,
-    "17",
+    "18",
   );
   const row = app.store.get(
     "SELECT * FROM affinity_states WHERE person_id=?",

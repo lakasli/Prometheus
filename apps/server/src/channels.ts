@@ -24,11 +24,17 @@ import { hash, now } from "./security.ts";
 import type { Store } from "./store.ts";
 import type { Runtime } from "./runtime.ts";
 import { explicitCorrection } from "./runtime.ts";
+import { QqIncoming } from "./qq-incoming.ts";
+import { qqAttachment, mediaNotice } from "./qq-media-download.ts";
+import type { Media } from "./media.ts";
+import type { normalizedPng } from "./png.ts";
+import type { Row } from "./store.ts";
 
 type Json = Record<string, any>;
 export interface ChannelEndpoints {
   qq: string;
   weixin: string;
+  qqMedia?: string;
 }
 interface Target {
   kind: string;
@@ -149,6 +155,18 @@ function business(value: unknown, requireRet = false): Json {
   return result;
 }
 export class Channels {
+  incoming?: QqIncoming;
+  attachMedia(media: Media) {
+    this.incoming = new QqIncoming(
+      this.store,
+      media,
+      (e, d, image, code) => this.commitMedia(e, d, image, code),
+      this.allowLoopback ? this.endpoints.qqMedia : undefined,
+    );
+  }
+  invalidateIncoming(owner: string) {
+    this.incoming?.invalidate(owner);
+  }
   private stopping = false;
   private timer?: ReturnType<typeof setTimeout>;
   private tasks = new Set<Promise<unknown>>();
@@ -215,6 +233,7 @@ export class Channels {
     this.controller.abort();
     this.gateway?.abort.abort();
     this.receiver?.abort.abort();
+    await this.incoming?.stop();
     await Promise.allSettled([...this.tasks]);
   }
   private async http(
@@ -373,7 +392,20 @@ export class Channels {
       delivery: this.store.all(
         "SELECT channel,status,count(*) AS count FROM delivery_parts p JOIN run_targets t ON t.run_id=p.run_id GROUP BY channel,status",
       ),
+      inbound: this.store.all(
+        "SELECT e.channel,e.status,count(*) AS count FROM channel_events e GROUP BY e.channel,e.status",
+      ),
     };
+  }
+  inbox() {
+    return this.store
+      .all(
+        "SELECT e.id,e.channel,e.status,e.received_at,e.deadline,e.run_id,e.error,q.media,q.code,r.status AS run_status FROM channel_events e LEFT JOIN qq_inbound_receipts q ON q.event_id=e.id LEFT JOIN runs r ON r.id=e.run_id ORDER BY e.received_at DESC,e.rowid DESC LIMIT 50",
+      )
+      .map((row) => ({
+        ...row,
+        error: row.error ? this.store.redact(String(row.error)) : null,
+      }));
   }
   async webhook(request: IncomingMessage, raw: Buffer): Promise<unknown> {
     const config = this.store.config().config;
@@ -423,18 +455,13 @@ export class Channels {
     return { op: 12, d: 0 };
   }
   ingestQq(config: Config, payload: Json) {
+    const current = this.store.config().config.qq;
     if (
-      Number(
-        this.store.get(
-          "SELECT count(*) AS n FROM channel_events WHERE status='queued'",
-        )!.n,
-      ) >= 1000
+      !current.enabled ||
+      current.app_id !== config.qq.app_id ||
+      current.credential_ref !== config.qq.credential_ref
     )
-      throw new ApiError(
-        503,
-        "receive_queue_full",
-        "持久接收队列已满，等待释放容量",
-      );
+      return;
     if (
       ![
         "C2C_MESSAGE_CREATE",
@@ -448,6 +475,8 @@ export class Channels {
     if (data.author?.bot === true) return;
     const message = id(data.id),
       event = id(payload.id ?? message);
+    if (/[\x00-\x1f\x7f]/.test(message + event))
+      throw bad("QQ消息或事件标识无效");
     const type = (
       {
         C2C_MESSAGE_CREATE: "c2c",
@@ -456,6 +485,15 @@ export class Channels {
         DIRECT_MESSAGE_CREATE: "dms",
       } as Json
     )[payload.t] as string;
+    const eventKey = `qq:${config.qq.app_id}:${payload.t}:${event}`;
+    if (
+      this.store.get(
+        "SELECT id FROM channel_events WHERE event_key=?",
+        eventKey,
+      ) ||
+      this.incoming?.duplicate(config.qq.app_id, type, message)
+    )
+      return;
     const target = qqId(
       type === "c2c"
         ? data.author?.user_openid
@@ -469,31 +507,36 @@ export class Channels {
     let content = string(data.content ?? "", "消息", 16000)
       .replace(/<@!?[^>]{1,200}>/g, "")
       .trim();
-    if (data.attachments?.length)
-      content +=
-        "\n[宿主：本条包含媒体，媒体理解尚未完成时不能声称看到了画面或听到了声音。]";
+    const media = qqAttachment(type, content, data.attachments);
+    if (media && !content)
+      content = media.code ? "[收到尚未读取的附件]" : "请客观描述这张图片。";
     if (!content) return;
     const owner = `qq:${config.qq.app_id}:${type}:${target}${type === "c2c" ? "" : `:${sender}`}`;
-    const eventKey = `qq:${config.qq.app_id}:${payload.t}:${event}`;
-    const deadline = now() + (type === "c2c" || type === "group" ? 3600 : 300);
+    const sent =
+      typeof data.timestamp === "string" &&
+      /^\d{4}-\d\d-\d\dT.*(?:Z|[+-]\d\d:\d\d)$/.test(data.timestamp)
+        ? Date.parse(data.timestamp)
+        : NaN;
+    const deadline =
+      Math.min(now(), Number.isFinite(sent) ? Math.floor(sent / 1000) : now()) +
+      (type === "c2c" ? 3600 : 300);
     const ready =
       Date.now() +
       (type === "c2c" &&
       !content.startsWith("/") &&
-      !data.attachments?.length &&
+      !media &&
       content.length < 360 &&
       !explicitCorrection(content)
         ? 3500
         : 0);
-    this.store.run(
-      "INSERT OR IGNORE INTO channel_events VALUES(?,?,?,?,?,?,?,?, 'queued',NULL,?,?,?,NULL)",
-      randomUUID(),
-      "qq",
-      config.qq.app_id,
-      eventKey,
-      owner,
-      owner,
-      this.store.seal({
+    this.store.transaction(() => {
+      const queue = this.store.get(
+        "SELECT count(*) AS n,coalesce(sum(length(payload_json)),0) AS bytes FROM channel_events WHERE status IN ('queued','processing')",
+      )!;
+      const mediaCount = this.store.get(
+        "SELECT count(*) AS n FROM qq_inbound_receipts r JOIN channel_events e ON e.id=r.event_id WHERE r.media=1 AND e.status IN ('queued','processing')",
+      )!;
+      const sealed = this.store.seal({
         content,
         target: {
           kind: type,
@@ -503,12 +546,130 @@ export class Channels {
           sender,
         },
         message_id: message,
-      }),
-      config.qq.credential_ref!,
-      Date.now(),
-      ready,
-      deadline,
-    );
+        ...(media ? { media } : {}),
+      });
+      if (
+        Number(queue.n) >= 1000 ||
+        Number(queue.bytes) + Buffer.byteLength(sealed) > 32 * 1024 * 1024 ||
+        (media && Number(mediaCount.n) >= 200)
+      )
+        throw new ApiError(
+          503,
+          "receive_queue_full",
+          "持久接收队列已满，事件尚未确认",
+        );
+      const eventId = randomUUID();
+      this.store.run(
+        "INSERT OR IGNORE INTO channel_events VALUES(?,?,?,?,?,?,?,?, 'queued',NULL,?,?,?,NULL)",
+        eventId,
+        "qq",
+        config.qq.app_id,
+        eventKey,
+        owner,
+        owner,
+        sealed,
+        config.qq.credential_ref!,
+        Date.now(),
+        ready,
+        deadline,
+      );
+      this.incoming?.record(eventId, config.qq.app_id, type, message, !!media);
+      if (media)
+        this.store.run(
+          "UPDATE channel_events SET ready_at=min(ready_at,?) WHERE source_key=? AND status='queued'",
+          Date.now(),
+          owner,
+        );
+    });
+  }
+  private commitMedia(
+    event: Row,
+    data: Json,
+    image?: ReturnType<typeof normalizedPng>,
+    code?: string,
+  ) {
+    this.store.transaction(() => {
+      let conversation = this.store.get(
+        "SELECT id FROM conversations WHERE source_key=?",
+        String(event.source_key),
+      );
+      if (!conversation) {
+        const c = this.runtime.createConversation(
+          String(event.owner_id),
+          "qq " + data.target.kind,
+        );
+        this.store.run(
+          "UPDATE conversations SET source_key=? WHERE id=?",
+          String(event.source_key),
+          c.id,
+        );
+        conversation = { id: c.id };
+      }
+      const owner = String(event.owner_id),
+        convo = String(conversation.id),
+        client = hash(String(event.event_key));
+      const asset = image
+        ? this.incoming!.media.storeIncoming(
+            owner,
+            convo,
+            image,
+            Math.floor(Number(event.received_at) / 1000),
+          )
+        : undefined;
+      const run = this.runtime.enqueue(
+        convo,
+        owner,
+        String(data.content),
+        client,
+        undefined,
+        asset
+          ? { assetId: asset, deferDispatch: true }
+          : {
+              deferDispatch: true,
+              hostReply: this.incoming!.notice(code ?? "media_image_invalid"),
+            },
+      );
+      if (image)
+        this.incoming!.media.archiveIncoming(
+          owner,
+          convo,
+          run.run_id,
+          String(event.id),
+          image,
+          Math.floor(Number(event.received_at) / 1000),
+        );
+      this.store.run(
+        "INSERT OR IGNORE INTO run_targets VALUES(?,?,?,?,?,?)",
+        run.run_id,
+        "qq",
+        this.store.seal(data.target),
+        String(event.credential_ref),
+        Number(event.deadline),
+        String(event.account_id),
+      );
+      this.store.run(
+        "INSERT OR IGNORE INTO channel_media_sources VALUES(?,?,?,?)",
+        run.run_id,
+        String(event.id),
+        image ? "image" : "notice",
+        code ?? null,
+      );
+      this.store.run(
+        "UPDATE channel_events SET status='completed',run_id=?,payload_json=NULL,error=? WHERE id=?",
+        run.run_id,
+        code ?? null,
+        String(event.id),
+      );
+      this.store.audit(
+        owner,
+        "delivery",
+        "received",
+        image
+          ? "已校验渠道图片，尚待实际识图与回复"
+          : "附件状态已明确回复，未声称读取",
+        run.run_id,
+      );
+    });
   }
   private processEvents() {
     const config = this.store.config().config;
@@ -547,6 +708,22 @@ export class Channels {
       }
       const data = this.store.unseal<Json>(String(event.payload_json)),
         batch = [event];
+      if (event.channel === "qq") {
+        if (this.incoming?.active) continue;
+        const earlier = this.store.get(
+          "SELECT id FROM channel_events WHERE source_key=? AND status='queued' AND (received_at<? OR received_at=? AND rowid<(SELECT rowid FROM channel_events WHERE id=?)) LIMIT 1",
+          String(event.source_key),
+          Number(event.received_at),
+          Number(event.received_at),
+          String(event.id),
+        );
+        if (earlier) continue;
+        if (data.media) {
+          const task = this.incoming?.begin(event, data);
+          if (task) this.track(task);
+          continue;
+        }
+      }
       if (
         event.channel === "qq" &&
         data.target.kind === "c2c" &&
@@ -563,6 +740,7 @@ export class Channels {
           const part = this.store.unseal<Json>(String(next.payload_json));
           if (
             next.credential_ref !== event.credential_ref ||
+            part.media ||
             part.content.startsWith("/") ||
             explicitCorrection(part.content) ||
             part.content.length >= 360 ||
@@ -619,7 +797,9 @@ export class Channels {
             String(conversation.id),
             String(event.owner_id),
             texts.join("\n"),
-            String(event.event_key),
+            hash(String(event.event_key)),
+            undefined,
+            { deferDispatch: true },
           );
           const last = this.store.unseal<Json>(
             String(batch.at(-1)!.payload_json),
@@ -661,7 +841,7 @@ export class Channels {
   }
   private seedDeliveries() {
     for (const row of this.store.all(
-      "SELECT r.id,r.response,r.owner_id FROM runs r JOIN run_targets t ON t.run_id=r.id WHERE r.status='completed' AND NOT EXISTS(SELECT 1 FROM run_publications v WHERE v.run_id=r.id AND v.state='suppressed') AND NOT EXISTS(SELECT 1 FROM delivery_parts p WHERE p.run_id=r.id) LIMIT 20",
+      "SELECT r.id,r.response,r.owner_id,r.status FROM runs r JOIN run_targets t ON t.run_id=r.id WHERE (r.status='completed' OR r.status='failed' AND EXISTS(SELECT 1 FROM channel_media_sources q WHERE q.run_id=r.id AND q.kind='image')) AND NOT EXISTS(SELECT 1 FROM run_publications v WHERE v.run_id=r.id AND v.state='suppressed') AND NOT EXISTS(SELECT 1 FROM delivery_parts p WHERE p.run_id=r.id) LIMIT 20",
     )) {
       let parts: { kind: string; text: string; delay_ms?: number }[];
       try {
@@ -669,7 +849,17 @@ export class Channels {
           "SELECT items_json FROM native_text_presentations WHERE run_id=?",
           String(row.id),
         );
-        if (presentation) {
+        if (row.status === "failed") {
+          parts = [{ kind: "text", text: mediaNotice("media_reply_failed") }];
+          this.store.run(
+            "UPDATE channel_media_sources SET code='media_reply_failed' WHERE run_id=? AND kind='image'",
+            String(row.id),
+          );
+          this.store.run(
+            "UPDATE qq_inbound_receipts SET code='media_reply_failed' WHERE event_id=(SELECT event_id FROM channel_media_sources WHERE run_id=?)",
+            String(row.id),
+          );
+        } else if (presentation) {
           const saved = JSON.parse(String(presentation.items_json));
           parts = replyParts(JSON.stringify({ items: saved })).map((p, i) => {
             const delay = Number(saved[i].delay_ms);
@@ -701,6 +891,16 @@ export class Channels {
       });
     }
   }
+  private deliveryState(run: string, status: unknown) {
+    return (
+      status === "completed" ||
+      (status === "failed" &&
+        !!this.store.get(
+          "SELECT run_id FROM channel_media_sources WHERE run_id=? AND kind='image' AND code='media_reply_failed'",
+          run,
+        ))
+    );
+  }
   private async deliver() {
     if (this.deliveryBusy || this.stopping || Date.now() < this.accountNext)
       return;
@@ -729,7 +929,7 @@ export class Channels {
         String(row.run_id),
       )?.state === "suppressed" ||
       Number(row.deadline) <= now() ||
-      row.run_status !== "completed" ||
+      !this.deliveryState(String(row.run_id), row.run_status) ||
       row.context_epoch !== row.current_epoch
     ) {
       this.store.run(
@@ -762,7 +962,7 @@ export class Channels {
           current.qq.app_id !== row.account_id ||
           current.qq.credential_ref !== row.credential_ref ||
           !latest ||
-          latest.status !== "completed" ||
+          !this.deliveryState(String(row.run_id), latest.status) ||
           latest.context_epoch !== latest.current_epoch ||
           this.store.get(
             "SELECT state FROM run_publications WHERE run_id=?",
@@ -889,6 +1089,7 @@ export class Channels {
   private tick = () => {
     if (this.stopping) return;
     try {
+      this.incoming?.refresh();
       this.processEvents();
       this.seedDeliveries();
       this.track(this.deliver());

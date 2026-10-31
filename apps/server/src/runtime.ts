@@ -189,7 +189,13 @@ export class Runtime {
     content: string,
     clientId: string,
     skillId?: string,
-    options: { automatic?: boolean; isolated?: boolean; assetId?: string } = {},
+    options: {
+      automatic?: boolean;
+      isolated?: boolean;
+      assetId?: string;
+      hostReply?: { response: string; kind: string };
+      deferDispatch?: boolean;
+    } = {},
   ) {
     if (this.stopping) throw new ApiError(503, "stopping", "服务正在退出");
     this.refreshSourceGrants?.();
@@ -209,7 +215,8 @@ export class Runtime {
     string(content, "消息", 16000, 1);
     string(clientId, "消息幂等标识", 128, 1);
     const explicitSkill = /^\/skill\s+([0-9a-f-]{36})\s+\S/u.exec(content);
-    if (explicitSkill && !skillId) skillId = explicitSkill[1];
+    if (explicitSkill && !skillId && !options.assetId && !options.hostReply)
+      skillId = explicitSkill[1];
     const existing = this.store.get(
       "SELECT r.id,r.input,r.skill_id,m.asset_id FROM runs r LEFT JOIN run_media m ON m.run_id=r.id WHERE r.conversation_id=? AND r.client_message_id=?",
       conversation,
@@ -224,14 +231,15 @@ export class Runtime {
         throw conflict();
       return { run_id: String(existing.id), conversation_id: conversation };
     }
-    if (this.localCommand && !options.assetId && !options.automatic) {
+    if (
+      (this.localCommand || options.hostReply) &&
+      !options.assetId &&
+      !options.automatic
+    ) {
       const local = this.store.transaction(() => {
-        const result = this.localCommand!(
-          content,
-          owner,
-          conversation,
-          clientId,
-        );
+        const result =
+          options.hostReply ??
+          this.localCommand!(content, owner, conversation, clientId);
         if (!result) return null;
         const id = randomUUID(),
           epoch = Number(
@@ -270,7 +278,9 @@ export class Runtime {
           owner,
           result.kind,
           "completed",
-          "本地控制命令已处理",
+          options.hostReply
+            ? "附件状态已由宿主如实说明，未调用模型或控制命令"
+            : "本地控制命令已处理",
           id,
         );
         return { run_id: id, conversation_id: conversation };
@@ -380,7 +390,8 @@ export class Runtime {
         this.attachMedia?.(id, options.assetId);
       }
     });
-    this.pump();
+    if (options.deferDispatch) queueMicrotask(() => this.pump());
+    else this.pump();
     return { run_id: id, conversation_id: conversation };
   }
   getRun(id: string, owner: string) {
@@ -591,7 +602,7 @@ export class Runtime {
         ? []
         : this.store
             .all(
-              "SELECT m.run_id,m.role,CASE WHEN m.role='assistant' AND EXISTS(SELECT 1 FROM run_targets t WHERE t.run_id=r.id) THEN (SELECT group_concat(content,char(10)) FROM (SELECT content FROM delivery_parts p WHERE p.run_id=r.id AND p.status='sent' ORDER BY p.sequence)) ELSE m.content END AS content FROM messages m JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=? AND r.status='completed' AND NOT EXISTS(SELECT 1 FROM local_runs l WHERE l.run_id=r.id) AND r.context_epoch=? AND r.rowid<(SELECT rowid FROM runs WHERE id=?) AND (m.role='user' OR NOT EXISTS(SELECT 1 FROM run_targets t WHERE t.run_id=r.id) OR EXISTS(SELECT 1 FROM delivery_parts p WHERE p.run_id=r.id AND p.status='sent')) ORDER BY m.rowid DESC LIMIT ?",
+              "SELECT m.run_id,m.role,CASE WHEN m.role='assistant' AND EXISTS(SELECT 1 FROM run_targets t WHERE t.run_id=r.id) THEN (SELECT group_concat(content,char(10)) FROM (SELECT content FROM delivery_parts p WHERE p.run_id=r.id AND p.status='sent' ORDER BY p.sequence)) ELSE m.content END AS content FROM messages m JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=? AND r.status='completed' AND NOT EXISTS(SELECT 1 FROM channel_media_sources q WHERE q.run_id=r.id AND q.kind='legacy_unverified') AND NOT EXISTS(SELECT 1 FROM local_runs l WHERE l.run_id=r.id) AND r.context_epoch=? AND r.rowid<(SELECT rowid FROM runs WHERE id=?) AND (m.role='user' OR NOT EXISTS(SELECT 1 FROM run_targets t WHERE t.run_id=r.id) OR EXISTS(SELECT 1 FROM delivery_parts p WHERE p.run_id=r.id AND p.status='sent')) ORDER BY m.rowid DESC LIMIT ?",
               conversation,
               Number(row.context_epoch),
               id,

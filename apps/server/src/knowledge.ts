@@ -14,7 +14,11 @@ import { completeWithMetadata } from "./model.ts";
 import { strictModelJson } from "./schedule-json.ts";
 import { diaryBounds, diaryDate } from "./diary-time.ts";
 import { hash, now } from "./security.ts";
-import { visualSourceAllowed, visionDerivedSql } from "./vision.ts";
+import {
+  visualSourceAllowed,
+  visualRecordAllowed,
+  visionDerivedSql,
+} from "./vision.ts";
 import type { Config } from "./config.ts";
 import type { Runtime } from "./runtime.ts";
 import type { Row, Store } from "./store.ts";
@@ -265,6 +269,11 @@ export class Knowledge {
       !owner.startsWith("weixin:")
     )
       throw missing();
+    if (type === "record" && !visualRecordAllowed(this.store, id, purpose))
+      throw bad(
+        "记录的图片来源缺少可用于本次整理的依据",
+        "visual_source_excluded",
+      );
     if (
       type === "record" &&
       this.store.get(
@@ -336,6 +345,11 @@ export class Knowledge {
               ref.id,
             );
       if (!row || Number(row.revision) !== ref.revision) return false;
+      if (
+        ref.type === "record" &&
+        !visualRecordAllowed(this.store, ref.id, purpose)
+      )
+        return false;
       if (
         ref.type === "message" &&
         !visualSourceAllowed(this.store, row, purpose)

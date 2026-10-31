@@ -893,7 +893,7 @@ test("schema15 migration preserves chat and saved diary bodies, fences unproven 
   assert.equal(
     app.store.get("SELECT value FROM metadata WHERE key='prometheus.schema'")
       .value,
-    "17",
+    "18",
   );
   assert.equal(
     app.store.get("SELECT payload FROM records WHERE id=?", entry).payload,

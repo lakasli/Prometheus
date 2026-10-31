@@ -2813,3 +2813,59 @@ test("media limits describe common inputs and a real oriented JPEG is normalized
     fullPage: true,
   });
 });
+
+test("channel receipt status separates attachment handling from actual delivery and keeps private download references out of the UI", async ({
+  page,
+}) => {
+  const state = JSON.parse(
+    readFileSync(resolve("../../.local/prometheus/e2e-state.json"), "utf8"),
+  );
+  const db = new DatabaseSync(resolve(state.dataDir, "prometheus.db"));
+  const at = Date.now(),
+    receipt = "browser-inbound-" + randomBytes(12).toString("hex");
+  db.prepare(
+    "INSERT INTO channel_events VALUES(?,'qq','123456',?,'qq:123456:c2c:browser','qq:123456:c2c:browser',?,'synthetic-ref','completed',NULL,?,?,?,NULL)",
+  ).run(
+    receipt,
+    receipt,
+    "PRIVATE_SIGNED_URL_MUST_NOT_LEAK",
+    at,
+    at,
+    Math.floor(at / 1000) + 3600,
+  );
+  db.prepare(
+    "INSERT INTO qq_inbound_receipts(event_id,account_id,event_type,message_id,media,owner_epoch,global_epoch,code) VALUES(?,'123456','c2c',?,1,0,0,'media_format_unsupported')",
+  ).run(receipt, receipt);
+  db.close();
+  await page.getByRole("button", { name: "渠道与媒体", exact: true }).click();
+  await expect(
+    page.getByText("视觉模型明确开启后", { exact: false }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "刷新接收记录", exact: true }).click();
+  const row = page
+    .getByTestId("channel-inbox-record")
+    .filter({ hasText: "这类附件暂不读取。" });
+  await expect(row).toBeVisible();
+  await expect(row).toContainText("QQ · 附件");
+  const response = await page.request.get("/api/admin/v1/channels/inbox");
+  expect(response.status()).toBe(200);
+  const text = await response.text();
+  expect(text).not.toContain("PRIVATE_SIGNED_URL_MUST_NOT_LEAK");
+  expect(text).not.toContain("synthetic-ref");
+  expect(text).not.toContain("payload_json");
+  const denied = await page.request.get("/api/admin/v1/channels/inbox", {
+    headers: { cookie: "" },
+  });
+  expect(denied.status()).toBe(401);
+  await page.setViewportSize({ width: 320, height: 800 });
+  await expect(row).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: resolve("../../.local/prometheus/e2e-qq-inbox-320.png"),
+    fullPage: true,
+  });
+});

@@ -4,7 +4,7 @@ import type { ModelMessage } from "./model.ts";
 import type { Row, Store } from "./store.ts";
 
 export const visionDerivedSql = (run: string) =>
-  `(EXISTS(SELECT 1 FROM run_media vm WHERE vm.run_id=${run}) OR EXISTS(SELECT 1 FROM vision_uses vu WHERE vu.run_id=${run}))`;
+  `(EXISTS(SELECT 1 FROM run_media vm WHERE vm.run_id=${run}) OR EXISTS(SELECT 1 FROM vision_uses vu WHERE vu.run_id=${run}) OR EXISTS(SELECT 1 FROM channel_media_sources cm WHERE cm.run_id=${run}))`;
 export function safeVisualText(store: Store, text: string) {
   return (
     !!text &&
@@ -17,6 +17,13 @@ export function safeVisualText(store: Store, text: string) {
   );
 }
 export function visualSourceAllowed(store: Store, message: Row, purpose = "") {
+  if (
+    store.get(
+      "SELECT run_id FROM channel_media_sources WHERE run_id=? AND kind IN ('notice','legacy_unverified')",
+      String(message.run_id),
+    )
+  )
+    return false;
   const direct = !!store.get(
     "SELECT run_id FROM run_media WHERE run_id=?",
     String(message.run_id),
@@ -38,6 +45,16 @@ export function visualSourceAllowed(store: Store, message: Row, purpose = "") {
     !direct &&
     !(derived && (message.role === "assistant" || purpose === "summary"))
   );
+}
+
+/** Saved content stays readable, but excluded visual sources cannot be laundered through derivations. */
+export function visualRecordAllowed(store: Store, id: string, purpose = "") {
+  return store
+    .all(
+      "WITH RECURSIVE sources(type,id) AS (SELECT 'record',? UNION SELECT d.source_type,d.source_id FROM derivations d JOIN sources s ON s.type='record' AND d.record_id=s.id) SELECT m.id,m.role,m.run_id FROM sources s JOIN messages m ON s.type='message' AND m.id=s.id",
+      id,
+    )
+    .every((message) => visualSourceAllowed(store, message, purpose));
 }
 
 /** Authority for vision provenance; text markers never create source privileges. */
@@ -219,6 +236,13 @@ export class Vision {
       this.store.run("INSERT INTO vision_uses VALUES(?,?)", run, source);
   }
   valid(run: string) {
+    if (
+      this.store.get(
+        "SELECT run_id FROM channel_media_sources WHERE run_id=? AND kind IN ('notice','legacy_unverified')",
+        run,
+      )
+    )
+      return false;
     const current = this.store.get("SELECT * FROM runs WHERE id=?", run);
     if (!current) return false;
     if (
@@ -283,19 +307,31 @@ export class Vision {
     );
   }
   metadata(run: string) {
+    const channel = this.store.get(
+      "SELECT kind,code FROM channel_media_sources WHERE run_id=?",
+      run,
+    );
     const image = this.store.get(
       "SELECT image_sha256,width,height,status,source_message_id FROM vision_sources WHERE run_id=?",
       run,
     );
     return {
-      basis: this.isDerived(run)
-        ? "vision_description"
-        : this.store.get(
-              "SELECT r.id FROM runs r JOIN messages m ON m.run_id=r.id JOIN vision_legacy_fences f ON f.conversation_id=r.conversation_id WHERE r.id=? AND m.rowid<=f.message_cutoff LIMIT 1",
-              run,
-            )
+      basis:
+        channel?.kind === "legacy_unverified"
           ? "legacy_unverified"
-          : "text",
+          : channel?.kind === "notice"
+            ? "unavailable_media"
+            : this.isDerived(run)
+              ? "vision_description"
+              : this.store.get(
+                    "SELECT r.id FROM runs r JOIN messages m ON m.run_id=r.id JOIN vision_legacy_fences f ON f.conversation_id=r.conversation_id WHERE r.id=? AND m.rowid<=f.message_cutoff LIMIT 1",
+                    run,
+                  )
+                ? "legacy_unverified"
+                : "text",
+      ...(channel
+        ? { attachment: { kind: channel.kind, code: channel.code } }
+        : {}),
       ...(image
         ? {
             image: {
