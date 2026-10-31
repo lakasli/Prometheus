@@ -473,3 +473,69 @@ test("iLink QR binds one owner; cursor and inbox commit atomically; reply contex
     false,
   );
 });
+
+test("typed QQ text pacing waits from actual confirmation and never sends the presentation envelope", async (t) => {
+  const dispatched = [],
+    confirmed = [];
+  const remote = await service(t, async (call) => {
+    if (call.path === "/app/getAppAccessToken")
+      return { access_token: "synthetic-pacing-token", expires_in: 7200 };
+    if (call.path.startsWith("/v2/users/")) {
+      dispatched.push({ at: Date.now(), body: call.body });
+      if (dispatched.length === 1)
+        await new Promise((r) => setTimeout(r, 1500));
+      confirmed.push(Date.now());
+      return { id: "synthetic-pacing-" + dispatched.length };
+    }
+    return {
+      choices: [
+        {
+          message: {
+            content: JSON.stringify([
+              { type: "text", text: "第一句合成文字", delay_ms: 0 },
+              { type: "text", text: "第二句合成文字", delay_ms: 1500 },
+            ]),
+          },
+          finish_reason: "stop",
+        },
+      ],
+    };
+  });
+  const app = await fixture({
+    testChannelEndpoints: { qq: remote.url, weixin: remote.url },
+  });
+  t.after(() => app.close());
+  await app.bootstrap();
+  await qqConfig(app, remote.url);
+  assert.equal(
+    (await post(app, sample("typed-pacing", "仅验证两段合成文字的确认后间隔")))
+      .status,
+    200,
+  );
+  await until(
+    async () =>
+      app.store.get(
+        "SELECT count(*) AS n FROM delivery_parts WHERE status='sent'",
+      ).n,
+    (n) => n === 2,
+    12000,
+  );
+  assert.equal(dispatched.length, 2);
+  assert.equal(confirmed.length, 2);
+  assert.ok(
+    dispatched[1].at - confirmed[0] >= 1450,
+    JSON.stringify({ dispatched, confirmed }),
+  );
+  assert.deepEqual(
+    dispatched.map((i) => i.body.content),
+    ["第一句合成文字", "第二句合成文字"],
+  );
+  assert.equal(
+    app.store.get("SELECT count(*) AS n FROM native_text_presentations").n,
+    1,
+  );
+  assert.equal(
+    app.store.get("SELECT count(*) AS n FROM daily_text_artifacts").n,
+    0,
+  );
+});

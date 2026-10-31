@@ -8,6 +8,7 @@ const emit = defineEmits<{ error: [unknown]; dirty: [boolean]; changed: [] }>(),
   books = ref<any[]>([]),
   grants = ref<any[]>([]),
   plans = ref<any[]>([]),
+  sources = ref<any[]>([]),
   bookDetail = ref<any>(null),
   planPreview = ref<any>(null);
 const today = new Intl.DateTimeFormat("en-CA", {
@@ -35,6 +36,7 @@ const grant = reactive<Record<string, any>>({
   max_daily_tokens: 24000,
   max_output_tokens: 1200,
   confirmed: false,
+  source_conversation_id: "",
 });
 const plan = reactive({
   id: "",
@@ -89,14 +91,21 @@ async function act(action: () => Promise<void>) {
   }
 }
 async function load() {
-  const [a, b, c] = await Promise.all([
+  const [a, b, c, d] = await Promise.all([
     api<any>("/schedule/resources"),
     api<any>("/schedule/autonomy-grants"),
     api<any>("/schedule/plans"),
+    api<any>("/knowledge/sources"),
   ]);
   books.value = a.items;
   grants.value = b.items;
   plans.value = c.items;
+  sources.value = d.items.filter(
+    (c: any) =>
+      !c.source_key ||
+      c.source_key === c.id ||
+      /^qq:[^:]+:c2c:|^weixin:/.test(c.source_key),
+  );
 }
 async function file(event: Event) {
   const input = event.target as HTMLInputElement,
@@ -174,6 +183,9 @@ function grantPolicy() {
     ...result,
     valid_from_local: grant.from,
     valid_until_local: grant.until,
+    source_conversation_id: grant.allowed_types.includes("writing")
+      ? grant.source_conversation_id || null
+      : null,
   };
 }
 async function saveGrant() {
@@ -212,6 +224,7 @@ function editGrant(item: any) {
     from: item.local_from,
     until: item.local_until,
     confirmed: false,
+    source_conversation_id: item.policy.source_conversation_id ?? "",
   });
   grantBase.value = JSON.stringify(grant);
 }
@@ -430,6 +443,26 @@ onMounted(() => void load().catch((error) => emit("error", error)));
               type="checkbox"
             />允许{{ label }}的自主安排</label
           >
+          <template v-if="grant.allowed_types.includes('writing')">
+            <label
+              >文字安排来源<select
+                v-model="grant.source_conversation_id"
+                aria-label="文字安排来源"
+              >
+                <option value="">当前管理账户的本人聊天</option>
+                <option
+                  v-for="source in sources"
+                  :key="source.id"
+                  :value="source.id"
+                >
+                  {{ source.title }} · {{ source.owner_id }}
+                </option>
+              </select></label
+            >
+            <p class="muted">
+              只允许这个来源登记文字成果，不转授其他来源的许可。渠道私聊还须独立开启采集和模型出域；只采集授权之后的新互动。普通文字回复与安排在同一事务受理，到期实际保存后才算完成，不发送消息或执行正文中的代码。
+            </p>
+          </template>
           <p>授权书架</p>
           <label v-for="item in activeBooks" :key="item.id" class="checkbox"
             ><input

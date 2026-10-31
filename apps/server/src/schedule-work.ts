@@ -8,14 +8,14 @@ import {
   missing,
   string,
 } from "./errors.ts";
-import { complete } from "./model.ts";
+import { completeWithMetadata } from "./model.ts";
 import type { ModelMessage } from "./model.ts";
 import type { Config } from "./config.ts";
 import { hash, now } from "./security.ts";
 import type { Store, Row } from "./store.ts";
 import type { Runtime } from "./runtime.ts";
 import type { Knowledge } from "./knowledge.ts";
-import { ScheduleCalendar, block } from "./schedule.ts";
+import { ScheduleCalendar } from "./schedule.ts";
 import type { ScheduleView } from "./schedule.ts";
 import {
   activity,
@@ -45,6 +45,7 @@ interface Grant {
   max_daily_model_calls: number;
   max_daily_tokens: number;
   max_output_tokens: number;
+  source_conversation_id: string | null;
 }
 interface Plan {
   goal: string;
@@ -62,6 +63,7 @@ const minutes = (value: unknown) => {
   return Number(text.slice(0, 2)) * 60 + Number(text.slice(3));
 };
 export class Schedule extends ScheduleCalendar {
+  onGrantChanged?: () => void;
   private active?: {
     id: string;
     activity?: string;
@@ -267,6 +269,7 @@ export class Schedule extends ScheduleCalendar {
       "max_daily_model_calls",
       "max_daily_tokens",
       "max_output_tokens",
+      "source_conversation_id",
     ]);
     const types = body.allowed_types,
       resources = body.resource_ids;
@@ -300,6 +303,28 @@ export class Schedule extends ScheduleCalendar {
       if (row.revoked_at !== null) throw bad("不能授权已撤销资料");
     }
     const timeZone = zone(body.time_zone);
+    const sourceConversation = reference(
+      body.source_conversation_id,
+      "文字安排来源会话",
+    );
+    if (sourceConversation) {
+      const conversation = this.store.get(
+        "SELECT * FROM conversations WHERE id=?",
+        sourceConversation,
+      );
+      if (!conversation) throw missing();
+      this.knowledge.source(
+        owner,
+        String(conversation.source_key ?? conversation.id),
+      );
+      if (!types.includes("writing"))
+        throw bad("绑定聊天来源须明确选择文字活动");
+      if (
+        conversation.source_key &&
+        !/^qq:[^:]+:c2c:|^weixin:/.test(String(conversation.source_key))
+      )
+        throw bad("文字安排只绑定明确的本人私聊来源");
+    }
     if (
       (body.valid_from !== undefined && body.valid_from_local !== undefined) ||
       (body.valid_until !== undefined && body.valid_until_local !== undefined)
@@ -364,6 +389,7 @@ export class Schedule extends ScheduleCalendar {
         256,
         2000,
       ),
+      source_conversation_id: sourceConversation,
     };
   }
   saveGrant(owner: string, value: unknown, id?: string, expected?: number) {
@@ -410,6 +436,7 @@ export class Schedule extends ScheduleCalendar {
       );
     });
     if (this.active && !this.active.valid()) this.active.controller.abort();
+    this.onGrantChanged?.();
     return this.grant(owner, grantId!);
   }
   revokeGrant(owner: string, id: string, expected: number) {
@@ -423,6 +450,7 @@ export class Schedule extends ScheduleCalendar {
     );
     this.store.audit(owner, "schedule", "completed", "自主授权已撤销", id);
     if (this.active && !this.active.valid()) this.active.controller.abort();
+    this.onGrantChanged?.();
     return this.grant(owner, id);
   }
   protected override permission(
@@ -653,6 +681,7 @@ export class Schedule extends ScheduleCalendar {
     plan: Plan,
     grant: ReturnType<Schedule["grant"]>,
     at: number,
+    kind: "reading" | "writing" = "reading",
   ) {
     const g = grant.policy,
       base = zoned(
@@ -692,12 +721,12 @@ export class Schedule extends ScheduleCalendar {
           continue;
         const definition: Activity = {
           title: "授权阅读",
-          type: "reading",
+          type: kind,
           purpose: plan.goal,
           start_at: start,
           end_at: end,
           time_zone: g.time_zone,
-          resource_id: plan.resource_ids[0]!,
+          resource_id: kind === "reading" ? plan.resource_ids[0]! : null,
           target_ref: null,
           repeat: null,
           movable: true,
@@ -730,6 +759,27 @@ export class Schedule extends ScheduleCalendar {
       }
     }
     return slots;
+  }
+  writingOffer(manager: string, id: string, at = now()) {
+    const g = this.grant(manager, id);
+    if (
+      g.revoked_at !== null ||
+      !g.policy.allowed_types.includes("writing") ||
+      at < g.policy.valid_from ||
+      at >= g.policy.valid_until
+    )
+      return null;
+    const plan: Plan = {
+      goal: "保存文字成果",
+      grant_id: id,
+      resource_ids: [],
+      duration_minutes: 10,
+      planning_mode: "bounded_rule",
+    };
+    return {
+      grant: g,
+      slots: this.slots(manager, plan, g, at, "writing").slice(0, 3),
+    };
   }
   previewPlan(owner: string, id: string) {
     const row = this.plan(owner, id),
@@ -904,7 +954,7 @@ export class Schedule extends ScheduleCalendar {
         try {
           if (controller.signal.aborted || !options.valid())
             throw bad("来源已变化", "schedule_request_invalidated");
-          const text = await complete(
+          const completed = await completeWithMetadata(
             reserved.config,
             this.store.secret(
               reserved.config.model.credential_ref!,
@@ -920,8 +970,14 @@ export class Schedule extends ScheduleCalendar {
             this.loopback,
             outputLimit,
           );
+          const text = completed.content;
           outputHash = hash(text);
           outputBytes = Buffer.byteLength(text);
+          if (!["stop", "missing"].includes(completed.finish_reason))
+            throw bad(
+              "模型输出未完整结束，未推进阅读或规划状态",
+              "schedule_model_incomplete_output",
+            );
           if (controller.signal.aborted || !options.valid() || !this.admit())
             throw bad("来源、活动或授权已变化", "schedule_request_invalidated");
           this.store.transaction(() =>
@@ -1036,7 +1092,10 @@ export class Schedule extends ScheduleCalendar {
       )) {
         if (slot.state !== "enabled" || slot.definition.start_at > at) continue;
         const a = slot.definition,
-          reason = a.end_at <= at ? "missed_execution_window" : block(a),
+          reason =
+            a.end_at <= at
+              ? "missed_execution_window"
+              : this.capability(view, a),
           status = a.end_at <= at ? "skipped" : reason ? "blocked" : "pending",
           id = `${view.id}:${slot.nominal_at}`;
         this.store.run(
@@ -1061,7 +1120,7 @@ export class Schedule extends ScheduleCalendar {
           stored.status === "blocked" &&
           stored.activity_revision === view.revision &&
           Number(stored.attempts) < 3 &&
-          !block(a) &&
+          !this.capability(view, a) &&
           this.usable(view, a, view.grant_revision, at)
         )
           this.store.run(

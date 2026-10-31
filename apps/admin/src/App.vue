@@ -11,6 +11,7 @@ import PluginsPanel from "./components/PluginsPanel.vue";
 import ArtworkPanel from "./components/ArtworkPanel.vue";
 import CalendarPanel from "./components/CalendarPanel.vue";
 import ScheduleWorkPanel from "./components/ScheduleWorkPanel.vue";
+import DailyTextPanel from "./components/DailyTextPanel.vue";
 import ContextPanel from "./components/ContextPanel.vue";
 import PlanningPanel from "./components/PlanningPanel.vue";
 import AffinityPanel from "./components/AffinityPanel.vue";
@@ -1498,6 +1499,11 @@ onUnmounted(() => {
           @changed="scheduleCalendar?.refresh()"
         />
         <PlanningPanel v-if="page === 'schedule'" @error="failure" />
+        <DailyTextPanel
+          v-if="page === 'schedule'"
+          @error="failure"
+          @changed="scheduleCalendar?.refresh()"
+        />
         <AffinityPanel v-if="page === 'relationships'" @error="failure" />
         <ProfilesPanel
           v-if="page === 'people' || page === 'relationships'"

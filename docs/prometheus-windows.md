@@ -69,7 +69,7 @@ node deploy/prometheus/backup-instance.mjs --data-dir D:/DSH/.local/prometheus/i
 
 脚本取得与服务相同的原子数据锁，复制主密钥等全部文件、生成SQLite一致性快照并检查integrity_check，保存私有清单与逐文件哈希。拒绝符号链接及数据目录内的目标；已有锁时失败，不杀进程。备份位于.local/prometheus/backups/instance-*，不输出秘密。
 
-当前实现schema10不能由schema1/2/3/4/5/6/7/8/9制品打开，实际部署SHA见对应验收记录。升级前自动创建原schema数据库快照，正式升级另备份完整实例；回退先保留新目录，向另一个私有目录恢复匹配旧制品的完整快照（含主密钥），再用上一版固定SHA启动和复验。不能覆盖运行数据或仅切换代码。
+当前实现schema11不能由schema1/2/3/4/5/6/7/8/9/10制品打开，实际部署SHA见对应验收记录。升级前自动创建原schema数据库快照，正式升级另备份完整实例；回退先保留新目录，向另一个私有目录恢复匹配旧制品的完整快照（含主密钥），再用上一版固定SHA启动和复验。不能覆盖运行数据或仅切换代码。
 
 ## 隔离工作器前置检查
 
@@ -96,3 +96,5 @@ node deploy/prometheus/backup-instance.mjs --data-dir D:/DSH/.local/prometheus/i
 互动来源与账本重放回归：`node --test apps/server/test/affinity-sources.test.mjs`，服务夹具支持固定runtime，安全/ACL辅助和合成SQL场景构造来自本地。schema9旧分数作为已知检查点，新增事件按实际来源、原策略和停机覆盖重算；旧9制品拒绝打开10，完整实例升级/恢复独立演练。见[互动来源与重放记录](prometheus-affinity-sources-validation.md)。
 
 人物映射与关系图：`node --test apps/server/test/profile-mappings.test.mjs` 支持固定runtime服务夹具，源域/身份的合成SQL及安全辅助为本地；`npm run test --workspace @prometheus/admin`执行12项本地图布局/物理纯函数，浏览器仍用固定包执行test:e2e，分别记账。本批保持schema10，无数据库迁移；正式切换仍备份完整实例并在独立目录验证新旧制品恢复。见[映射与关系图记录](prometheus-profile-network-validation.md)。
+
+原生文字安排回归：`node --test apps/server/test/daily-life.test.mjs apps/server/test/channels.test.mjs`。HTTP及进程内服务夹具支持固定runtime；严格JSON纯函数、安全/ACL和合成场景构造来自本地dist。未来执行使用明确的夹具时钟，实际短窗口等待与生产至少7分钟缓冲分开验证，不提供HTTP时钟入口。schema10升级至11前完整备份，旧10制品拒绝打开11；完整实例恢复须另起私有目录。来源授权、已准备、实际保存和渠道投递分别记账，见[文字安排迁移记录](prometheus-daily-text-validation.md)。

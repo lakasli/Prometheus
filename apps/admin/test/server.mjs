@@ -9,7 +9,23 @@ const provider = createServer(async (request, response) => {
   const input = JSON.parse(raw);
   const system = String(input.messages?.[0]?.content ?? "");
   let content = "合成浏览器回复。";
-  if (system.startsWith("PROMETHEUS_PROFILE_CANDIDATES_V1")) {
+  if (
+    system.includes("PROMETHEUS_DAILY_LIFE_V1") &&
+    input.messages.at(-1)?.content.includes("SELF_TEXT_UI")
+  ) {
+    const available = JSON.parse(
+      system.split("\n").find((s) => s.startsWith('{"available":')),
+    ).available;
+    content = JSON.stringify({
+      reply: "这份文字已经登记，实际保存时间会单独记录。",
+      self_activity: {
+        slot_id: available.slots[0].slot_id,
+        title: "浏览器自主文字安排",
+        content:
+          '完整的合成文字成果。<script>document.body.dataset.dailyUnsafe="executed"</script> https://example.invalid/正文不是访问指令',
+      },
+    });
+  } else if (system.startsWith("PROMETHEUS_PROFILE_CANDIDATES_V1")) {
     const payload = JSON.parse(input.messages[1].content);
     if (payload.source.facts.includes("PROFILE_UI_SLOW"))
       await new Promise((r) => setTimeout(r, 5000));
@@ -65,7 +81,11 @@ const provider = createServer(async (request, response) => {
     });
   if (response.destroyed) return;
   response.writeHead(200, { "content-type": "application/json" });
-  response.end(JSON.stringify({ choices: [{ message: { content } }] }));
+  response.end(
+    JSON.stringify({
+      choices: [{ message: { content }, finish_reason: "stop" }],
+    }),
+  );
 });
 await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve));
 const modelUrl = `http://127.0.0.1:${provider.address().port}`;

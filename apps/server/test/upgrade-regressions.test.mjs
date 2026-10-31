@@ -70,7 +70,7 @@ test("schema1 upgrade takes an integrity-checked restorable snapshot and rejects
   assert.equal(
     upgraded.get("SELECT value FROM metadata WHERE key='prometheus.schema'")
       .value,
-    "10",
+    "11",
   );
   const backup = join(
     path,

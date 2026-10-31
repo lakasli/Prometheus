@@ -2050,3 +2050,129 @@ test("relationship graph converges, supports keyboard and precise dragging, and 
   expect(writes).toEqual([]);
   expect(errors).toEqual([]);
 });
+
+test("authorized Native text preparation stays private, renders literally and can be forgotten in management", async ({
+  page,
+}) => {
+  const errors: string[] = [],
+    external: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  page.on("request", (r) => {
+    if (r.url().startsWith("https://example.invalid")) external.push(r.url());
+  });
+  const me = await (await page.request.get("/api/admin/v1/auth/me")).json();
+  const headers = {
+    origin: "http://127.0.0.1:18449",
+    "x-csrf-token": me.csrf_token,
+  };
+  const response = await page.request.post("/api/admin/v1/conversations", {
+    headers,
+    data: { title: "浏览器文字安排独立来源" },
+  });
+  expect(response.status()).toBe(201);
+  const conversation = await response.json();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "日程", exact: true })
+    .click();
+  const work = page.locator(".schedule-work"),
+    panel = page.getByRole("region", { name: "日常文字成果" });
+  await work.getByText("自主安排范围", { exact: true }).click();
+  await work.getByLabel("授权名称", { exact: true }).fill("浏览器限定文字来源");
+  await work.getByLabel("允许文本阅读的自主安排", { exact: true }).uncheck();
+  await work.getByLabel("允许文字活动的自主安排", { exact: true }).check();
+  await work
+    .getByLabel("文字安排来源", { exact: true })
+    .selectOption(conversation.id);
+  await work.getByLabel("每日可用起点", { exact: true }).fill("00:00");
+  await work.getByLabel("每日可用终点", { exact: true }).fill("23:59");
+  await work
+    .getByLabel("明确授予以上范围，不授予消息发送或程序执行权限", {
+      exact: true,
+    })
+    .check();
+  await work.getByRole("button", { name: "保存自主授权", exact: true }).click();
+  await expect(work.getByRole("status")).toContainText("自主范围已保存");
+  const submitted = await page.request.post(
+    `/api/admin/v1/conversations/${conversation.id}/messages`,
+    {
+      headers,
+      data: {
+        content: "SELF_TEXT_UI 请保存一份本次完整文字安排。",
+        client_message_id: crypto.randomUUID(),
+      },
+    },
+  );
+  expect(submitted.status()).toBe(202);
+  const run = await submitted.json();
+  await expect
+    .poll(
+      async () =>
+        (
+          await (
+            await page.request.get(`/api/admin/v1/runs/${run.run_id}`)
+          ).json()
+        ).status,
+    )
+    .toBe("completed");
+  await panel
+    .getByRole("button", { name: "刷新文字成果", exact: true })
+    .click();
+  const result = panel
+    .locator(".text-result")
+    .filter({ hasText: "浏览器自主文字安排" });
+  await expect(result).toContainText("已准备，等待实际保存");
+  await expect(result).toContainText("实际保存：尚未发生");
+  await result.getByText("查看已准备的正文", { exact: true }).click();
+  await expect(result.locator("pre")).toContainText(
+    '<script>document.body.dataset.dailyUnsafe="executed"</script>',
+  );
+  expect(
+    await page.locator("body").getAttribute("data-daily-unsafe"),
+  ).toBeNull();
+  expect(external).toEqual([]);
+  const listing = await (
+    await page.request.get("/api/admin/v1/schedule/text-activities")
+  ).json();
+  const artifact = listing.items.find(
+    (i: any) => i.title === "浏览器自主文字安排",
+  );
+  expect(artifact.state).toBe("prepared");
+  expect(artifact.saved_at).toBeNull();
+  expect(artifact.delivery_status).toBe("not_applicable");
+  await page.setViewportSize({ width: 320, height: 844 });
+  await expect
+    .poll(async () => {
+      const box = await page.locator(".sidebar").boundingBox();
+      return box!.x + box!.width;
+    })
+    .toBeLessThanOrEqual(0);
+  expect(
+    await page.locator("body").evaluate((el) => el.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await panel.screenshot({
+    path: resolve("../../.local/prometheus/screenshots/daily-text-mobile.png"),
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await panel.screenshot({
+    path: resolve("../../.local/prometheus/screenshots/daily-text-desktop.png"),
+  });
+  page.once("dialog", (dialog) => dialog.accept());
+  await result
+    .getByRole("button", { name: "遗忘文字成果", exact: true })
+    .click();
+  await expect(panel.getByRole("status")).toContainText(
+    "文字成果及派生副本已清除",
+  );
+  await expect(panel.locator("pre")).toHaveCount(0);
+  const forgotten = await (
+    await page.request.get(
+      "/api/admin/v1/schedule/text-activities/" + artifact.activity_id,
+    )
+  ).json();
+  expect(forgotten.state).toBe("invalidated");
+  expect(forgotten.content).toBeNull();
+  expect(forgotten.saved_at).toBeNull();
+  expect(external).toEqual([]);
+  expect(errors).toEqual([]);
+});

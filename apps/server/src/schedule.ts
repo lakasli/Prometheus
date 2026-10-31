@@ -62,6 +62,13 @@ export const block = (a: Activity): string | null =>
   })[a.type] ?? null;
 export class ScheduleCalendar {
   onChanged?: (ids: string[]) => void;
+  registeredText?: (id: string, definition: Activity) => boolean;
+  protected capability(view: ScheduleView, definition = view.definition) {
+    return definition.type === "writing" &&
+      this.registeredText?.(view.id, definition)
+      ? null
+      : block(definition);
+  }
   constructor(
     readonly store: Store,
     readonly runtime: Runtime,
@@ -519,7 +526,7 @@ export class ScheduleCalendar {
         view.definition.repeat?.until != null
           ? localText(view.definition.repeat.until, view.definition.time_zone)
           : "",
-      capability_block: block(view.definition),
+      capability_block: this.capability(view),
       grant_revision: view.grant_revision,
       admin_approval: this.approved(view) ? view.approval : null,
     };
@@ -823,7 +830,9 @@ export class ScheduleCalendar {
       };
     });
     this.onChanged?.(affected);
-    return result;
+    return result && typeof result === "object" && "id" in result
+      ? { ...result, ...this.detail(owner, String(result.id)) }
+      : result;
   }
   preview(owner: string, value: unknown, id?: string, expected?: number) {
     if (id) {
@@ -908,7 +917,6 @@ export class ScheduleCalendar {
     const body = fields(value, ["confirmed", "scope"]);
     if (body.confirmed !== true || body.scope !== "series")
       throw bad("须明确确认当前保存的整个系列及例外");
-    let result: unknown;
     this.store.transaction(() => {
       const view = this.load(owner, id);
       if (view.revision !== expected) throw conflict();
@@ -948,10 +956,9 @@ export class ScheduleCalendar {
         "当前保存系列已明确批准，执行和投递仍受能力门禁",
         id,
       );
-      result = this.detail(owner, id);
     });
     this.onChanged?.([id]);
-    return result;
+    return this.detail(owner, id);
   }
   calendar(owner: string, query: URLSearchParams) {
     const timeZone = zone(query.get("time_zone") ?? "Asia/Shanghai"),
@@ -1062,7 +1069,7 @@ export class ScheduleCalendar {
           block_reason:
             item.state === "enabled" && item.definition.end_at <= now()
               ? "missed_execution_window"
-              : block(item.definition),
+              : this.capability(view, item.definition),
           read_only: false,
         });
       for (const actual of stored) {

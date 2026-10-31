@@ -663,16 +663,30 @@ export class Channels {
     for (const row of this.store.all(
       "SELECT r.id,r.response,r.owner_id FROM runs r JOIN run_targets t ON t.run_id=r.id WHERE r.status='completed' AND NOT EXISTS(SELECT 1 FROM run_publications v WHERE v.run_id=r.id AND v.state='suppressed') AND NOT EXISTS(SELECT 1 FROM delivery_parts p WHERE p.run_id=r.id) LIMIT 20",
     )) {
-      let parts;
+      let parts: { kind: string; text: string; delay_ms?: number }[];
       try {
-        parts = replyParts(String(row.response));
+        const presentation = this.store.get(
+          "SELECT items_json FROM native_text_presentations WHERE run_id=?",
+          String(row.id),
+        );
+        if (presentation) {
+          const saved = JSON.parse(String(presentation.items_json));
+          parts = replyParts(JSON.stringify({ items: saved })).map((p, i) => {
+            const delay = Number(saved[i].delay_ms);
+            if (!Number.isSafeInteger(delay) || delay < 0 || delay > 8000)
+              throw bad("文字回复间隔无效");
+            return { ...p, delay_ms: i === 0 ? 0 : Math.max(1500, delay) };
+          });
+        } else parts = replyParts(String(row.response));
       } catch {
         parts = [
           { kind: "text", text: "这次回复格式没有整理好，请再给我一次机会。" },
         ];
       }
       this.store.transaction(() => {
-        for (const [index, part] of parts.entries())
+        let due = Date.now();
+        for (const [index, part] of parts.entries()) {
+          if (index) due += part.delay_ms ?? 1000;
           this.store.run(
             "INSERT OR IGNORE INTO delivery_parts VALUES(?,?,?,?,?,'queued',NULL,NULL,?,?)",
             randomUUID(),
@@ -680,9 +694,10 @@ export class Channels {
             index + 1,
             part.kind,
             part.text,
-            Date.now() + index * 1000,
+            due,
             now(),
           );
+        }
       });
     }
   }
@@ -824,6 +839,23 @@ export class Channels {
         now(),
         String(row.id),
       );
+      const presentation = this.store.get(
+        "SELECT items_json FROM native_text_presentations WHERE run_id=?",
+        String(row.run_id),
+      );
+      if (presentation) {
+        const next = JSON.parse(String(presentation.items_json))[
+          Number(row.sequence)
+        ];
+        if (next)
+          this.store.run(
+            "UPDATE delivery_parts SET not_before=max(not_before,?) WHERE run_id=? AND sequence=? AND status='queued'",
+            Date.now() +
+              Math.max(1500, Math.min(8000, Number(next.delay_ms) || 1500)),
+            String(row.run_id),
+            Number(row.sequence) + 1,
+          );
+      }
       this.store.audit(
         String(row.owner_id),
         "delivery",

@@ -442,6 +442,55 @@ export class Diary {
     });
     return this.event(actor, id);
   }
+  textActivityIndex(
+    manager: string,
+    owner: string,
+    scope: string,
+    activity: string,
+    sequence: number,
+    savedAt: number,
+  ) {
+    const p = this.store.get(
+      "SELECT * FROM diary_policies WHERE source_key=? AND owner_id=? AND manager_id=? AND visibility='private'",
+      owner === manager ? `self:${owner}` : scope,
+      owner,
+      manager,
+    );
+    if (!p || !this.effective(p) || sequence <= Number(p.enabled_after)) return;
+    this.insertEvent(
+      p,
+      randomUUID(),
+      "schedule_activity",
+      activity,
+      1,
+      sequence,
+      "observed_fact",
+      "已在授权时段保存一份登记的文字成果，内容保留在对应日程。",
+      savedAt,
+      manager,
+    );
+  }
+  forgetTextActivity(activity: string) {
+    const rows = this.store.all(
+      "SELECT id FROM diary_events WHERE origin_kind='schedule_activity' AND origin_id=? AND deleted_at IS NULL",
+      activity,
+    );
+    this.invalidateEvents(
+      rows.map((r) => String(r.id)),
+      "text_artifact_invalidated",
+    );
+    for (const row of rows) {
+      this.store.run(
+        "UPDATE diary_event_versions SET content=NULL WHERE event_id=?",
+        String(row.id),
+      );
+      this.store.run(
+        "UPDATE diary_events SET content=NULL,deleted_at=?,revision=revision+1 WHERE id=?",
+        now(),
+        String(row.id),
+      );
+    }
+  }
   private eventTime(body: Record<string, unknown>) {
     if (body.happened_at !== undefined && body.happened_local !== undefined)
       throw bad("不能同时指定两种发生时间");

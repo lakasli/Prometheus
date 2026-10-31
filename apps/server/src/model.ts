@@ -237,14 +237,19 @@ export async function complete(
   allowLoopback = false,
   maxTokens = 4096,
 ): Promise<string> {
-  return (
-    await completeWithMetadata(
-      config,
-      key,
-      messages,
-      signal,
-      allowLoopback,
-      maxTokens,
-    )
-  ).content;
+  const result = await completeWithMetadata(
+    config,
+    key,
+    messages,
+    signal,
+    allowLoopback,
+    maxTokens,
+  );
+  if (!["stop", "missing"].includes(result.finish_reason))
+    throw new ApiError(
+      502,
+      "model_output_incomplete",
+      "模型回复未完整结束，未保存不完整结果",
+    );
+  return result.content;
 }

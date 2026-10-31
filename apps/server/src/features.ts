@@ -16,6 +16,7 @@ import { Diary } from "./diary.ts";
 import { Profiles } from "./profiles.ts";
 import { ProfileModel } from "./profile-model.ts";
 import { AffinitySources } from "./affinity-sources.ts";
+import { DailyLife } from "./daily-life.ts";
 
 export interface FeatureResult {
   data: unknown;
@@ -37,6 +38,7 @@ export class Features {
   readonly profiles: Profiles;
   readonly profileModel: ProfileModel;
   readonly affinitySources: AffinitySources;
+  readonly dailyLife: DailyLife;
   constructor(
     readonly store: Store,
     readonly runtime: Runtime,
@@ -79,6 +81,27 @@ export class Features {
       },
     );
     this.profiles = new Profiles(store, runtime, this.knowledge, this.diary);
+    this.dailyLife = new DailyLife(
+      store,
+      runtime,
+      this.schedule,
+      this.diary,
+      allowLoopback,
+      () =>
+        this.automation.workClockTrusted &&
+        this.automation.restStatus().state.phase === "awake",
+    );
+    this.schedule.onGrantChanged = () => this.dailyLife.refresh();
+    const scheduleChanged = this.schedule.onChanged;
+    this.schedule.onChanged = (ids) => {
+      scheduleChanged?.(ids);
+      this.dailyLife.refresh();
+    };
+    runtime.getDailyLifeContext = (run) => this.dailyLife.context(run);
+    runtime.resolveDailyLifeReply = (...args) =>
+      this.dailyLife.resolve(...args);
+    runtime.commitDailyLifeReply = (run, selection, parts) =>
+      this.dailyLife.commit(run, selection, parts);
     this.relationships.authorizePerson = (actor, id) => {
       const p = this.profiles.person(actor, id, true);
       return { owner_id: p.owner_id, visibility: p.visibility };
@@ -104,8 +127,10 @@ export class Features {
         this.automation.restStatus().state.phase === "awake",
     );
     this.profiles.onModelInvalidated = () => this.profileModel.refresh();
-    this.diary.onSourceInvalidated = (type, id, rev) =>
+    this.diary.onSourceInvalidated = (type, id, rev) => {
       this.profiles.invalidateSource(type, id, rev);
+      this.dailyLife.invalidateDiarySource(type, id);
+    };
     this.diary.onPolicyInvalidated = (id) => this.profiles.invalidatePolicy(id);
     this.knowledge.onScopeInvalidated = (scope) => {
       this.diary.scopeChanged(scope);
@@ -115,7 +140,9 @@ export class Features {
     };
     this.automation.onScheduleTick = () => {
       this.diary.tick();
+      this.dailyLife.refresh();
       this.schedule.tick();
+      this.dailyLife.tick();
       this.profiles.refresh();
       this.profileModel.tick();
       this.affinitySources.refresh();
@@ -137,6 +164,7 @@ export class Features {
       this.knowledge.invalidateOwner(owner, change);
       this.diary.sourceChanged(owner, change);
       this.profiles.sourceChanged(change);
+      this.dailyLife.refresh();
       if (change?.action === "forgotten") this.relationships.forget(change.id);
       if (change?.action === "created") this.relationships.created(change.id);
       if (change?.action === "created") this.profiles.changed(change.id);
@@ -151,6 +179,7 @@ export class Features {
     runtime.refreshSourceGrants = () => {
       refreshSourceGrants();
       this.affinitySources.refresh();
+      this.dailyLife.refresh();
     };
     runtime.getPeopleContext = (conversation, owner) =>
       this.profiles.native(conversation, owner);
@@ -327,6 +356,7 @@ export class Features {
     }
   }
   async stop() {
+    this.dailyLife.stop();
     await this.profileModel.stop();
     await this.diary.stop();
     await this.schedule.stop();
@@ -413,6 +443,23 @@ export class Features {
       };
     if (path === "/schedule/calendar" && method === "GET")
       return { data: this.schedule.calendar(admin.id, url.searchParams) };
+    if (path === "/schedule/text-activities" && method === "GET")
+      return { data: this.dailyLife.list(admin.id, url.searchParams) };
+    const textActivity =
+      /^\/schedule\/text-activities\/([a-f0-9-]{36})(?:\/(forget))?$/.exec(
+        path,
+      );
+    if (textActivity && method === "GET" && !textActivity[2])
+      return { data: this.dailyLife.detail(admin.id, textActivity[1]!) };
+    if (textActivity && method === "POST" && textActivity[2])
+      return {
+        data: this.dailyLife.forget(
+          admin.id,
+          textActivity[1]!,
+          revision(request.headers["if-match"]),
+          await readBody(),
+        ),
+      };
     if (path === "/schedule/activities" && method === "GET")
       return { data: this.schedule.list(admin.id, url.searchParams) };
     if (path === "/schedule/activities" && method === "POST")

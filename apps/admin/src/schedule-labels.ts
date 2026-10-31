@@ -39,6 +39,9 @@ export const scheduleReason = (value: string | null) =>
           "主动联系需要接收许可与渠道验收",
         registered_action_broker_required: "动作执行尚未验证",
         registered_text_activity_required: "尚未绑定可执行的文字活动",
+        text_artifact_invalidated: "文字成果及来源已失效，实际历史仍保留",
+        schedule_model_incomplete_output:
+          "模型输出未完整结束，没有推进水位或规划",
         consolidation_system_job_only: "整理由独立的日记任务处理",
         model_not_configured: "尚未配置模型",
         model_budget_exhausted: "今日模型预算已用尽",
