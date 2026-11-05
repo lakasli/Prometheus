@@ -352,7 +352,8 @@ export async function createCubismStage(
       signal.throwIfAborted();
       model = new StageModel();
       model.setup(setting, moc, physics, idle, expressions);
-      model.createRenderer(Math.max(1, cssWidth), Math.max(1, cssHeight));
+      // The model has 49 clipping groups. Cubism R5 supports 36 with one mask buffer and 64 with two.
+      model.createRenderer(Math.max(1, cssWidth), Math.max(1, cssHeight), 2);
       const renderer = model.getRenderer();
       renderer.startUp(gl);
       renderer.setIsPremultipliedAlpha(true);
