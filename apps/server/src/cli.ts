@@ -18,6 +18,7 @@ import { build, startServer } from "./server.ts";
 const usage = `Prometheus ${build.version} (${build.commit})
 
 prometheus serve [--data-dir <directory>] [--listen 127.0.0.1:8419] [--origin http://127.0.0.1:8419] [--web-dir apps/admin/dist]
+  [--stage-dir apps/stage/dist] [--stage-model-dir <directory>] [--stage-core-dir <directory>]
 prometheus bootstrap-token [--data-dir <directory>]
 prometheus chat --message <text> --password-file <private-file> [--username admin] [--conversation <id>] [--url http://127.0.0.1:8419]
 prometheus recover-lock [--data-dir <directory>]
@@ -34,6 +35,9 @@ async function main() {
       listen: { type: "string" },
       origin: { type: "string" },
       "web-dir": { type: "string" },
+      "stage-dir": { type: "string" },
+      "stage-model-dir": { type: "string" },
+      "stage-core-dir": { type: "string" },
       "secure-cookie": { type: "boolean", default: false },
       "allow-loopback-model": { type: "boolean", default: false },
       help: { type: "boolean", default: false },
@@ -221,12 +225,20 @@ async function main() {
     throw new Error("Listen must use 127.0.0.1:<port> or [::1]:<port>");
   }
   try {
+    const defaultStageDir = "apps/stage/dist";
     const app = await startServer({
       dataDir,
       webDir:
         args.values["web-dir"] ??
         process.env.PROMETHEUS_WEB_DIR ??
         "apps/admin/dist",
+      stageDir:
+        args.values["stage-dir"] ??
+        (existsSync(join(defaultStageDir, "index.html"))
+          ? defaultStageDir
+          : undefined),
+      stageModelDir: args.values["stage-model-dir"],
+      stageCoreDir: args.values["stage-core-dir"],
       host: match[1]!.replace(/^\[|\]$/g, ""),
       port: Number(match[2]),
       origin:

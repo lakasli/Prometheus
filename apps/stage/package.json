@@ -1,0 +1,21 @@
+{
+  "name": "@prometheus/stage",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm run typecheck && vite build",
+    "prepare:cubism": "node scripts/prepare-framework.mjs && tsc -p tsconfig.cubism.json",
+    "typecheck": "npm run prepare:cubism && vue-tsc --noEmit",
+    "dev": "npm run prepare:cubism && vite --host 127.0.0.1"
+  },
+  "dependencies": {
+    "vue": "3.5.44"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.10",
+    "typescript": "5.9.3",
+    "vite": "8.3.5",
+    "vue-tsc": "3.3.13"
+  }
+}

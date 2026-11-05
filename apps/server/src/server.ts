@@ -25,8 +25,9 @@ import { Features } from "./features.ts";
 import { Journal } from "./journal.ts";
 import type { ChannelEndpoints } from "./channels.ts";
 import type { LocalTestRunner } from "./local-worker.ts";
+import { createStageHandler, type StageDirectories } from "./stage.ts";
 
-export interface ServerOptions {
+export interface ServerOptions extends StageDirectories {
   dataDir: string;
   webDir: string;
   host: string;
@@ -147,6 +148,7 @@ export async function startServer(options: ServerOptions) {
     if (frontendBuild.commit !== build.commit)
       throw new Error("Frontend/server commit mismatch");
   }
+  const serveStage = createStageHandler(options, network, build.commit);
   const store = new Store(options.dataDir),
     runtime = new Runtime(store, options.allowLoopbackModel),
     auth = new Authentication(store, options.secureCookie),
@@ -175,6 +177,9 @@ export async function startServer(options: ServerOptions) {
     try {
       const method = request.method ?? "GET",
         mutation = !["GET", "HEAD"].includes(method);
+      const rawPath = request.url?.split("?", 1)[0];
+      if (rawPath === "/stage" || rawPath?.startsWith("/stage/"))
+        return await serveStage(request, response, rawPath);
       if (request.url === "/webhooks/qq" && method === "POST") {
         checkHostOrigin(request.headers, network, false);
         return json(response, await features.webhook(request));

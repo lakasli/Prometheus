@@ -5,6 +5,7 @@
 **/__pycache__/
 /web/admin/dist/
 /.local/
+/DeepSeek免费公皮/
 /apps/server/.local/
 /.dsh/
 /data/

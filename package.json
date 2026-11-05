@@ -9,14 +9,15 @@
   },
   "workspaces": [
     "apps/server",
-    "apps/admin"
+    "apps/admin",
+    "apps/stage"
   ],
   "scripts": {
     "build": "npm run build:server && npm run build:web",
     "build:server": "npm run build --workspace @prometheus/server",
-    "build:web": "npm run build --workspace @prometheus/admin",
+    "build:web": "npm run build --workspace @prometheus/admin && npm run build --workspace @prometheus/stage",
     "build:worker": "pwsh -NoProfile -File apps/server/scripts/build-worker.ps1",
-    "typecheck": "npm run typecheck --workspace @prometheus/server && npm run typecheck --workspace @prometheus/admin",
+    "typecheck": "npm run typecheck --workspace @prometheus/server && npm run typecheck --workspace @prometheus/admin && npm run typecheck --workspace @prometheus/stage",
     "test": "npm run build:web && npm run test --workspace @prometheus/server",
     "start": "node apps/server/dist/cli.js serve",
     "bootstrap": "node apps/server/dist/cli.js bootstrap-token",

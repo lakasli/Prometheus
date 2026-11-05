@@ -21,6 +21,22 @@ npm.cmd start
 
 初始化页显示当前运行实例的凭证文件、到期时间和带准确`--data-dir`的生成命令，未初始化时仅返回这些必要指引，不返回token。已建立账户后不再返回这些路径。开发dev和正式instance的凭证不能互用；只粘贴JSON的token字段，创建账户后用用户名/密码登录。
 
+## 本机 Live2D 舞台
+
+舞台入口为 `http://127.0.0.1:8419/stage/`。初次构建舞台需要联网下载并校验固定的 Cubism 5 SDK for Web R5，编译使用官方 Framework 和着色器。运行时需要自行将同版本 `Core/live2dcubismcore.min.js` 放进本机专用目录。使用 SDK 前请阅读 Live2D 的许可。 [官方 SDK 下载与许可](https://www.live2d.com/en/sdk/download/web/)
+
+将大肥鱼 `DeepSeek` 模型目录保存在本机，保留其相对路径。建议为模型目录和 Core 目录设置独立的 NTFS ACL，仅允许当前运行账户、SYSTEM 和管理员访问。发布 ZIP 和 Git 均不包含这两个目录。以下示例在独立数据目录和端口 `18461` 启动固定版本预览。
+
+```powershell
+pwsh -File <runtime路径>/Start-Prometheus.ps1 `
+  -DataDir D:/DSH/.local/prometheus/stage-preview `
+  -Listen 127.0.0.1:18461 -Origin http://127.0.0.1:18461 `
+  -StageModelDir D:/DSH/.local/prometheus/stage-assets/model `
+  -StageCoreDir D:/DSH/.local/prometheus/stage-assets/core
+```
+
+源码构建后也可用 `npm.cmd start -- --data-dir <目录> --stage-model-dir <模型目录> --stage-core-dir <Core目录>` 启动。舞台仅供本机浏览器直连，部署反向代理时应排除 `/stage/`。舞台状态栏显示实测绘制帧率，原始贴图最大为 8192 × 8192，需要支持这一纹理尺寸的 WebGL 2 环境。
+
 ## 固定版本发布
 
 先提交、推送并核实完整40位SHA，再执行：

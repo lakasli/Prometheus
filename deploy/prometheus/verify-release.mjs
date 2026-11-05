@@ -62,9 +62,16 @@ const dataDir = resolve(
 );
 const basePort = 18459,
   origin = `http://127.0.0.1:${basePort}`;
+const stageIncluded = manifest.files.some(
+  (file) => file.path.replaceAll("\\", "/") === "apps/stage/dist/index.html",
+);
+const stageDir = stageIncluded
+  ? join(runtimeRoot, "apps/stage/dist")
+  : undefined;
 const app = await startServer({
   dataDir,
   webDir: join(runtimeRoot, "apps/admin/dist"),
+  stageDir,
   host: "127.0.0.1",
   port: basePort,
   origin,
@@ -100,6 +107,32 @@ try {
     assert.equal(response.status, 200);
     assert.equal(body.commit, manifest.commit);
     results.push(`${endpoint}:same-sha`);
+  }
+  if (stageIncluded) {
+    const page = await fetch(`${origin}/stage/`);
+    assert.equal(page.status, 200);
+    assert.match(
+      page.headers.get("content-security-policy"),
+      /script-src 'self';/,
+    );
+    assert.ok((await page.text()).includes("/stage/assets/"));
+    const frontend = await fetch(`${origin}/stage/build.json`);
+    assert.equal(frontend.status, 200);
+    assert.equal((await frontend.json()).commit, manifest.commit);
+    for (const asset of [
+      "/stage/model/大肥鱼.model3.json",
+      "/stage/core/live2dcubismcore.min.js",
+    ]) {
+      assert.equal((await fetch(`${origin}${asset}`)).status, 404);
+    }
+    assert.ok(
+      !manifest.files.some((file) =>
+        /^apps\/stage\/dist\/(?:model|core)\//.test(
+          file.path.replaceAll("\\", "/"),
+        ),
+      ),
+    );
+    results.push("stage:same-sha-and-external-assets");
   }
   assert.equal((await call("/status")).status, 401);
   results.push("unauthenticated-api-denied");

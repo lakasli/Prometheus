@@ -55,7 +55,7 @@ try {
             if ($LASTEXITCODE -ne 0) { throw 'Locked Windows media runtime preparation failed.' }
         }
     } finally { Pop-Location }
-    foreach ($taskName in @('server', 'admin')) {
+    foreach ($taskName in @('server', 'admin', 'stage')) {
         $taskApp = Join-Path $taskRuntime ('apps/' + $taskName)
         New-Item -ItemType Directory -Path $taskApp -Force | Out-Null
         Copy-Item -LiteralPath (Join-Path $taskSource ('apps/' + $taskName + '/dist')) -Destination $taskApp -Recurse
