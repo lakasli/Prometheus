@@ -1,9 +1,14 @@
 import { CubismModelSettingJson } from "@cubism/cubismmodelsettingjson";
 import { CubismEyeBlink } from "@cubism/effect/cubismeyeblink";
 import { CubismFramework } from "@cubism/live2dcubismframework";
+import { CubismMath } from "@cubism/math/cubismmath";
 import { CubismMatrix44 } from "@cubism/math/cubismmatrix44";
 import { CubismUserModel } from "@cubism/model/cubismusermodel";
 import { ACubismMotion } from "@cubism/motion/acubismmotion";
+import {
+  CubismExpressionMotion,
+  ExpressionBlendType,
+} from "@cubism/motion/cubismexpressionmotion";
 import { CubismWebGLOffscreenManager } from "@cubism/rendering/cubismoffscreenmanager";
 import { CubismShaderManager_WebGL } from "@cubism/rendering/cubismshader_webgl";
 
@@ -29,7 +34,7 @@ export type StageOptions = {
 
 export type StageRenderer = {
   setZoom(value: number): void;
-  setExpression(id: string | null): void;
+  setExpressions(ids: readonly string[]): void;
   dispose(): void;
 };
 
@@ -104,9 +109,17 @@ async function uploadTexture(
   }
 }
 
+type ExpressionLayer = {
+  motion: CubismExpressionMotion;
+  weight: number;
+  startWeight: number;
+  target: 0 | 1;
+  elapsed: number;
+};
+
 class StageModel extends CubismUserModel {
   private idle?: ACubismMotion;
-  private readonly expressions = new Map<string, ACubismMotion>();
+  private readonly expressions = new Map<string, ExpressionLayer>();
   private readonly projection = new CubismMatrix44();
 
   setup(
@@ -138,17 +151,72 @@ class StageModel extends CubismUserModel {
     this._motionManager.startMotionPriority(idleMotion, false, 1);
 
     for (const [id, data] of expressions) {
-      const motion = this.loadExpression(data, data.byteLength, id);
-      if (!motion) throw new Error(`无法载入表情 ${id}。`);
-      this.expressions.set(id, motion);
+      const motion = CubismExpressionMotion.create(data, data.byteLength);
+      if (!motion.getExpressionParameters().length)
+        throw new Error(`无法载入表情 ${id}。`);
+      this.expressions.set(id, {
+        motion,
+        weight: 0,
+        startWeight: 0,
+        target: 0,
+        elapsed: 0,
+      });
     }
     this._model.update();
   }
 
-  setExpression(id: string | null): void {
-    this._expressionManager.stopAllMotions();
-    const expression = id === null ? undefined : this.expressions.get(id);
-    if (expression) this._expressionManager.startMotion(expression, false);
+  setExpressions(ids: readonly string[]): void {
+    const selected = new Set(ids);
+    for (const [id, layer] of this.expressions) {
+      const target = selected.has(id) ? 1 : 0;
+      if (target === layer.target) continue;
+      layer.startWeight = layer.weight;
+      layer.target = target;
+      layer.elapsed = 0;
+    }
+  }
+
+  private updateExpressions(delta: number): void {
+    // The SDK expression queue replaces its previous expression. Layers use
+    // the same fade curve and parameter operations with independent weights.
+    for (const layer of this.expressions.values()) {
+      const { motion, target } = layer;
+      if (layer.weight !== target) {
+        layer.elapsed += delta;
+        const duration = target
+          ? motion.getFadeInTime()
+          : motion.getFadeOutTime();
+        const progress =
+          duration > 0 ? CubismMath.getEasingSine(layer.elapsed / duration) : 1;
+        layer.weight = motion.calculateValue(
+          layer.startWeight,
+          target,
+          progress,
+        );
+      }
+      if (!layer.weight) continue;
+      for (const {
+        parameterId,
+        value,
+        blendType,
+      } of motion.getExpressionParameters()) {
+        switch (blendType) {
+          case ExpressionBlendType.Additive:
+            this._model.addParameterValueById(parameterId, value, layer.weight);
+            break;
+          case ExpressionBlendType.Multiply:
+            this._model.multiplyParameterValueById(
+              parameterId,
+              value,
+              layer.weight,
+            );
+            break;
+          case ExpressionBlendType.Overwrite:
+            this._model.setParameterValueById(parameterId, value, layer.weight);
+            break;
+        }
+      }
+    }
   }
 
   update(delta: number): void {
@@ -156,7 +224,7 @@ class StageModel extends CubismUserModel {
     this._motionManager.updateMotion(this._model, delta);
     this._model.saveParameters();
     this._eyeBlink?.updateParameters(this._model, delta);
-    this._expressionManager.updateMotion(this._model, delta);
+    this.updateExpressions(delta);
     this._physics?.evaluate(this._model, delta);
     this._model.update();
   }
@@ -225,11 +293,10 @@ class StageModel extends CubismUserModel {
   }
 
   override release(): void {
-    this._expressionManager.stopAllMotions();
     super.release();
     if (this.idle) ACubismMotion.delete(this.idle);
-    for (const expression of this.expressions.values())
-      ACubismMotion.delete(expression);
+    for (const { motion } of this.expressions.values())
+      ACubismMotion.delete(motion);
     this.expressions.clear();
   }
 }
@@ -494,8 +561,8 @@ export async function createCubismStage(
       setZoom(value) {
         if (Number.isFinite(value)) zoom = Math.min(1.8, Math.max(0.6, value));
       },
-      setExpression(id) {
-        if (!disposed) readyModel.setExpression(id);
+      setExpressions(ids) {
+        if (!disposed) readyModel.setExpressions(ids);
       },
       dispose,
     };

@@ -1,16 +1,17 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { ensureCubismCore } from "./cubism-core";
 import type { StageMetrics, StageRenderer } from "./cubism-stage";
+import { expressionGroups } from "./presets";
 
-const expressions = [
-  { id: "blush", label: "脸红", path: "Exp3/脸红.exp3.json" },
-  { id: "love", label: "爱心眼", path: "Exp3/爱心眼.exp3.json" },
-  { id: "dizzy", label: "圈圈眼", path: "Exp3/圈圈眼.exp3.json" },
-  { id: "tears", label: "流泪", path: "Exp3/流泪.exp3.json" },
-] as const;
+type ExpressionGroup = (typeof expressionGroups)[number];
+
+const presets = expressionGroups.flatMap((group) => group.presets);
+const defaultIds = expressionGroups.flatMap((group) =>
+  group.defaultId ? [group.defaultId] : [],
+);
 const expressionPaths = Object.fromEntries(
-  expressions.map(({ id, path }) => [id, path]),
+  presets.map(({ id, path }) => [id, path]),
 );
 const minZoom = 60;
 const maxZoom = 180;
@@ -23,7 +24,12 @@ const metrics = shallowRef<StageMetrics | null>(null);
 const error = ref("");
 const fullscreenError = ref("");
 const zoom = ref(baseZoom);
-const activeExpression = ref<(typeof expressions)[number]["id"] | null>(null);
+const activePresets = shallowRef(new Set(defaultIds));
+const usingDefaults = computed(
+  () =>
+    activePresets.value.size === defaultIds.length &&
+    defaultIds.every((id) => activePresets.value.has(id)),
+);
 const fullscreen = ref(false);
 const fullscreenAvailable = ref(false);
 
@@ -43,7 +49,7 @@ async function loadStage() {
   error.value = "";
   metrics.value = null;
   zoom.value = baseZoom;
-  activeExpression.value = null;
+  activePresets.value = new Set(defaultIds);
 
   try {
     await ensureCubismCore("/stage/core/live2dcubismcore.min.js", load.signal);
@@ -69,6 +75,7 @@ async function loadStage() {
       return;
     }
     renderer = next;
+    renderer.setExpressions(defaultIds);
     if (state.value === "loading") state.value = "ready";
   } catch (cause) {
     if (load.signal.aborted) return;
@@ -87,10 +94,27 @@ function updateZoom(event: Event) {
   setZoom((event.target as HTMLInputElement).valueAsNumber);
 }
 
-function setExpression(id: typeof activeExpression.value) {
+function setPresets(selection: Set<string>) {
   if (!renderer) return;
-  renderer.setExpression(id);
-  activeExpression.value = id;
+  renderer.setExpressions(
+    presets.filter(({ id }) => selection.has(id)).map(({ id }) => id),
+  );
+  activePresets.value = selection;
+}
+
+function selectPreset(group: ExpressionGroup, id?: string) {
+  const selection = new Set(activePresets.value);
+  if (group.selection === "single") {
+    for (const preset of group.presets) selection.delete(preset.id);
+    if (id !== undefined) selection.add(id);
+  } else if (id !== undefined && !selection.delete(id)) {
+    selection.add(id);
+  }
+  setPresets(selection);
+}
+
+function resetPresets() {
+  setPresets(new Set(defaultIds));
 }
 
 function syncFullscreen() {
@@ -261,27 +285,57 @@ onBeforeUnmount(() => {
               </div>
             </fieldset>
 
-            <fieldset :disabled="state !== 'ready'">
-              <legend>表情</legend>
-              <div class="expressions">
+            <section class="preset-panel" aria-labelledby="stage-preset-title">
+              <div class="preset-heading">
+                <h2 id="stage-preset-title">模型配置</h2>
                 <button
+                  class="reset"
                   type="button"
-                  :aria-pressed="activeExpression === null"
-                  @click="setExpression(null)"
+                  :disabled="state !== 'ready' || usingDefaults"
+                  @click="resetPresets"
                 >
-                  默认
-                </button>
-                <button
-                  v-for="expression in expressions"
-                  :key="expression.id"
-                  type="button"
-                  :aria-pressed="activeExpression === expression.id"
-                  @click="setExpression(expression.id)"
-                >
-                  {{ expression.label }}
+                  全部恢复默认
                 </button>
               </div>
-            </fieldset>
+              <div
+                class="preset-scroll"
+                role="region"
+                aria-label="模型配置分组"
+                tabindex="0"
+              >
+                <fieldset
+                  v-for="group in expressionGroups"
+                  :key="group.id"
+                  class="preset-group"
+                  :data-preset-group="group.id"
+                  :disabled="state !== 'ready'"
+                >
+                  <legend>{{ group.label }}</legend>
+                  <div class="expressions">
+                    <button
+                      v-if="group.resetLabel"
+                      type="button"
+                      :aria-pressed="
+                        !group.presets.some(({ id }) => activePresets.has(id))
+                      "
+                      @click="selectPreset(group)"
+                    >
+                      {{ group.resetLabel }}
+                    </button>
+                    <button
+                      v-for="preset in group.presets"
+                      :key="preset.id"
+                      type="button"
+                      :data-preset-id="preset.id"
+                      :aria-pressed="activePresets.has(preset.id)"
+                      @click="selectPreset(group, preset.id)"
+                    >
+                      {{ preset.label }}
+                    </button>
+                  </div>
+                </fieldset>
+              </div>
+            </section>
           </div>
 
           <footer class="credits">

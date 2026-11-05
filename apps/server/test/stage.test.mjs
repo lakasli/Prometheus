@@ -16,8 +16,9 @@ test("stage serves approved assets only on direct loopback and keeps admin polic
   const stageCoreDir = join(scratch, "core");
   const outside = join(scratch, "outside");
   const shaderDir = join(stageDir, "assets/cubism-shaders");
+  const expressionDir = join(stageModelDir, "Exp3");
   await Promise.all(
-    [shaderDir, stageModelDir, stageCoreDir, outside].map((dir) =>
+    [shaderDir, expressionDir, stageCoreDir, outside].map((dir) =>
       mkdir(dir, { recursive: true }),
     ),
   );
@@ -34,6 +35,8 @@ test("stage serves approved assets only on direct loopback and keeps admin polic
     writeFile(join(shaderDir, "Fixture.frag"), "Shader fixture"),
     writeFile(join(stageModelDir, "大肥鱼.moc3"), "Moc fixture"),
     writeFile(join(stageModelDir, "大肥鱼.vtube.json"), "Excluded asset"),
+    writeFile(join(expressionDir, "＞＜.exp3.json"), '{"approved":true}'),
+    writeFile(join(expressionDir, "未授权.exp3.json"), '{"approved":false}'),
     writeFile(
       join(stageCoreDir, "live2dcubismcore.min.js"),
       Buffer.alloc(228_042),
@@ -103,11 +106,18 @@ test("stage serves approved assets only on direct loopback and keeps admin polic
   assert.equal(head.headers.get("content-length"), "11");
   assert.equal(await head.text(), "");
 
+  const expression = await get("/stage/model/Exp3/＞＜.exp3.json");
+  assert.equal(expression.status, 200);
+  assert.equal(expression.headers.get("content-type"), "application/json");
+  assert.equal(expression.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await expression.json(), { approved: true });
+
   for (const path of [
     "/stage/model/大肥鱼.vtube.json",
     "/stage/model/大肥鱼.4096/texture_00.png",
     "/stage/model/%2e%2e%2findex.html",
     "/stage/model/%5c大肥鱼.moc3",
+    "/stage/model/Exp3/未授权.exp3.json",
     "/stage/core/live2dcubismcore.min.js",
   ]) {
     const response = await get(path);
