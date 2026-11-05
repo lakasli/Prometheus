@@ -44,6 +44,13 @@ test("stage serves approved assets only on direct loopback and keeps admin polic
   const app = await fixture({ stageDir, stageModelDir, stageCoreDir });
   t.after(() => app.close());
   const get = (path, init) => fetch(`${app.origin}${path}`, init);
+  const getStatus = (path, headers) =>
+    new Promise((resolve, reject) => {
+      requestGet(new URL(path, app.origin), { headers }, (response) => {
+        response.resume();
+        response.once("end", () => resolve(response.statusCode));
+      }).once("error", reject);
+    });
 
   const redirect = await get("/stage", { redirect: "manual" });
   assert.equal(redirect.status, 302);
@@ -52,6 +59,16 @@ test("stage serves approved assets only on direct loopback and keeps admin polic
   assert.equal(page.status, 200);
   assert.equal(page.headers.get("cross-origin-resource-policy"), "same-origin");
   assert.match(await page.text(), /<title>Stage<\/title>/);
+  const navigation = {
+    "sec-fetch-site": "cross-site",
+    "sec-fetch-mode": "navigate",
+    "sec-fetch-dest": "document",
+  };
+  assert.equal(await getStatus("/stage/", navigation), 200);
+  assert.equal(
+    await getStatus("/stage/", { ...navigation, "sec-fetch-dest": "iframe" }),
+    404,
+  );
   const admin = await get("/admin/");
   assert.equal(admin.status, 200);
   assert.equal(
@@ -103,13 +120,12 @@ test("stage serves approved assets only on direct loopback and keeps admin polic
     { host: "public.example" },
     { origin: "https://public.example" },
     { "sec-fetch-site": "same-site" },
+    navigation,
   ]) {
-    const status = await new Promise((resolve, reject) => {
-      requestGet(new URL(mocPath, app.origin), { headers }, (response) => {
-        response.resume();
-        response.once("end", () => resolve(response.statusCode));
-      }).once("error", reject);
-    });
-    assert.equal(status, 404, JSON.stringify(headers));
+    assert.equal(
+      await getStatus(mocPath, headers),
+      404,
+      JSON.stringify(headers),
+    );
   }
 });

@@ -110,6 +110,12 @@ export function createStageHandler(
   ) => {
     const { headers, method } = request;
     const host = headers.host;
+    const topLevelNavigation =
+      (rawPath === "/stage" ||
+        rawPath === "/stage/" ||
+        rawPath === "/stage/index.html") &&
+      headers["sec-fetch-mode"] === "navigate" &&
+      headers["sec-fetch-dest"] === "document";
     if (
       !stage ||
       (method !== "GET" && method !== "HEAD") ||
@@ -119,7 +125,8 @@ export function createStageHandler(
       (headers.origin !== undefined && headers.origin !== `http://${host}`) ||
       (headers["sec-fetch-site"] !== undefined &&
         headers["sec-fetch-site"] !== "same-origin" &&
-        headers["sec-fetch-site"] !== "none") ||
+        headers["sec-fetch-site"] !== "none" &&
+        !topLevelNavigation) ||
       Object.keys(headers).some(
         (key) =>
           key === "forwarded" ||
