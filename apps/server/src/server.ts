@@ -25,7 +25,12 @@ import { Features } from "./features.ts";
 import { Journal } from "./journal.ts";
 import type { ChannelEndpoints } from "./channels.ts";
 import type { LocalTestRunner } from "./local-worker.ts";
-import { createStageHandler, type StageDirectories } from "./stage.ts";
+import {
+  createStageAccessCheck,
+  createStageHandler,
+  type StageDirectories,
+} from "./stage.ts";
+import { StageFeed } from "./stage-feed.ts";
 
 export interface ServerOptions extends StageDirectories {
   dataDir: string;
@@ -148,9 +153,21 @@ export async function startServer(options: ServerOptions) {
     if (frontendBuild.commit !== build.commit)
       throw new Error("Frontend/server commit mismatch");
   }
-  const serveStage = createStageHandler(options, network, build.commit);
+  const checkStageAccess = createStageAccessCheck(network);
+  const serveStage = createStageHandler(
+    options,
+    checkStageAccess,
+    build.commit,
+  );
   const store = new Store(options.dataDir),
-    runtime = new Runtime(store, options.allowLoopbackModel),
+    stageFeed = options.stageDir ? new StageFeed(store) : undefined,
+    runtime = new Runtime(
+      store,
+      options.allowLoopbackModel,
+      stageFeed && options.stageModelDir && options.stageCoreDir
+        ? (runId, action) => stageFeed.publish(runId, action)
+        : undefined,
+    ),
     auth = new Authentication(store, options.secureCookie),
     started = Date.now();
   const features = new Features(
@@ -207,6 +224,25 @@ export async function startServer(options: ServerOptions) {
         const admin = auth.require(request, mutation),
           apiPath = path.slice(prefix.length);
         if (!path.startsWith(`${prefix}/`)) throw missing();
+        if (apiPath.startsWith("/stage/")) {
+          checkStageAccess(request, path);
+          if (!stageFeed || method !== "GET") throw missing();
+          response.setHeader("cross-origin-resource-policy", "same-origin");
+          if (apiPath === "/stage/conversations")
+            return json(response, stageFeed.conversations(admin.id));
+          const feed = /^\/stage\/conversations\/([a-f0-9-]{36})\/feed$/.exec(
+            apiPath,
+          );
+          if (!feed) throw missing();
+          return json(
+            response,
+            stageFeed.read(
+              feed[1]!,
+              admin.id,
+              url.searchParams.get("replay") === "1",
+            ),
+          );
+        }
         features.knowledge.expireGrants();
         if (features.matches(apiPath)) {
           const result = await features.route(

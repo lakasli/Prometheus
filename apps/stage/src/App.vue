@@ -1,8 +1,16 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
+import {
+  computed,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  shallowRef,
+  watch,
+} from "vue";
 import { ensureCubismCore } from "./cubism-core";
 import type { StageMetrics, StageRenderer } from "./cubism-stage";
 import { expressionGroups } from "./presets";
+import { useStageConversation } from "./stage-conversation";
 
 type ExpressionGroup = (typeof expressionGroups)[number];
 
@@ -12,6 +20,9 @@ const defaultIds = expressionGroups.flatMap((group) =>
 );
 const expressionPaths = Object.fromEntries(
   presets.map(({ id, path }) => [id, path]),
+);
+const faceIds = new Set(
+  expressionGroups.find(({ id }) => id === "face")?.presets.map(({ id }) => id),
 );
 const minZoom = 60;
 const maxZoom = 180;
@@ -32,6 +43,23 @@ const usingDefaults = computed(
 );
 const fullscreen = ref(false);
 const fullscreenAvailable = ref(false);
+const panel = ref<"model" | "chat">("model");
+const {
+  status: chatStatus,
+  conversations,
+  selected,
+  draft,
+  busy: chatBusy,
+  error: chatError,
+  feedError,
+  bubbles,
+  expression: chatExpression,
+  canSend,
+  refresh: refreshChat,
+  selectConversation,
+  createConversation,
+  sendMessage,
+} = useStageConversation(faceIds);
 
 let renderer: StageRenderer | undefined;
 let controller: AbortController | undefined;
@@ -75,7 +103,7 @@ async function loadStage() {
       return;
     }
     renderer = next;
-    renderer.setExpressions(defaultIds);
+    applyPresets();
     if (state.value === "loading") state.value = "ready";
   } catch (cause) {
     if (load.signal.aborted) return;
@@ -95,12 +123,24 @@ function updateZoom(event: Event) {
 }
 
 function setPresets(selection: Set<string>) {
-  if (!renderer) return;
-  renderer.setExpressions(
-    presets.filter(({ id }) => selection.has(id)).map(({ id }) => id),
-  );
   activePresets.value = selection;
+  applyPresets();
 }
+
+function applyPresets() {
+  const overlay = chatExpression.value;
+  renderer?.setExpressions(
+    presets
+      .filter(({ id }) =>
+        overlay !== undefined && faceIds.has(id)
+          ? id === overlay
+          : activePresets.value.has(id),
+      )
+      .map(({ id }) => id),
+  );
+}
+
+watch(chatExpression, applyPresets);
 
 function selectPreset(group: ExpressionGroup, id?: string) {
   const selection = new Set(activePresets.value);
@@ -115,6 +155,10 @@ function selectPreset(group: ExpressionGroup, id?: string) {
 
 function resetPresets() {
   setPresets(new Set(defaultIds));
+}
+
+function changeConversation(event: Event) {
+  selectConversation((event.target as HTMLSelectElement).value);
 }
 
 function syncFullscreen() {
@@ -167,6 +211,7 @@ onBeforeUnmount(() => {
           aria-label="大肥鱼 Live2D 展示区"
           :aria-busy="state === 'loading'"
           :data-stage-state="state"
+          :data-stage-expression="chatExpression"
           :data-stage-fps="metrics?.fps"
           :data-stage-frames="metrics?.frames"
           :data-stage-first-frame-ms="metrics?.firstFrameMs"
@@ -177,8 +222,37 @@ onBeforeUnmount(() => {
               .join(',')
           "
         >
-          <div class="stage-light" aria-hidden="true"></div>
           <canvas ref="canvas" aria-label="大肥鱼 Live2D 模型"></canvas>
+          <div
+            v-if="state === 'ready' && selected"
+            :key="selected"
+            class="stage-bubbles"
+            role="log"
+            aria-label="对话气泡"
+            aria-relevant="additions"
+          >
+            <TransitionGroup
+              v-for="role in ['user', 'assistant']"
+              :key="role"
+              tag="div"
+              name="stage-bubble"
+              class="bubble-column"
+              :data-role="role"
+            >
+              <article
+                v-for="bubble in bubbles.filter((item) => item.role === role)"
+                :key="bubble.id"
+                class="bubble"
+                :data-stage-message-id="bubble.id"
+                :data-stage-message-role="bubble.role"
+              >
+                <span class="bubble-speaker">{{
+                  role === "user" ? "你" : "大肥鱼"
+                }}</span>
+                <p tabindex="0">{{ bubble.text }}</p>
+              </article>
+            </TransitionGroup>
+          </div>
           <div class="viewport-top">
             <span class="take"><i :class="state"></i> LIVE2D</span>
             <button
@@ -235,14 +309,121 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <aside class="side-panel" aria-label="舞台控制">
+        <aside class="side-panel" aria-label="舞台控制与对话">
           <div class="model-heading">
             <p class="eyebrow">MODEL / 01</p>
             <h1>大肥鱼</h1>
             <p class="model-name">DeepSeek-chan</p>
           </div>
 
-          <div class="controls">
+          <div class="panel-switch" role="group" aria-label="侧栏内容">
+            <button
+              type="button"
+              :aria-pressed="panel === 'model'"
+              aria-controls="stage-model-panel"
+              @click="panel = 'model'"
+            >
+              模型
+            </button>
+            <button
+              type="button"
+              :aria-pressed="panel === 'chat'"
+              aria-controls="stage-chat-panel"
+              @click="panel = 'chat'"
+            >
+              对话
+            </button>
+          </div>
+
+          <section
+            v-show="panel === 'chat'"
+            id="stage-chat-panel"
+            class="chat-panel"
+            aria-label="舞台对话"
+          >
+            <p v-if="chatStatus === 'connecting'" role="status">
+              正在连接对话服务
+            </p>
+            <template v-else-if="chatStatus !== 'signed-in'">
+              <p>
+                {{
+                  chatStatus === "signed-out"
+                    ? "登录后可选择本机对话。"
+                    : "对话连接暂时不可用。"
+                }}
+              </p>
+              <div class="chat-actions">
+                <a
+                  v-if="chatStatus === 'signed-out'"
+                  href="/admin/"
+                  target="_blank"
+                  rel="noopener"
+                  >前往管理页</a
+                >
+                <button class="reset" type="button" @click="refreshChat">
+                  重新连接
+                </button>
+              </div>
+            </template>
+            <form v-else class="chat-form" @submit.prevent="sendMessage">
+              <label for="stage-conversation">当前对话</label>
+              <select
+                id="stage-conversation"
+                :value="selected"
+                :disabled="chatBusy"
+                @change="changeConversation"
+              >
+                <option value="">选择要展示的对话</option>
+                <option
+                  v-for="item in conversations"
+                  :key="item.id"
+                  :value="item.id"
+                >
+                  {{ item.title }}
+                </option>
+              </select>
+              <div class="chat-actions">
+                <button
+                  class="reset"
+                  type="button"
+                  :disabled="chatBusy"
+                  @click="createConversation"
+                >
+                  新建对话
+                </button>
+                <button
+                  class="reset"
+                  type="button"
+                  :disabled="chatBusy"
+                  @click="refreshChat"
+                >
+                  刷新列表
+                </button>
+              </div>
+              <template v-if="selected">
+                <label for="stage-message-input">消息</label>
+                <textarea
+                  id="stage-message-input"
+                  v-model="draft"
+                  rows="3"
+                  maxlength="16000"
+                  :disabled="chatBusy"
+                ></textarea>
+                <button class="chat-send" type="submit" :disabled="!canSend">
+                  发送消息
+                </button>
+              </template>
+              <p v-if="chatError || feedError" class="chat-error" role="status">
+                {{ chatError || feedError }}
+              </p>
+            </form>
+          </section>
+
+          <div
+            v-show="panel === 'model'"
+            id="stage-model-panel"
+            class="controls"
+          >
             <fieldset :disabled="state !== 'ready'">
               <legend>画面缩放</legend>
               <div class="zoom-value">

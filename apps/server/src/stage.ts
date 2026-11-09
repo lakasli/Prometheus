@@ -93,40 +93,14 @@ async function stageFile(root: string, name: string) {
   }
 }
 
-export function createStageHandler(
-  directories: StageDirectories,
-  network: NetworkOptions,
-  commit: string,
-) {
-  const stage = stageDirectory(directories.stageDir, "Stage frontend");
-  const model = stageDirectory(directories.stageModelDir, "Stage model");
-  const core = stageDirectory(directories.stageCoreDir, "Stage Core");
-  if (!stage && (model || core))
-    throw new Error("Build the Prometheus stage frontend before startup");
-  if (
-    stage &&
-    !statSync(join(stage, "index.html"), { throwIfNoEntry: false })?.isFile()
-  )
-    throw new Error("Build the Prometheus stage frontend before startup");
-  if (stage && commit !== "development") {
-    const frontendBuild = JSON.parse(
-      readFileSync(join(stage, "build.json"), "utf8"),
-    ) as { commit: string };
-    if (frontendBuild.commit !== commit)
-      throw new Error("Stage frontend/server commit mismatch");
-  }
-
+export function createStageAccessCheck(network: NetworkOptions) {
   const listenHost = network.host === "::1" ? "[::1]" : network.host;
   const allowedHosts = new Set(
     [listenHost, "localhost"].map(
       (host) => new URL(`http://${host}:${network.port}`).host,
     ),
   );
-  return async (
-    request: IncomingMessage,
-    response: ServerResponse,
-    rawPath: string,
-  ) => {
+  return (request: IncomingMessage, rawPath: string) => {
     const { headers, method } = request;
     const host = headers.host;
     const topLevelNavigation =
@@ -136,7 +110,6 @@ export function createStageHandler(
       headers["sec-fetch-mode"] === "navigate" &&
       headers["sec-fetch-dest"] === "document";
     if (
-      !stage ||
       (method !== "GET" && method !== "HEAD") ||
       request.socket.remoteAddress !== network.host ||
       !host ||
@@ -156,6 +129,38 @@ export function createStageHandler(
       )
     )
       throw missing();
+  };
+}
+
+export function createStageHandler(
+  directories: StageDirectories,
+  checkAccess: ReturnType<typeof createStageAccessCheck>,
+  commit: string,
+) {
+  const stage = stageDirectory(directories.stageDir, "Stage frontend");
+  const model = stageDirectory(directories.stageModelDir, "Stage model");
+  const core = stageDirectory(directories.stageCoreDir, "Stage Core");
+  if (!stage && (model || core))
+    throw new Error("Build the Prometheus stage frontend before startup");
+  if (
+    stage &&
+    !statSync(join(stage, "index.html"), { throwIfNoEntry: false })?.isFile()
+  )
+    throw new Error("Build the Prometheus stage frontend before startup");
+  if (stage && commit !== "development") {
+    const frontendBuild = JSON.parse(
+      readFileSync(join(stage, "build.json"), "utf8"),
+    ) as { commit: string };
+    if (frontendBuild.commit !== commit)
+      throw new Error("Stage frontend/server commit mismatch");
+  }
+  return async (
+    request: IncomingMessage,
+    response: ServerResponse,
+    rawPath: string,
+  ) => {
+    if (!stage) throw missing();
+    checkAccess(request, rawPath);
 
     response.setHeader("cross-origin-resource-policy", "same-origin");
     if (rawPath === "/stage") {
@@ -216,7 +221,7 @@ export function createStageHandler(
             : "no-store",
         "content-length": info.size,
       });
-      if (method === "HEAD") response.end();
+      if (request.method === "HEAD") response.end();
       else if (verifiedCore) response.end(verifiedCore);
       else
         await pipeline(file.createReadStream({ autoClose: false }), response);

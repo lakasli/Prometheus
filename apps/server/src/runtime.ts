@@ -9,6 +9,11 @@ import type { ModelFinishReason } from "./model.ts";
 import type { TextSelection, TextReplyPart } from "./daily-life-json.ts";
 import { Records } from "./records.ts";
 import { hash, now } from "./security.ts";
+import {
+  parseStageExpression,
+  stageExpressionPrompt,
+  type StageExpressionId,
+} from "./stage-expression.ts";
 import type { Row, Store } from "./store.ts";
 
 interface Snapshot {
@@ -114,6 +119,10 @@ export class Runtime {
   constructor(
     readonly store: Store,
     private allowLoopback = false,
+    private readonly onStageExpression?: (
+      runId: string,
+      action: StageExpressionId,
+    ) => void,
   ) {
     this.records = new Records(store, (owner, change) =>
       this.invalidate(owner, change),
@@ -713,6 +722,22 @@ export class Runtime {
           "context_too_large",
           "性格、方法与当前输入超过上下文字节预算，请缩短后重试",
         );
+      let stageEnabled = false;
+      if (
+        this.onStageExpression &&
+        !isolated &&
+        this.store.get(
+          "SELECT r.id FROM runs r JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id JOIN admins a ON a.id=r.owner_id WHERE r.id=? AND c.source_key IS NULL AND NOT EXISTS(SELECT 1 FROM run_targets t WHERE t.run_id=r.id) AND NOT EXISTS(SELECT 1 FROM automatic_runs a WHERE a.run_id=r.id) AND NOT EXISTS(SELECT 1 FROM local_runs l WHERE l.run_id=r.id)",
+          id,
+        )
+      ) {
+        const system = messages[0]!,
+          original = system.content;
+        system.content += stageExpressionPrompt;
+        stageEnabled =
+          Buffer.byteLength(JSON.stringify(messages)) <= inputLimit;
+        if (!stageEnabled) system.content = original;
+      }
       if (
         this.store.get("SELECT run_id FROM automatic_runs WHERE run_id=?", id)
       ) {
@@ -830,6 +855,18 @@ export class Runtime {
           "model_output_incomplete",
           "模型回复未完整结束，未发布或推进任务",
         );
+      let stageAction: StageExpressionId | null = null;
+      if (stageEnabled) {
+        const parsed = parseStageExpression(response.content);
+        if (!parsed.content.trim())
+          throw new ApiError(
+            502,
+            "invalid_model_response",
+            "模型未返回有效的文字回复",
+          );
+        response.content = parsed.content;
+        stageAction = parsed.action;
+      }
       if (this.prepareChannelReply)
         response.content = await this.prepareChannelReply(
           id,
@@ -853,7 +890,7 @@ export class Runtime {
               inputLimit,
             )
           : { reply: response.content, parts: null, selection: null };
-      this.store.transaction(() => {
+      const completed = this.store.transaction(() => {
         const latest = this.store.get(
             "SELECT status FROM runs WHERE id=?",
             id,
@@ -888,7 +925,9 @@ export class Runtime {
           safeResponse,
           now(),
         );
+        return true;
       });
+      if (completed && stageAction) this.onStageExpression?.(id, stageAction);
     } catch (error) {
       const status = this.stopping
         ? "interrupted"
