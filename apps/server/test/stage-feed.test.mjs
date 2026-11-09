@@ -55,7 +55,9 @@ test("stage feed requires direct loopback authentication and a native conversati
   const result = await app.call(conversations);
   assert.equal(result.status, 200);
   assert.equal(result.headers.get("cache-control"), "no-store");
-  assert.deepEqual(result.data, { items: [{ id: own.id, title: own.title }] });
+  assert.deepEqual(result.data, {
+    items: [{ id: own.id, title: own.title, channel: "native" }],
+  });
   assert.equal(
     (await app.call(feedPath(own.id), "GET", undefined, { auth: false }))
       .status,

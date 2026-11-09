@@ -100,7 +100,11 @@ export function createStageAccessCheck(network: NetworkOptions) {
       (host) => new URL(`http://${host}:${network.port}`).host,
     ),
   );
-  return (request: IncomingMessage, rawPath: string) => {
+  return (
+    request: IncomingMessage,
+    rawPath: string,
+    allowLinkMutation = false,
+  ) => {
     const { headers, method } = request;
     const host = headers.host;
     const topLevelNavigation =
@@ -110,7 +114,9 @@ export function createStageAccessCheck(network: NetworkOptions) {
       headers["sec-fetch-mode"] === "navigate" &&
       headers["sec-fetch-dest"] === "document";
     if (
-      (method !== "GET" && method !== "HEAD") ||
+      (method !== "GET" &&
+        method !== "HEAD" &&
+        !(allowLinkMutation && (method === "POST" || method === "DELETE"))) ||
       request.socket.remoteAddress !== network.host ||
       !host ||
       !allowedHosts.has(host) ||

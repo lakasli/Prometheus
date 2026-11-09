@@ -54,6 +54,7 @@ const defaults: ChannelEndpoints = {
   qq: "https://api.bot.qq.com",
   weixin: "https://ilinkai.weixin.qq.com",
 };
+const stageLinkLine = /(?:^|\n)[^\S\r\n]*\/舞台绑定/;
 const id = (value: unknown) => string(value, "平台标识", 256, 1);
 const qqId = (value: unknown) => {
   const result = id(value);
@@ -105,6 +106,14 @@ export function verifyQq(
     Buffer.from(signature, "hex"),
   );
 }
+const replyTooLong =
+  "这次回复太长，暂时无法完整发出。请缩小问题范围，我再认真说清楚。";
+const replyFormatError = "这次回复格式没有整理好，请再给我一次机会。";
+
+export function channelFallbackText(content: string): boolean {
+  return content === replyTooLong || content === replyFormatError;
+}
+
 export function replyParts(content: string): { kind: string; text: string }[] {
   let items: { kind: string; text: string }[] = [];
   try {
@@ -137,7 +146,7 @@ export function replyParts(content: string): { kind: string; text: string }[] {
     return [
       {
         kind: "text",
-        text: "这次回复太长，暂时无法完整发出。请缩小问题范围，我再认真说清楚。",
+        text: replyTooLong,
       },
     ];
   for (let index = 0; index < characters.length; index += 1500)
@@ -236,6 +245,12 @@ export class Channels {
   private blockedWeixinGeneration = "";
   readonly connection = { qq: "disabled", weixin: "disabled" };
   canDeliver?: (run?: string) => boolean;
+  onStageQqLink?: (
+    sourceKey: string,
+    appId: string,
+    credentialRef: string,
+    code: string,
+  ) => void;
   constructor(
     readonly store: Store,
     readonly runtime: Runtime,
@@ -626,9 +641,29 @@ export class Channels {
             : data.channel_id,
     );
     const sender = qqId(data.author?.user_openid ?? data.author?.id);
-    let content = string(data.content ?? "", "消息", 16000)
-      .replace(/<@!?[^>]{1,200}>/g, "")
-      .trim();
+    const rawContent = string(data.content ?? "", "消息", 16000);
+    let content = rawContent.replace(/<@!?[^>]{1,200}>/g, "").trim();
+    if (stageLinkLine.test(content)) {
+      const code = /^\/舞台绑定[ \t]+([0-9a-f]{20})$/i.exec(
+        rawContent.trim(),
+      )?.[1];
+      if (
+        code &&
+        type === "c2c" &&
+        sender === target &&
+        current.transport === config.qq.transport &&
+        current.credential_ref &&
+        (data.attachments == null ||
+          (Array.isArray(data.attachments) && data.attachments.length === 0))
+      )
+        this.onStageQqLink?.(
+          `qq:${current.app_id}:c2c:${target}`,
+          current.app_id,
+          current.credential_ref,
+          code.toLowerCase(),
+        );
+      return;
+    }
     const media = qqAttachment(type, content, data.attachments);
     if (media && !content)
       content = media.code ? "[收到尚未读取的附件]" : "请客观描述这张图片。";
@@ -1037,9 +1072,7 @@ export class Channels {
           });
         } else parts = replyParts(String(row.response));
       } catch {
-        parts = [
-          { kind: "text", text: "这次回复格式没有整理好，请再给我一次机会。" },
-        ];
+        parts = [{ kind: "text", text: replyFormatError }];
       }
       this.store.transaction(() => {
         let due = Date.now();
@@ -1833,12 +1866,6 @@ export class Channels {
       )
     )
       return;
-    const message = idValue(
-        value.message_id ??
-          value.item_list.find((item: Json) => item.msg_id)?.msg_id,
-      ),
-      sender = idValue(value.from_user_id),
-      context = string(value.context_token, "微信回复上下文", 65536, 1);
     const text = string(
       value.item_list
         .filter((item: Json) => item.type === 1)
@@ -1847,7 +1874,13 @@ export class Channels {
       "微信文字",
       16000,
     );
-    if (text.includes("\0")) return;
+    if (text.includes("\0") || stageLinkLine.test(text)) return;
+    const message = idValue(
+        value.message_id ??
+          value.item_list.find((item: Json) => item.msg_id)?.msg_id,
+      ),
+      sender = idValue(value.from_user_id),
+      context = string(value.context_token, "微信回复上下文", 65536, 1);
     const media = weixinAttachment(value.item_list, text),
       content = text || (media ? "发来一条附件。" : "");
     if (!content) return;

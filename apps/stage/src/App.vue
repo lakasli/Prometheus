@@ -48,18 +48,60 @@ const {
   status: chatStatus,
   conversations,
   selected,
+  selectedChannel,
   draft,
   busy: chatBusy,
   error: chatError,
   feedError,
   bubbles,
   expression: chatExpression,
+  qqLink,
+  qqChallenge,
   canSend,
   refresh: refreshChat,
   selectConversation,
   createConversation,
+  requestQqLink,
+  revokeQqLink,
   sendMessage,
 } = useStageConversation(faceIds);
+const qqDeadline = computed(() =>
+  qqChallenge.value
+    ? new Date(qqChallenge.value.expiresAt).toLocaleTimeString("zh-CN", {
+        hour12: false,
+      })
+    : undefined,
+);
+const channelLabels = {
+  native: "本机",
+  qq: "QQ 私聊",
+  weixin: "微信私聊",
+} as const;
+const conversationGroups = computed(() =>
+  (Object.keys(channelLabels) as (keyof typeof channelLabels)[]).flatMap(
+    (channel) => {
+      const items = conversations.value.filter(
+        (item) => item.channel === channel,
+      );
+      if (!items.length) return [];
+      return [
+        {
+          channel,
+          label: channelLabels[channel],
+          items: items.map(({ id, title }, index) => ({
+            id,
+            label:
+              channel === "native"
+                ? title
+                : items.length === 1
+                  ? channelLabels[channel]
+                  : `${channelLabels[channel]} ${index + 1}`,
+          })),
+        },
+      ];
+    },
+  ),
+);
 
 let renderer: StageRenderer | undefined;
 let controller: AbortController | undefined;
@@ -247,7 +289,11 @@ onBeforeUnmount(() => {
                 :data-stage-message-role="bubble.role"
               >
                 <span class="bubble-speaker">{{
-                  role === "user" ? "你" : "大肥鱼"
+                  role === "assistant"
+                    ? "大肥鱼"
+                    : selectedChannel === "native"
+                      ? "你"
+                      : "对方"
                 }}</span>
                 <p tabindex="0">{{ bubble.text }}</p>
               </article>
@@ -374,13 +420,19 @@ onBeforeUnmount(() => {
                 @change="changeConversation"
               >
                 <option value="">选择要展示的对话</option>
-                <option
-                  v-for="item in conversations"
-                  :key="item.id"
-                  :value="item.id"
+                <optgroup
+                  v-for="group in conversationGroups"
+                  :key="group.channel"
+                  :label="group.label"
                 >
-                  {{ item.title }}
-                </option>
+                  <option
+                    v-for="item in group.items"
+                    :key="item.id"
+                    :value="item.id"
+                  >
+                    {{ item.label }}
+                  </option>
+                </optgroup>
               </select>
               <div class="chat-actions">
                 <button
@@ -400,7 +452,7 @@ onBeforeUnmount(() => {
                   刷新列表
                 </button>
               </div>
-              <template v-if="selected">
+              <template v-if="selectedChannel === 'native'">
                 <label for="stage-message-input">消息</label>
                 <textarea
                   id="stage-message-input"
@@ -413,9 +465,60 @@ onBeforeUnmount(() => {
                   发送消息
                 </button>
               </template>
+              <p
+                v-else-if="
+                  selectedChannel === 'qq' || selectedChannel === 'weixin'
+                "
+              >
+                在{{
+                  selectedChannel === "qq" ? " QQ " : "微信"
+                }}中继续聊天，消息会显示在舞台上。
+              </p>
               <p v-if="chatError || feedError" class="chat-error" role="status">
                 {{ chatError || feedError }}
               </p>
+              <section
+                v-if="qqLink"
+                class="qq-link"
+                aria-labelledby="qq-link-title"
+              >
+                <h2 id="qq-link-title">QQ 私聊绑定</h2>
+                <p v-if="qqLink.linked" role="status">QQ 已绑定。</p>
+                <p v-else-if="qqLink.pending" role="status">等待 QQ 验证。</p>
+                <p v-else-if="!qqLink.configured">
+                  在管理页配置 QQ 渠道后即可绑定。
+                </p>
+                <div v-if="qqChallenge" class="qq-challenge">
+                  <p>请在你与大肥鱼的 QQ 私聊中发送这条命令。</p>
+                  <code>{{ qqChallenge.command }}</code>
+                  <p>有效至 {{ qqDeadline }}</p>
+                </div>
+                <div
+                  v-if="qqLink.configured || qqLink.linked || qqLink.pending"
+                  class="chat-actions"
+                >
+                  <button
+                    v-if="qqLink.configured && !qqLink.linked"
+                    class="reset"
+                    type="button"
+                    :disabled="chatBusy"
+                    @click="requestQqLink"
+                  >
+                    {{
+                      qqLink.pending ? "重新生成绑定命令" : "生成 QQ 绑定命令"
+                    }}
+                  </button>
+                  <button
+                    v-if="qqLink.linked || qqLink.pending"
+                    class="reset"
+                    type="button"
+                    :disabled="chatBusy"
+                    @click="revokeQqLink"
+                  >
+                    {{ qqLink.linked ? "解除 QQ 绑定" : "取消绑定请求" }}
+                  </button>
+                </div>
+              </section>
             </form>
           </section>
 

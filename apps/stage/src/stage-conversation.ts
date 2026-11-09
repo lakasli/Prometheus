@@ -3,11 +3,23 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 interface Conversation {
   id: string;
   title: string;
+  channel: "native" | "qq" | "weixin";
 }
 
 interface Session {
   user: { id: string };
   csrf_token: string;
+}
+
+interface QqLink {
+  configured: boolean;
+  linked: boolean;
+  pending: boolean;
+}
+
+interface QqChallenge {
+  command: string;
+  expiresAt: number;
 }
 
 interface FeedItem {
@@ -43,22 +55,21 @@ class StageRequestError extends Error {
 async function request<T>(
   path: string,
   signal: AbortSignal,
-  mutation?: { csrf: string; body: object },
+  mutation?: { csrf: string; method?: "DELETE"; body?: object },
 ): Promise<T> {
+  const headers: Record<string, string> = { accept: "application/json" };
+  if (mutation) headers["x-csrf-token"] = mutation.csrf;
+  if (mutation?.body !== undefined)
+    headers["content-type"] = "application/json";
   const response = await fetch(`/api/admin/v1${path}`, {
-    method: mutation ? "POST" : "GET",
-    headers: mutation
-      ? {
-          accept: "application/json",
-          "content-type": "application/json",
-          "x-csrf-token": mutation.csrf,
-        }
-      : { accept: "application/json" },
+    method: mutation ? (mutation.method ?? "POST") : "GET",
+    headers,
     credentials: "same-origin",
     cache: "no-store",
     redirect: "error",
     signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
-    body: mutation && JSON.stringify(mutation.body),
+    body:
+      mutation?.body === undefined ? undefined : JSON.stringify(mutation.body),
   });
   const data = await response.json().catch(() => null);
   if (!response.ok)
@@ -88,13 +99,23 @@ export function useStageConversation(allowedExpressions: ReadonlySet<string>) {
   const feedError = ref("");
   const bubbles = shallowRef<readonly FeedItem[]>([]);
   const expression = ref<string>();
-  const canSend = computed(() => !!draft.value.trim() && !busy.value);
+  const qqLink = shallowRef<QqLink>();
+  const qqChallenge = shallowRef<QqChallenge>();
+  const selectedChannel = computed(
+    () => conversations.value.find(({ id }) => id === selected.value)?.channel,
+  );
+  const canSend = computed(
+    () =>
+      selectedChannel.value === "native" && !!draft.value.trim() && !busy.value,
+  );
 
   let session: Session | undefined;
   let requests = new AbortController();
   let refreshing: AbortController | undefined;
   let polling: AbortController | undefined;
+  let qqPolling: AbortController | undefined;
   let pollTimer: number | undefined;
+  let qqPollTimer: number | undefined;
   let expiryTimer: number | undefined;
   let replayPending = false;
   let latestExpression: TimedExpression | undefined;
@@ -148,13 +169,73 @@ export function useStageConversation(allowedExpressions: ReadonlySet<string>) {
     polling = undefined;
   }
 
+  function stopQqPolling() {
+    window.clearTimeout(qqPollTimer);
+    qqPolling?.abort();
+    qqPolling = undefined;
+  }
+
+  function remainingChallengeTime() {
+    const remaining = qqChallenge.value
+      ? qqChallenge.value.expiresAt - Date.now()
+      : Infinity;
+    if (remaining <= 0) qqChallenge.value = undefined;
+    return remaining;
+  }
+
+  function scheduleQqPoll() {
+    window.clearTimeout(qqPollTimer);
+    const remaining = remainingChallengeTime();
+    if (
+      session &&
+      qqLink.value?.pending &&
+      !requests.signal.aborted &&
+      !document.hidden
+    )
+      qqPollTimer = window.setTimeout(
+        pollQqLink,
+        remaining > 0 ? Math.min(2000, remaining) : 2000,
+      );
+  }
+
+  function updateQqLink(value: QqLink) {
+    qqLink.value = value;
+    if (!value.pending || value.linked) qqChallenge.value = undefined;
+  }
+
+  async function pollQqLink() {
+    if (!session || !qqLink.value?.pending || document.hidden) return;
+    remainingChallengeTime();
+    const controller = new AbortController();
+    qqPolling = controller;
+    const signal = AbortSignal.any([requests.signal, controller.signal]);
+    try {
+      const next = await request<QqLink>("/stage/qq-link", signal);
+      if (signal.aborted) return;
+      updateQqLink(next);
+      if (next.linked) void refresh();
+    } catch (cause) {
+      if (signal.aborted) return;
+      if (cause instanceof StageRequestError && cause.status === 401)
+        disconnect();
+    } finally {
+      if (qqPolling === controller) {
+        qqPolling = undefined;
+        scheduleQqPoll();
+      }
+    }
+  }
+
   function disconnect() {
     requests.abort();
     requests = new AbortController();
     stopPolling();
+    stopQqPolling();
     clearDisplay();
     session = undefined;
     conversations.value = [];
+    qqLink.value = undefined;
+    qqChallenge.value = undefined;
     selected.value = "";
     draft.value = "";
     pendingMessage = undefined;
@@ -228,7 +309,10 @@ export function useStageConversation(allowedExpressions: ReadonlySet<string>) {
       if (controller.signal.aborted) return;
       if (cause instanceof StageRequestError && cause.status === 401) {
         disconnect();
-      } else if (cause instanceof StageRequestError && cause.status === 404) {
+      } else if (
+        cause instanceof StageRequestError &&
+        (cause.status === 403 || cause.status === 404)
+      ) {
         selectConversation("");
         void refresh();
       } else {
@@ -245,6 +329,7 @@ export function useStageConversation(allowedExpressions: ReadonlySet<string>) {
 
   function selectConversation(id: string) {
     if (id === selected.value) return;
+    if (id && !conversations.value.some((item) => item.id === id)) return;
     stopPolling();
     clearDisplay();
     selected.value = id;
@@ -258,23 +343,27 @@ export function useStageConversation(allowedExpressions: ReadonlySet<string>) {
 
   async function refresh() {
     refreshing?.abort();
+    stopQqPolling();
+    remainingChallengeTime();
     const controller = new AbortController();
     refreshing = controller;
     const signal = AbortSignal.any([requests.signal, controller.signal]);
     try {
       const next = await request<Session>("/auth/me", signal);
-      const result = await request<{ items: Conversation[] }>(
-        "/stage/conversations",
-        signal,
-      );
+      const [result, link] = await Promise.all([
+        request<{ items: Conversation[] }>("/stage/conversations", signal),
+        request<QqLink>("/stage/qq-link", signal),
+      ]);
       if (signal.aborted) return;
       if (session && next.user.id !== session.user.id) {
         requests.abort();
         requests = new AbortController();
         selectConversation("");
+        qqChallenge.value = undefined;
       }
       session = next;
       conversations.value = result.items;
+      updateQqLink(link);
       status.value = "signed-in";
       if (
         selected.value &&
@@ -289,7 +378,10 @@ export function useStageConversation(allowedExpressions: ReadonlySet<string>) {
       else if (!session) status.value = "unavailable";
       else error.value = errorText(cause);
     } finally {
-      if (refreshing === controller) refreshing = undefined;
+      if (refreshing === controller) {
+        refreshing = undefined;
+        scheduleQqPoll();
+      }
     }
   }
 
@@ -314,7 +406,7 @@ export function useStageConversation(allowedExpressions: ReadonlySet<string>) {
 
   function createConversation() {
     return mutate(async (csrf, signal) => {
-      const conversation = await request<Conversation>(
+      const conversation = await request<Omit<Conversation, "channel">>(
         "/conversations",
         signal,
         {
@@ -323,15 +415,63 @@ export function useStageConversation(allowedExpressions: ReadonlySet<string>) {
         },
       );
       if (signal.aborted) return;
-      conversations.value = [conversation, ...conversations.value];
+      conversations.value = [
+        { ...conversation, channel: "native" },
+        ...conversations.value,
+      ];
       selectConversation(conversation.id);
     });
   }
 
+  function requestQqLink() {
+    if (!qqLink.value?.configured || qqLink.value.linked) return;
+    return mutate(async (csrf, signal) => {
+      stopQqPolling();
+      refreshing?.abort();
+      refreshing = undefined;
+      try {
+        const challenge = await request<QqChallenge>("/stage/qq-link", signal, {
+          csrf,
+          body: {},
+        });
+        if (signal.aborted) return;
+        updateQqLink({ configured: true, linked: false, pending: true });
+        qqChallenge.value = challenge;
+      } finally {
+        scheduleQqPoll();
+      }
+    });
+  }
+
+  function revokeQqLink() {
+    if (!qqLink.value?.linked && !qqLink.value?.pending) return;
+    return mutate(async (csrf, signal) => {
+      stopQqPolling();
+      refreshing?.abort();
+      refreshing = undefined;
+      try {
+        await request("/stage/qq-link", signal, { csrf, method: "DELETE" });
+        if (signal.aborted) return;
+        updateQqLink({
+          configured: qqLink.value?.configured ?? false,
+          linked: false,
+          pending: false,
+        });
+        if (selectedChannel.value === "qq") selectConversation("");
+        conversations.value = conversations.value.filter(
+          ({ channel }) => channel !== "qq",
+        );
+        await refresh();
+      } finally {
+        scheduleQqPoll();
+      }
+    });
+  }
+
   function sendMessage() {
+    if (!canSend.value) return;
     const content = draft.value.trim();
     const id = selected.value;
-    if (!content || !id) return;
     return mutate(async (csrf, signal) => {
       if (pendingMessage?.content !== content)
         pendingMessage = { content, id: crypto.randomUUID() };
@@ -354,6 +494,7 @@ export function useStageConversation(allowedExpressions: ReadonlySet<string>) {
     if (document.hidden) {
       refreshing?.abort();
       stopPolling();
+      stopQqPolling();
       clearDisplay();
     } else {
       void refresh();
@@ -368,6 +509,7 @@ export function useStageConversation(allowedExpressions: ReadonlySet<string>) {
     document.removeEventListener("visibilitychange", onVisibility);
     requests.abort();
     stopPolling();
+    stopQqPolling();
     window.clearTimeout(expiryTimer);
   });
 
@@ -375,16 +517,21 @@ export function useStageConversation(allowedExpressions: ReadonlySet<string>) {
     status,
     conversations,
     selected,
+    selectedChannel,
     draft,
     busy,
     error,
     feedError,
     bubbles,
     expression,
+    qqLink,
+    qqChallenge,
     canSend,
     refresh,
     selectConversation,
     createConversation,
+    requestQqLink,
+    revokeQqLink,
     sendMessage,
   };
 }

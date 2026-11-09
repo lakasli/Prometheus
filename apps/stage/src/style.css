@@ -461,6 +461,35 @@ button:disabled {
   font-size: 12px;
 }
 
+.qq-link {
+  display: grid;
+  gap: 5px;
+  margin-top: 7px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.qq-link h2 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.qq-challenge {
+  display: grid;
+  gap: 5px;
+}
+
+.qq-challenge code {
+  justify-self: start;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
 .controls {
   display: flex;
   flex: 1;

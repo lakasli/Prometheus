@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { createServer } from "node:http";
+import { resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { fixture, until } from "./helpers.mjs";
 
 async function provider(t, handle) {
@@ -28,6 +31,126 @@ const respond = (res, content) => {
     res.end(JSON.stringify({ choices: [{ message: { content } }] }));
   }
 };
+
+test("channel expression requires a current grant and remains separate from the stored reply", async (t) => {
+  const marker = "PROMETHEUS_STAGE_FACE_V1";
+  let releaseReply;
+  const held = new Promise((resolve) => {
+    releaseReply = resolve;
+  });
+  const model = await provider(t, async (data, res) => {
+    const input = data.messages.at(-1).content;
+    if (input === "revoked") await held;
+    respond(res, `reply:${input}\n${marker} blush`);
+  });
+
+  const sourceRoot = fileURLToPath(new URL("../../../", import.meta.url));
+  const runtimeRoot = resolve(
+    process.env.PROMETHEUS_RELEASE_ROOT ?? sourceRoot,
+  );
+  const runtimeModule = (name) =>
+    import(pathToFileURL(resolve(runtimeRoot, `apps/server/dist/${name}.js`)));
+  const [{ Runtime }, { Store }] = await Promise.all([
+    runtimeModule("runtime"),
+    runtimeModule("store"),
+  ]);
+  const store = new Store(
+    resolve(sourceRoot, ".local/prometheus/tests", randomUUID()),
+  );
+  const owner = "qq:stage-fixture:c2c:peer";
+  const config = store.config();
+  config.config.model = {
+    base_url: model.url,
+    model: "synthetic-model",
+    credential_ref: store.addSecret(
+      "model_api_key",
+      "synthetic-provider",
+      owner,
+    ).id,
+  };
+  store.applyConfig(config.revision, config.config, owner);
+  const grants = new Map();
+  const actions = [];
+  const runtime = new Runtime(
+    store,
+    true,
+    (id, action, grant) =>
+      actions.push([id, action, grant, runtime.getRun(id, owner).status]),
+    (id) => grants.get(id),
+  );
+  t.after(async () => {
+    releaseReply();
+    await runtime.stop();
+    store.close();
+  });
+  await runtime.start();
+  const conversation = runtime.createConversation(owner, "合成私聊");
+  store.run(
+    "UPDATE conversations SET source_key=? WHERE id=?",
+    owner,
+    conversation.id,
+  );
+
+  function queue(input, grant, target = true) {
+    const { run_id: id } = runtime.enqueue(
+      conversation.id,
+      owner,
+      input,
+      randomUUID(),
+      undefined,
+      {
+        deferDispatch: true,
+      },
+    );
+    if (target)
+      store.run(
+        "INSERT INTO run_targets VALUES(?,?,?,?,?,?)",
+        id,
+        "qq",
+        store.seal({ kind: "c2c" }),
+        "synthetic",
+        Math.floor(Date.now() / 1_000) + 120,
+        "stage-fixture",
+      );
+    if (grant) grants.set(id, grant);
+    return id;
+  }
+  const response = (id) =>
+    until(
+      () => runtime.getRun(id, owner),
+      (run) => run.status === "completed",
+    );
+  const offered = () =>
+    model.requests.at(-1).messages[0].content.includes(marker);
+
+  const authorized = queue("authorized", "proof-1");
+  assert.equal((await response(authorized)).response, "reply:authorized");
+  assert.equal(offered(), true);
+  assert.deepEqual(actions, [[authorized, "blush", "proof-1", "completed"]]);
+
+  const revoked = queue("revoked", "proof-1");
+  await until(
+    () => model.requests.length,
+    (length) => length === 2,
+  );
+  assert.equal(offered(), true);
+  grants.set(revoked, "proof-2");
+  releaseReply();
+  assert.equal((await response(revoked)).response, "reply:revoked");
+
+  assert.equal(
+    (await response(queue("ungranted"))).response,
+    "reply:ungranted",
+  );
+  assert.equal(offered(), false);
+  assert.equal(
+    (await response(queue("no-target", "proof-1", false))).response,
+    "reply:no-target",
+  );
+  assert.equal(offered(), false);
+  assert.deepEqual(actions, [[authorized, "blush", "proof-1", "completed"]]);
+});
+
 test("native model runs persist ordered conversation history, explicit skills and idempotent submissions", async (t) => {
   const model = await provider(t, async (data, res) =>
     respond(res, `reply:${data.messages.at(-1).content}`),

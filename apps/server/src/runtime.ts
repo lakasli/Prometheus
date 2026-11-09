@@ -122,7 +122,9 @@ export class Runtime {
     private readonly onStageExpression?: (
       runId: string,
       action: StageExpressionId,
+      channelGrantVersion?: string,
     ) => void,
+    private readonly stageChannelGrant?: (runId: string) => string | undefined,
   ) {
     this.records = new Records(store, (owner, change) =>
       this.invalidate(owner, change),
@@ -162,6 +164,14 @@ export class Runtime {
   }
   get runningCount() {
     return this.active.size + this.checksCount;
+  }
+  private currentStageChannelGrant(run: string): string | undefined {
+    try {
+      return this.stageChannelGrant?.(run);
+    } catch {
+      // A presentation grant must never block the underlying conversation.
+      return undefined;
+    }
   }
   beginCheck(automatic = false): () => void {
     if (
@@ -722,15 +732,28 @@ export class Runtime {
           "context_too_large",
           "性格、方法与当前输入超过上下文字节预算，请缩短后重试",
         );
-      let stageEnabled = false;
-      if (
-        this.onStageExpression &&
-        !isolated &&
-        this.store.get(
-          "SELECT r.id FROM runs r JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id JOIN admins a ON a.id=r.owner_id WHERE r.id=? AND c.source_key IS NULL AND NOT EXISTS(SELECT 1 FROM run_targets t WHERE t.run_id=r.id) AND NOT EXISTS(SELECT 1 FROM automatic_runs a WHERE a.run_id=r.id) AND NOT EXISTS(SELECT 1 FROM local_runs l WHERE l.run_id=r.id)",
-          id,
-        )
-      ) {
+      const stageSource =
+        this.onStageExpression && !isolated
+          ? this.store.get(
+              `SELECT c.source_key,
+                      EXISTS(SELECT 1 FROM admins a WHERE a.id=r.owner_id) AS admin_owner,
+                      EXISTS(SELECT 1 FROM run_targets t WHERE t.run_id=r.id) AS channel_run
+               FROM runs r JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id
+               WHERE r.id=? AND NOT EXISTS(SELECT 1 FROM automatic_runs a WHERE a.run_id=r.id)
+                 AND NOT EXISTS(SELECT 1 FROM local_runs l WHERE l.run_id=r.id)`,
+              id,
+            )
+          : undefined;
+      const channelGrantVersion =
+        stageSource?.channel_run === 1 && stageSource.source_key !== null
+          ? this.currentStageChannelGrant(id)
+          : undefined;
+      let stageEnabled =
+        channelGrantVersion !== undefined ||
+        (stageSource?.source_key === null &&
+          stageSource.admin_owner === 1 &&
+          stageSource.channel_run === 0);
+      if (stageEnabled) {
         const system = messages[0]!,
           original = system.content;
         system.content += stageExpressionPrompt;
@@ -855,18 +878,16 @@ export class Runtime {
           "model_output_incomplete",
           "模型回复未完整结束，未发布或推进任务",
         );
-      let stageAction: StageExpressionId | null = null;
-      if (stageEnabled) {
-        const parsed = parseStageExpression(response.content);
-        if (!parsed.content.trim())
-          throw new ApiError(
-            502,
-            "invalid_model_response",
-            "模型未返回有效的文字回复",
-          );
-        response.content = parsed.content;
-        stageAction = parsed.action;
-      }
+      const { content: reply, action: stageAction } = parseStageExpression(
+        response.content,
+      );
+      if (!reply.trim())
+        throw new ApiError(
+          502,
+          "invalid_model_response",
+          "模型未返回有效的文字回复",
+        );
+      response.content = reply;
       if (this.prepareChannelReply)
         response.content = await this.prepareChannelReply(
           id,
@@ -927,7 +948,14 @@ export class Runtime {
         );
         return true;
       });
-      if (completed && stageAction) this.onStageExpression?.(id, stageAction);
+      if (
+        completed &&
+        stageEnabled &&
+        stageAction &&
+        (channelGrantVersion === undefined ||
+          this.currentStageChannelGrant(id) === channelGrantVersion)
+      )
+        this.onStageExpression?.(id, stageAction, channelGrantVersion);
     } catch (error) {
       const status = this.stopping
         ? "interrupted"

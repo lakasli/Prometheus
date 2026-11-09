@@ -31,6 +31,7 @@ import {
   type StageDirectories,
 } from "./stage.ts";
 import { StageFeed } from "./stage-feed.ts";
+import { StageChannelAccess } from "./stage-channel.ts";
 
 export interface ServerOptions extends StageDirectories {
   dataDir: string;
@@ -160,13 +161,17 @@ export async function startServer(options: ServerOptions) {
     build.commit,
   );
   const store = new Store(options.dataDir),
-    stageFeed = options.stageDir ? new StageFeed(store) : undefined,
+    stageChannels = options.stageDir
+      ? new StageChannelAccess(store)
+      : undefined,
+    stageFeed = stageChannels ? new StageFeed(store, stageChannels) : undefined,
     runtime = new Runtime(
       store,
       options.allowLoopbackModel,
       stageFeed && options.stageModelDir && options.stageCoreDir
-        ? (runId, action) => stageFeed.publish(runId, action)
+        ? (runId, action, grant) => stageFeed.publish(runId, action, grant)
         : undefined,
+      stageChannels ? (runId) => stageChannels.grantForRun(runId) : undefined,
     ),
     auth = new Authentication(store, options.secureCookie),
     started = Date.now();
@@ -177,6 +182,9 @@ export async function startServer(options: ServerOptions) {
     options.testChannelEndpoints,
     options.testLocalMediaRunner,
   );
+  if (stageChannels)
+    features.channels.onStageQqLink = (sourceKey, account, credential, code) =>
+      stageChannels.linkQq(sourceKey, account, credential, code);
   const configurations = new Configurations(
     store,
     runtime,
@@ -225,9 +233,24 @@ export async function startServer(options: ServerOptions) {
           apiPath = path.slice(prefix.length);
         if (!path.startsWith(`${prefix}/`)) throw missing();
         if (apiPath.startsWith("/stage/")) {
-          checkStageAccess(request, path);
-          if (!stageFeed || method !== "GET") throw missing();
+          checkStageAccess(request, path, apiPath === "/stage/qq-link");
+          if (!stageFeed || !stageChannels) throw missing();
           response.setHeader("cross-origin-resource-policy", "same-origin");
+          if (apiPath === "/stage/qq-link") {
+            if (method === "GET")
+              return json(response, stageChannels.qqStatus(admin.id));
+            if (method === "POST") {
+              fields(await body(request), []);
+              return json(
+                response,
+                stageChannels.createQqChallenge(admin.id),
+                201,
+              );
+            }
+            if (method === "DELETE")
+              return json(response, stageChannels.revokeQq(admin.id));
+          }
+          if (method !== "GET") throw missing();
           if (apiPath === "/stage/conversations")
             return json(response, stageFeed.conversations(admin.id));
           const feed = /^\/stage\/conversations\/([a-f0-9-]{36})\/feed$/.exec(
